@@ -4,7 +4,7 @@ Simple password-protected web app for the team to enter POST IT manual data
 (UCF, CF, ORPHANS, TQ Comp, Fact Find, Quotes, Closes, Declines, Postpones,
 Acc, Ref — plus Ric's Customer Service row). Data is stored in Vercel KV and
 fetched by the `post-it-automation` GitHub Action on each scheduled run and
-merged into the emailed POST IT workbook.
+merged into the emailed POST IT workbook. 
 
 ## Deploy to Vercel
 
