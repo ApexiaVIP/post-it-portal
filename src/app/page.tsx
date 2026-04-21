@@ -3,51 +3,55 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ADVISERS, ADVISER_FIELDS, RIC_FIELDS,
-  type ManualData,
+  type ManualData, emptyManualData, londonDateIso,
 } from "@/lib/schema";
 
 type Saving = "idle" | "saving" | "saved" | "error";
 
 export default function AdminPage() {
+  const [date, setDate] = useState<string>(londonDateIso());
   const [data, setData] = useState<ManualData | null>(null);
   const [saving, setSaving] = useState<Saving>("idle");
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch("/api/data", { cache: "no-store" });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = (await r.json()) as ManualData;
-        setData(j);
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : "Failed to load");
-      }
-    })();
+  const loadDate = useCallback(async (d: string) => {
+    setData(null);
+    try {
+      const r = await fetch(`/api/data?date=${d}`, { cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = (await r.json()) as ManualData;
+      setData(j);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to load");
+    }
   }, []);
 
-  const setDaily = useCallback(
-    (adviser: string, field: string, value: number) => {
-      setData((d) => {
-        if (!d) return d;
-        return {
-          ...d,
-          daily: {
-            ...d.daily,
-            [adviser]: { ...d.daily[adviser as keyof typeof d.daily], [field]: value },
-          },
-        };
-      });
-    },
-    [],
-  );
+  useEffect(() => { loadDate(date); }, [date, loadDate]);
 
-  const setRic = useCallback((field: string, value: number) => {
+  const setDaily = useCallback((adviser: string, field: string, value: number) => {
     setData((d) => {
       if (!d) return d;
-      return { ...d, ric: { ...d.ric, [field]: value } };
+      return {
+        ...d,
+        daily: {
+          ...d.daily,
+          [adviser]: { ...d.daily[adviser as keyof typeof d.daily], [field]: value },
+        },
+      };
     });
   }, []);
+
+  const setRic = useCallback((field: string, value: number) => {
+    setData((d) => d ? { ...d, ric: { ...d.ric, [field]: value } } : d);
+  }, []);
+
+  const resetAll = useCallback(() => {
+    if (!confirm(`Reset every field to 0 for ${date}? (You still need to click Save.)`)) return;
+    setData((d) => {
+      const fresh = emptyManualData();
+      return d ? { ...fresh, updatedAt: d.updatedAt, updatedBy: d.updatedBy } : fresh;
+    });
+  }, [date]);
 
   const save = useCallback(async () => {
     if (!data) return;
@@ -57,7 +61,7 @@ export default function AdminPage() {
       const r = await fetch("/api/data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, date }),
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({} as { error?: string }));
@@ -71,7 +75,7 @@ export default function AdminPage() {
       setErr(e instanceof Error ? e.message : "save failed");
       setSaving("error");
     }
-  }, [data]);
+  }, [data, date]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -79,23 +83,16 @@ export default function AdminPage() {
   }
 
   const lastUpdated = useMemo(() => {
-    if (!data?.updatedAt) return "";
+    if (!data?.updatedAt) return "never";
     const d = new Date(data.updatedAt);
     if (isNaN(d.getTime()) || data.updatedAt === "1970-01-01T00:00:00.000Z") return "never";
     return `${d.toLocaleString("en-GB", { timeZone: "Europe/London" })} by ${data.updatedBy || "?"}`;
   }, [data]);
 
-  if (err) {
-    return (
-      <main className="p-8">
-        <p className="text-red-600">Error: {err}</p>
-      </main>
-    );
-  }
+  const isToday = date === londonDateIso();
 
-  if (!data) {
-    return <main className="p-8 text-slate-500">Loading…</main>;
-  }
+  if (err) return <main className="p-8"><p className="text-red-600">Error: {err}</p></main>;
+  if (!data) return <main className="p-8 text-slate-500">Loading {date}…</main>;
 
   return (
     <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6">
@@ -103,10 +100,28 @@ export default function AdminPage() {
         <div>
           <h1 className="text-2xl font-semibold">POST IT Portal</h1>
           <p className="text-sm text-slate-500">
-            Last updated: <span className="font-mono">{lastUpdated}</span>
+            Editing <strong>{date}</strong> {isToday && "(today)"} — last saved: <span className="font-mono">{lastUpdated}</span>
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="text-sm flex items-center gap-2">
+            <span className="text-slate-600">Date:</span>
+            <input
+              type="date"
+              value={date}
+              max={londonDateIso()}
+              onChange={(e) => setDate(e.target.value)}
+              className="border border-slate-300 rounded px-2 py-1"
+            />
+          </label>
+          {!isToday && (
+            <button
+              onClick={() => setDate(londonDateIso())}
+              className="text-sm text-slate-500 hover:text-slate-700 underline"
+            >
+              Jump to today
+            </button>
+          )}
           <span
             className={
               saving === "saving"  ? "text-slate-500" :
@@ -119,6 +134,13 @@ export default function AdminPage() {
              saving === "saved"  ? "Saved ✓" :
              saving === "error"  ? "Error" : ""}
           </span>
+          <button
+            onClick={resetAll}
+            className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+            title={`Zero every field for ${date} (you still need to click Save)`}
+          >
+            Reset to 0
+          </button>
           <button
             onClick={save}
             className="bg-slate-900 text-white rounded px-4 py-2 font-medium hover:bg-slate-800"
@@ -134,21 +156,21 @@ export default function AdminPage() {
         </div>
       </header>
 
-      {/* Daily advisers grid */}
+      {!isToday && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 text-sm">
+          You&apos;re editing data for a <strong>past date</strong>. Saving updates the
+          record for {date}. Weekly totals on future POST IT emails will include the corrected values.
+        </div>
+      )}
+
       <section className="bg-white shadow rounded-lg overflow-x-auto">
-        <h2 className="text-lg font-medium p-4 border-b">Daily – advisers</h2>
+        <h2 className="text-lg font-medium p-4 border-b">Daily – advisers ({date})</h2>
         <table className="text-sm w-full border-separate border-spacing-0">
           <thead className="bg-slate-100">
             <tr>
-              <th className="text-left px-3 py-2 sticky left-0 bg-slate-100 z-10 border-b">
-                Adviser
-              </th>
+              <th className="text-left px-3 py-2 sticky left-0 bg-slate-100 z-10 border-b">Adviser</th>
               {ADVISER_FIELDS.map((f) => (
-                <th
-                  key={f.key}
-                  className="text-left px-2 py-2 border-b whitespace-nowrap"
-                  title={`Maps to column ${f.col}`}
-                >
+                <th key={f.key} className="text-left px-2 py-2 border-b whitespace-nowrap" title={`Col ${f.col}`}>
                   {f.label}
                 </th>
               ))}
@@ -161,9 +183,7 @@ export default function AdminPage() {
                 {ADVISER_FIELDS.map((f) => (
                   <td key={f.key} className="px-1 py-1">
                     <input
-                      type="number"
-                      min={0}
-                      inputMode="numeric"
+                      type="number" min={0} inputMode="numeric"
                       className="w-16 rounded border border-slate-300 px-2 py-1 text-right tabular-nums"
                       value={data.daily[a][f.key] ?? 0}
                       onChange={(e) => setDaily(a, f.key, Number(e.target.value) || 0)}
@@ -176,20 +196,16 @@ export default function AdminPage() {
         </table>
       </section>
 
-      {/* Ric / Customer Service */}
       <section className="bg-white shadow rounded-lg">
-        <h2 className="text-lg font-medium p-4 border-b">Customer Service – Ric</h2>
+        <h2 className="text-lg font-medium p-4 border-b">Customer Service – Ric ({date})</h2>
         <div className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {RIC_FIELDS.map((f) => (
             <label key={f.key} className="block text-sm">
               <span className="block mb-1 font-medium">
-                {f.label}
-                <span className="ml-1 font-mono text-slate-400 text-xs">({f.cell})</span>
+                {f.label} <span className="ml-1 font-mono text-slate-400 text-xs">({f.cell})</span>
               </span>
               <input
-                type="number"
-                min={0}
-                inputMode="numeric"
+                type="number" min={0} inputMode="numeric"
                 className="w-full rounded border border-slate-300 px-2 py-1 text-right tabular-nums"
                 value={data.ric[f.key] ?? 0}
                 onChange={(e) => setRic(f.key, Number(e.target.value) || 0)}
@@ -201,8 +217,7 @@ export default function AdminPage() {
               Comments <span className="font-mono text-slate-400 text-xs">(N22)</span>
             </span>
             <input
-              type="text"
-              maxLength={500}
+              type="text" maxLength={500}
               className="w-full rounded border border-slate-300 px-2 py-1"
               value={data.ricComments}
               onChange={(e) => setData((d) => (d ? { ...d, ricComments: e.target.value } : d))}
@@ -212,8 +227,8 @@ export default function AdminPage() {
       </section>
 
       <footer className="text-xs text-slate-500">
-        Values feed into the next scheduled POST IT email. Clearvolt auto-populates Talk Times /
-        No. Calls / Hello&apos;s — you fill in everything else here.
+        Data is stored per-date. Change the date picker to edit past days.
+        Weekly totals on each POST IT email sum Mon–today automatically.
       </footer>
     </main>
   );
