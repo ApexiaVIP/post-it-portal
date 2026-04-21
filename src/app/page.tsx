@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ADVISERS, ADVISER_FIELDS, RIC_FIELDS,
-  type ManualData, emptyManualData, londonDateIso,
+  type ManualData, emptyManualData, londonDateIso, datesInWeekUpTo,
 } from "@/lib/schema";
 
 type Saving = "idle" | "saving" | "saved" | "error";
@@ -13,6 +13,7 @@ export default function AdminPage() {
   const [data, setData] = useState<ManualData | null>(null);
   const [saving, setSaving] = useState<Saving>("idle");
   const [err, setErr] = useState<string | null>(null);
+  const [weekProgress, setWeekProgress] = useState<string | null>(null);
 
   const loadDate = useCallback(async (d: string) => {
     setData(null);
@@ -52,6 +53,32 @@ export default function AdminPage() {
       return d ? { ...fresh, updatedAt: d.updatedAt, updatedBy: d.updatedBy } : fresh;
     });
   }, [date]);
+
+  const resetWeek = useCallback(async () => {
+    const today = londonDateIso();
+    const dates = datesInWeekUpTo(today);
+    if (!confirm(
+      `This will wipe ALL manual data for ${dates.length} days this week ` +
+      `(${dates[0]} through ${dates[dates.length - 1]}). Continue?`
+    )) return;
+    try {
+      for (let i = 0; i < dates.length; i++) {
+        setWeekProgress(`Clearing ${i + 1}/${dates.length}: ${dates[i]}…`);
+        const r = await fetch("/api/data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...emptyManualData(), date: dates[i] }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status} clearing ${dates[i]}`);
+      }
+      setWeekProgress(`Cleared ${dates.length} days.`);
+      setTimeout(() => setWeekProgress(null), 3000);
+      loadDate(date);  // refresh currently-viewed date
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "week reset failed");
+      setWeekProgress(null);
+    }
+  }, [date, loadDate]);
 
   const save = useCallback(async () => {
     if (!data) return;
@@ -102,6 +129,7 @@ export default function AdminPage() {
           <p className="text-sm text-slate-500">
             Editing <strong>{date}</strong> {isToday && "(today)"} — last saved: <span className="font-mono">{lastUpdated}</span>
           </p>
+          {weekProgress && <p className="text-xs text-emerald-700 mt-1">{weekProgress}</p>}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <label className="text-sm flex items-center gap-2">
@@ -137,9 +165,16 @@ export default function AdminPage() {
           <button
             onClick={resetAll}
             className="border border-slate-300 rounded px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-            title={`Zero every field for ${date} (you still need to click Save)`}
+            title={`Zero every field for ${date} only (you still need to click Save)`}
           >
-            Reset to 0
+            Reset day
+          </button>
+          <button
+            onClick={resetWeek}
+            className="border border-red-300 text-red-700 rounded px-3 py-2 text-sm hover:bg-red-50"
+            title="Wipe all manual data for Monday through today"
+          >
+            Reset entire week
           </button>
           <button
             onClick={save}
@@ -227,8 +262,7 @@ export default function AdminPage() {
       </section>
 
       <footer className="text-xs text-slate-500">
-        Data is stored per-date. Change the date picker to edit past days.
-        Weekly totals on each POST IT email sum Mon–today automatically.
+        Data is stored per-date. Change the date picker to edit past days. Weekly totals on each POST IT email sum Mon–today automatically.
       </footer>
     </main>
   );
