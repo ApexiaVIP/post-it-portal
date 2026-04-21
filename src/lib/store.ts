@@ -1,26 +1,39 @@
 /**
- * Vercel KV wrapper. Falls back to an in-process Map when KV env vars aren't set
- * (useful for local `next dev` without a KV attached).
+ * Vercel KV wrapper, date-keyed.
  */
 import { kv } from "@vercel/kv";
-import { KV_KEY, ManualData, emptyManualData } from "./schema";
+import {
+  ManualData, emptyManualData, kvKeyForDate, londonDateIso,
+} from "./schema";
 
 const memoryStore: Map<string, unknown> = new Map();
 const hasKv = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 
-export async function loadManualData(): Promise<ManualData> {
+export async function loadManualDataFor(isoDate: string): Promise<ManualData> {
+  const key = kvKeyForDate(isoDate);
   try {
-    const raw = hasKv ? await kv.get<ManualData>(KV_KEY) : (memoryStore.get(KV_KEY) as ManualData | undefined);
+    const raw = hasKv
+      ? await kv.get<ManualData>(key)
+      : (memoryStore.get(key) as ManualData | undefined);
     return raw ?? emptyManualData();
   } catch {
     return emptyManualData();
   }
 }
 
-export async function saveManualData(data: ManualData): Promise<void> {
+export async function saveManualDataFor(isoDate: string, data: ManualData): Promise<void> {
+  const key = kvKeyForDate(isoDate);
   if (hasKv) {
-    await kv.set(KV_KEY, data);
+    await kv.set(key, data);
   } else {
-    memoryStore.set(KV_KEY, data);
+    memoryStore.set(key, data);
   }
+}
+
+// Convenience: today's London date.
+export async function loadManualData(): Promise<ManualData> {
+  return loadManualDataFor(londonDateIso());
+}
+export async function saveManualData(data: ManualData): Promise<void> {
+  return saveManualDataFor(londonDateIso(), data);
 }
