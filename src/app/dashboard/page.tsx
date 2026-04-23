@@ -1,0 +1,256 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ADVISERS, ADVISER_FIELDS, RIC_FIELDS, londonDateIso,
+} from "@/lib/schema";
+
+type Snapshot = {
+  capturedAt: string;
+  date: string;
+  target: string;
+  daily_auto: Record<string, { talk_time_mmss: number; total_calls: number; hellos: number }>;
+  daily_manual: Record<string, Record<string, number>>;
+  weekly_auto: Record<string, { talk_time_mmss: number; total_calls: number; hellos: number }>;
+  weekly_manual: Record<string, Record<string, number>>;
+  ric_daily_auto: { talk_time_mmss: number; total_calls: number; hellos: number };
+  ric_manual: Record<string, number>;
+  ric_comments: string;
+  clearvolt_sources: Record<string, { talk_seconds: number; total_calls: number; hellos: number; display?: string }>;
+  cloudtalk_sources: Record<string, { talk_seconds: number; total_calls: number; hellos: number; display?: string }>;
+  cloudtalk_unmapped: string[];
+  portal_updated_at: string;
+  portal_updated_by: string;
+};
+
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+function pct(num: number, den: number): string {
+  if (!den) return "–";
+  return `${Math.round((num / den) * 100)}%`;
+}
+
+function fmtDur(mmss: number): string {
+  const m = Math.trunc(mmss);
+  const s = Math.round((mmss - m) * 100);
+  if (m >= 60) {
+    const h = Math.trunc(m / 60);
+    const mm = m % 60;
+    return `${h}h ${mm}m ${s}s`;
+  }
+  return `${m}m ${s}s`;
+}
+
+function relTime(iso: string): string {
+  if (!iso) return "never";
+  const now = Date.now();
+  const then = new Date(iso).getTime();
+  const sec = Math.max(0, Math.floor((now - then) / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} min ago`;
+  const h = Math.floor(min / 60);
+  return `${h}h ${min % 60}m ago`;
+}
+
+export default function DashboardPage() {
+  const [snap, setSnap] = useState<Snapshot | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [live, setLive] = useState(true);
+
+  const [date, setDate] = useState<string>(londonDateIso());
+  const [targets, setTargets] = useState<string[]>([]);
+  const [selectedTarget, setSelectedTarget] = useState<string>("");
+
+  const loadLatest = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch("/api/snapshot", { cache: "no-store" });
+      if (r.status === 404) {
+        setSnap(null);
+        setErr("No snapshot available yet. Click Refresh to trigger one.");
+        return;
+      }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = (await r.json()) as Snapshot;
+      setSnap(j);
+      setDate(j.date);
+      setSelectedTarget(j.target);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to load");
+    } finally { setLoading(false); }
+  }, []);
+
+  const loadTargets = useCallback(async (d: string) => {
+    try {
+      const r = await fetch(`/api/snapshots?date=${d}`, { cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = (await r.json()) as { targets: string[] };
+      setTargets(j.targets || []);
+    } catch {
+      setTargets([]);
+    }
+  }, []);
+
+  const loadSpecific = useCallback(async (d: string, t: string) => {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch(`/api/snapshot?date=${d}&target=${encodeURIComponent(t)}`, { cache: "no-store" });
+      if (r.status === 404) {
+        setSnap(null);
+        setErr(`No snapshot found for ${d} ${t}`);
+        return;
+      }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = (await r.json()) as Snapshot;
+      setSnap(j);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to load");
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { loadLatest(); }, [loadLatest]);
+  useEffect(() => { loadTargets(date); }, [date, loadTargets]);
+
+  useEffect(() => {
+    if (!live) return;
+    const id = setInterval(() => { loadLatest(); loadTargets(date); }, REFRESH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [live, date, loadLatest, loadTargets]);
+
+  async function refreshNow() {
+    setRefreshing(true); setErr(null);
+    try {
+      const r = await fetch("/api/refresh", { method: "POST" });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error((j as { error?: string }).error || `HTTP ${r.status}`);
+      }
+      setTimeout(() => { loadLatest(); loadTargets(date); setRefreshing(false); }, 90_000);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "refresh failed");
+      setRefreshing(false);
+    }
+  }
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    location.href = "/login";
+  }
+
+  const lastRefreshedLabel = useMemo(() => snap ? relTime(snap.capturedAt) : "–", [snap]);
+
+  if (loading && !snap) return <main className="p-8 text-slate-500">Loading dashboard…</main>;
+
+  return (
+    <main className="max-w-[1400px] mx-auto p-4 md:p-6 space-y-4">
+      <header className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold">POST IT Live Dashboard</h1>
+          <p className="text-sm text-slate-500">
+            {snap
+              ? <>Showing <strong>{snap.date} {snap.target}</strong> &middot; captured {lastRefreshedLabel}</>
+              : "No snapshot loaded yet"}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="text-sm flex items-center gap-2">
+            <span className="text-slate-600">Date:</span>
+            <input
+              type="date" value={date}
+              max={londonDateIso()}
+              onChange={(e) => { setDate(e.target.value); setSelectedTarget(""); }}
+              className="border border-slate-300 rounded px-2 py-1"
+            />
+          </label>
+          {targets.length > 0 && (
+            <label className="text-sm flex items-center gap-2">
+              <span className="text-slate-600">Time:</span>
+              <select
+                className="border border-slate-300 rounded px-2 py-1"
+                value={selectedTarget}
+                onChange={(e) => { setSelectedTarget(e.target.value); loadSpecific(date, e.target.value); }}
+              >
+                <option value="">— pick —</option>
+                {targets.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
+          )}
+          <button
+            onClick={() => { setDate(londonDateIso()); setSelectedTarget(""); loadLatest(); }}
+            className="text-sm text-slate-500 hover:text-slate-700 underline"
+          >
+            Jump to latest
+          </button>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
+            <span>Live (5 min)</span>
+          </label>
+          <button
+            onClick={refreshNow}
+            disabled={refreshing}
+            className="bg-slate-900 text-white rounded px-3 py-2 text-sm font-medium hover:bg-slate-800 disabled:opacity-60"
+          >
+            {refreshing ? "Refreshing… (~90s)" : "Refresh now"}
+          </button>
+          <a href="/" className="text-sm text-slate-500 hover:text-slate-700 underline">Admin</a>
+          <button onClick={logout} className="text-sm text-slate-500 hover:text-slate-700">Sign out</button>
+        </div>
+      </header>
+
+      {err && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 text-sm">{err}</div>
+      )}
+
+      {snap && (
+        <>
+          <AdviserSection title="Daily" dateLabel={snap.date + " " + snap.target} auto={snap.daily_auto} manual={snap.daily_manual} />
+          <AdviserSection title="Weekly Total" dateLabel={`week of ${snap.date}`} auto={snap.weekly_auto} manual={snap.weekly_manual} />
+          <RicSection daily_auto={snap.ric_daily_auto} manual={snap.ric_manual} comments={snap.ric_comments} />
+          <AuditSection snap={snap} />
+        </>
+      )}
+    </main>
+  );
+}
+
+function AdviserSection({ title, dateLabel, auto, manual }: {
+  title: string; dateLabel: string;
+  auto: Record<string, { talk_time_mmss: number; total_calls: number; hellos: number }>;
+  manual: Record<string, Record<string, number>>;
+}) {
+  const rows = ADVISERS.map(a => {
+    const am = manual?.[a] || {};
+    const aa = auto?.[a] || { talk_time_mmss: 0, total_calls: 0, hellos: 0 };
+    return { name: a, ...aa, manual: am };
+  });
+
+  return (
+    <section className="bg-white shadow rounded-lg overflow-x-auto">
+      <h2 className="text-lg font-medium p-4 border-b">{title} <span className="text-sm text-slate-500 font-normal">({dateLabel})</span></h2>
+      <table className="text-sm w-full border-separate border-spacing-0">
+        <thead className="bg-slate-100">
+          <tr>
+            <th className="text-left px-3 py-2 border-b">Adviser</th>
+            <th className="text-right px-2 py-2 border-b">UCF</th>
+            <th className="text-right px-2 py-2 border-b">CF</th>
+            <th className="text-right px-2 py-2 border-b">ORPHANS</th>
+            <th className="text-right px-2 py-2 border-b">TQ&nbsp;Comp</th>
+            <th className="text-right px-2 py-2 border-b bg-pink-100">Talk&nbsp;Time</th>
+            <th className="text-right px-2 py-2 border-b bg-pink-100">Calls</th>
+            <th className="text-right px-2 py-2 border-b bg-amber-100">Hello&apos;s</th>
+            <th className="text-right px-2 py-2 border-b">Fact&nbsp;Find</th>
+            <th className="text-right px-2 py-2 border-b">FF&nbsp;%</th>
+            <th className="text-right px-2 py-2 border-b">Quotes</th>
+            <th className="text-right px-2 py-2 border-b">Q&nbsp;%</th>
+            <th className="text-right px-2 py-2 border-b">Closes</th>
+            <th className="text-right px-2 py-2 border-b">C&nbsp;%</th>
+            <th className="text-right px-2 py-2 border-b">Decl</th>
+            <th className="text-right px-2 py-2 border-b">Post</th>
+            <th className="text-right px-2 py-2 border-b">Acc</th>
+            <th className="text-right px-2 py-2 border-b">Ref</th>
+          </tr>
+        </thead>
+        <tbody
