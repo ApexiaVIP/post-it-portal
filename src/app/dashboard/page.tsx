@@ -253,4 +253,122 @@ function AdviserSection({ title, dateLabel, auto, manual }: {
             <th className="text-right px-2 py-2 border-b">Ref</th>
           </tr>
         </thead>
-        <tbody
+        <tbody>
+          {rows.map((r, idx) => (
+            <tr key={r.name} className={idx % 2 ? "bg-slate-50" : ""}>
+              <td className="px-3 py-2 font-medium">{r.name}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.UCF ?? 0}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.CF ?? 0}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.ORPHANS ?? 0}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.TQ_Comp ?? 0}</td>
+              <td className="px-2 py-2 text-right tabular-nums bg-pink-50">{fmtDur(r.talk_time_mmss)}</td>
+              <td className="px-2 py-2 text-right tabular-nums bg-pink-50">{r.total_calls}</td>
+              <td className="px-2 py-2 text-right tabular-nums bg-amber-50">{r.hellos}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.Fact_Find ?? 0}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-slate-500">{pct(r.manual.Fact_Find || 0, r.hellos)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.Quotes ?? 0}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-slate-500">{pct(r.manual.Quotes || 0, r.hellos)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.Closes ?? 0}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-slate-500">{pct(r.manual.Closes || 0, r.hellos)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.Declines ?? 0}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.Postpones ?? 0}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.Acc ?? 0}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.manual.Ref ?? 0}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function RicSection({ daily_auto, manual, comments }: {
+  daily_auto: { talk_time_mmss: number; total_calls: number; hellos: number };
+  manual: Record<string, number>; comments: string;
+}) {
+  return (
+    <section className="bg-white shadow rounded-lg">
+      <h2 className="text-lg font-medium p-4 border-b">Customer Service — Ric</h2>
+      <div className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 text-sm">
+        <Stat label="Talk Time" value={fmtDur(daily_auto.talk_time_mmss)} />
+        <Stat label="No. Calls" value={String(daily_auto.total_calls)} />
+        {RIC_FIELDS.map(f => (
+          <Stat key={f.key} label={f.label} value={String(manual?.[f.key] ?? 0)} />
+        ))}
+      </div>
+      {comments && (
+        <div className="px-4 pb-4 text-sm">
+          <span className="text-slate-500">Comments: </span><span>{comments}</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-slate-200 rounded p-2">
+      <div className="text-slate-500 text-xs">{label}</div>
+      <div className="font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function AuditSection({ snap }: { snap: Snapshot }) {
+  return (
+    <details className="bg-white shadow rounded-lg">
+      <summary className="cursor-pointer p-4 text-sm font-medium">Audit — source breakdown per adviser</summary>
+      <div className="px-4 pb-4 overflow-x-auto">
+        <table className="text-xs border-separate border-spacing-0">
+          <thead>
+            <tr className="text-slate-500">
+              <th className="text-left px-3 py-1">Adviser</th>
+              <th className="text-right px-3 py-1">Clearvolt Talk</th>
+              <th className="text-right px-3 py-1">CT Talk</th>
+              <th className="text-right px-3 py-1">CV Calls</th>
+              <th className="text-right px-3 py-1">CT Calls</th>
+              <th className="text-right px-3 py-1">CV Hellos</th>
+              <th className="text-right px-3 py-1">CT Hellos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ADVISERS.map(a => {
+              const cv = snap.clearvolt_sources?.[a];
+              const ct = snap.cloudtalk_sources?.[a];
+              return (
+                <tr key={a}>
+                  <td className="px-3 py-1 font-medium">{a}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{cv ? fmtSeconds(cv.talk_seconds) : "—"}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{ct ? fmtSeconds(ct.talk_seconds) : "—"}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{cv?.total_calls ?? "—"}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{ct?.total_calls ?? "—"}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{cv?.hellos ?? "—"}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{ct?.hellos ?? "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {snap.cloudtalk_unmapped.length > 0 && (
+          <p className="mt-3 text-xs text-slate-500">
+            CloudTalk agents not mapped: {snap.cloudtalk_unmapped.join(", ")}
+          </p>
+        )}
+        <p className="mt-2 text-xs text-slate-500">
+          Portal manual last saved: {snap.portal_updated_at || "never"}{snap.portal_updated_by ? ` by ${snap.portal_updated_by}` : ""}
+        </p>
+      </div>
+    </details>
+  );
+}
+
+function fmtSeconds(s: number): string {
+  const m = Math.floor(s / 60);
+  const ss = s % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return `${h}h ${mm}m ${ss}s`;
+  }
+  return `${m}m ${ss}s`;
+}
