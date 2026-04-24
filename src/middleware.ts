@@ -1,17 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Protect /, /dashboard, /api/data, /api/snapshot (GET only uses session),
-// /api/snapshots, /api/refresh.
-// Login page, /api/auth/*, /api/cron, /api/latest (Bearer), /api/snapshot POST
-// (Bearer) bypass the middleware or handle their own auth.
 export const config = {
   matcher: [
     "/",
     "/dashboard",
+    "/reci/:path*",
     "/api/data/:path*",
     "/api/snapshots/:path*",
     "/api/refresh/:path*",
+    "/api/reci/:path*",
   ],
 };
 
