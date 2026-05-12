@@ -23,7 +23,7 @@ type Snapshot = {
   portal_updated_by: string;
 };
 
-const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 function pct(num: number, den: number): string {
   if (!den) return "–";
@@ -114,11 +114,17 @@ export default function DashboardPage() {
   useEffect(() => { loadLatest(); }, [loadLatest]);
   useEffect(() => { loadTargets(date); }, [date, loadTargets]);
 
+  // Auto-refresh when Live is on and we're viewing today's latest.
   useEffect(() => {
     if (!live) return;
-    const id = setInterval(() => { loadLatest(); loadTargets(date); }, REFRESH_INTERVAL_MS);
+    const isViewingLatest = !selectedTarget || (snap && snap.date === date && snap.target === selectedTarget);
+    if (!isViewingLatest) return;
+    const id = setInterval(() => {
+      loadLatest();
+      loadTargets(date);
+    }, REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [live, date, loadLatest, loadTargets]);
+  }, [live, date, selectedTarget, snap, loadLatest, loadTargets]);
 
   async function refreshNow() {
     setRefreshing(true); setErr(null);
@@ -128,6 +134,7 @@ export default function DashboardPage() {
         const j = await r.json().catch(() => ({}));
         throw new Error((j as { error?: string }).error || `HTTP ${r.status}`);
       }
+      // Wait a bit for the workflow to run, then refresh.
       setTimeout(() => { loadLatest(); loadTargets(date); setRefreshing(false); }, 90_000);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "refresh failed");
@@ -141,6 +148,17 @@ export default function DashboardPage() {
   }
 
   const lastRefreshedLabel = useMemo(() => snap ? relTime(snap.capturedAt) : "–", [snap]);
+  const nextScheduled = useMemo(() => {
+    const targetsMin = [11*60, 12*60+30, 15*60+30, 17*60, 20*60];
+    const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hour12: false });
+    const parts = fmt.formatToParts(new Date());
+    const h = Number(parts.find(p => p.type === "hour")?.value ?? 0);
+    const m = Number(parts.find(p => p.type === "minute")?.value ?? 0);
+    const nowMin = h*60 + m;
+    const next = targetsMin.find(tm => tm > nowMin);
+    if (next === undefined) return "tomorrow 11:00";
+    return `${String(Math.floor(next/60)).padStart(2,"0")}:${String(next%60).padStart(2,"0")}`;
+  }, []);
 
   if (loading && !snap) return <main className="p-8 text-slate-500">Loading dashboard…</main>;
 
@@ -151,7 +169,7 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-semibold">POST IT Live Dashboard</h1>
           <p className="text-sm text-slate-500">
             {snap
-              ? <>Showing <strong>{snap.date} {snap.target}</strong> &middot; captured {lastRefreshedLabel}</>
+              ? <>Showing <strong>{snap.date} {snap.target}</strong> &middot; captured {lastRefreshedLabel} &middot; next scheduled {nextScheduled}</>
               : "No snapshot loaded yet"}
           </p>
         </div>
@@ -186,38 +204,188 @@ export default function DashboardPage() {
           </button>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
-            <span>Live (5 min)</span>
+            <span>Live (auto-refresh 5 min)</span>
           </label>
           <button
             onClick={refreshNow}
             disabled={refreshing}
             className="bg-slate-900 text-white rounded px-3 py-2 text-sm font-medium hover:bg-slate-800 disabled:opacity-60"
+            title="Trigger a fresh scrape now (takes ~90 seconds)"
           >
             {refreshing ? "Refreshing… (~90s)" : "Refresh now"}
           </button>
-          <a href="/" className="text-sm text-slate-500 hover:text-slate-700 underline">Admin</a>
-          <button onClick={logout} className="text-sm text-slate-500 hover:text-slate-700">Sign out</button>
+          <a href="/" className="text-sm text-slate-500 hover:text-slate-700 underline">
+            Admin
+          </a>
+          <button onClick={logout} className="text-sm text-slate-500 hover:text-slate-700">
+            Sign out
+          </button>
         </div>
       </header>
 
       {err && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 text-sm">{err}</div>
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 text-sm">
+          {err}
+        </div>
       )}
 
       {snap && (
         <>
           <AdviserSection title="Daily" dateLabel={snap.date + " " + snap.target} auto={snap.daily_auto} manual={snap.daily_manual} />
           <AdviserSection title="Weekly Total" dateLabel={`week of ${snap.date}`} auto={snap.weekly_auto} manual={snap.weekly_manual} />
-          <RicSection daily_auto={snap.ric_daily_auto} manual={snap.ric_manual} comments={snap.ric_comments} />
+
+          <RicSection
+            daily_auto={snap.ric_daily_auto}
+            manual={snap.ric_manual}
+            comments={snap.ric_comments}
+          />
+
           <AuditSection snap={snap} />
+
+          <CancellationsSection />
         </>
       )}
     </main>
   );
 }
 
+function CancellationsSection() {
+  type Cx = {
+    year: number;
+    byAdviser: { adviser_id: number; adviser_name: string; npw: number; postponed: number; declined: number; other: number; total: number; commission: number }[];
+    byWeek:    { week: number; npw: number; postponed: number; declined: number; other: number; total: number; commission: number }[];
+  };
+  const [data, setData] = useState<Cx | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const loadCx = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/reci/cancellations?year=${new Date().getFullYear()}`, { cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setData(await r.json());
+    } catch (e) { setErr(e instanceof Error ? e.message : "load failed"); }
+  }, []);
+
+  useEffect(() => { loadCx(); }, [loadCx]);
+
+  if (err) {
+    return (
+      <section className="bg-white shadow rounded-lg p-4">
+        <h2 className="text-lg font-medium mb-2">RECI Cancellations</h2>
+        <p className="text-sm text-red-600">{err}</p>
+      </section>
+    );
+  }
+  if (!data) {
+    return (
+      <section className="bg-white shadow rounded-lg p-4">
+        <h2 className="text-lg font-medium mb-2">RECI Cancellations</h2>
+        <p className="text-sm text-slate-500">Loading…</p>
+      </section>
+    );
+  }
+
+  const gbp = (n: number) =>
+    n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2 });
+
+  const adviserTotals = data.byAdviser.reduce(
+    (acc, a) => ({
+      npw: acc.npw + a.npw, postponed: acc.postponed + a.postponed,
+      declined: acc.declined + a.declined, other: acc.other + a.other,
+      total: acc.total + a.total, commission: acc.commission + a.commission,
+    }),
+    { npw: 0, postponed: 0, declined: 0, other: 0, total: 0, commission: 0 },
+  );
+
+  return (
+    <section className="bg-white shadow rounded-lg overflow-x-auto">
+      <h2 className="text-lg font-medium p-4 border-b">
+        RECI Cancellations <span className="text-sm text-slate-500 font-normal">({data.year})</span>
+      </h2>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-4">
+        <div>
+          <h3 className="text-sm font-medium text-slate-600 px-4 pt-3">By adviser</h3>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="text-left px-3 py-2">Adviser</th>
+                <th className="text-right px-3 py-2">NPW</th>
+                <th className="text-right px-3 py-2">Post.</th>
+                <th className="text-right px-3 py-2">Decl.</th>
+                <th className="text-right px-3 py-2">Other</th>
+                <th className="text-right px-3 py-2">Total</th>
+                <th className="text-right px-3 py-2">£</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.byAdviser.length === 0 && (
+                <tr><td colSpan={7} className="text-sm text-slate-500 px-3 py-3">No cancellations yet.</td></tr>
+              )}
+              {data.byAdviser.map(a => (
+                <tr key={a.adviser_id} className="border-t border-slate-100">
+                  <td className="px-3 py-1 font-medium">{a.adviser_name}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{a.npw}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{a.postponed}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{a.declined}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{a.other}</td>
+                  <td className="px-3 py-1 text-right tabular-nums font-semibold">{a.total}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{gbp(a.commission)}</td>
+                </tr>
+              ))}
+              {data.byAdviser.length > 0 && (
+                <tr className="bg-slate-100 font-semibold border-t border-slate-200">
+                  <td className="px-3 py-1">TOTAL</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{adviserTotals.npw}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{adviserTotals.postponed}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{adviserTotals.declined}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{adviserTotals.other}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{adviserTotals.total}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{gbp(adviserTotals.commission)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h3 className="text-sm font-medium text-slate-600 px-4 pt-3">By week (most recent first)</h3>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="text-left px-3 py-2">Week</th>
+                <th className="text-right px-3 py-2">NPW</th>
+                <th className="text-right px-3 py-2">Post.</th>
+                <th className="text-right px-3 py-2">Decl.</th>
+                <th className="text-right px-3 py-2">Other</th>
+                <th className="text-right px-3 py-2">Total</th>
+                <th className="text-right px-3 py-2">£</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.byWeek.length === 0 && (
+                <tr><td colSpan={7} className="text-sm text-slate-500 px-3 py-3">No weekly data.</td></tr>
+              )}
+              {data.byWeek.slice(0, 12).map(w => (
+                <tr key={w.week} className="border-t border-slate-100">
+                  <td className="px-3 py-1">Week {w.week}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{w.npw}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{w.postponed}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{w.declined}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{w.other}</td>
+                  <td className="px-3 py-1 text-right tabular-nums font-semibold">{w.total}</td>
+                  <td className="px-3 py-1 text-right tabular-nums">{gbp(w.commission)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function AdviserSection({ title, dateLabel, auto, manual }: {
-  title: string; dateLabel: string;
+  title: string;
+  dateLabel: string;
   auto: Record<string, { talk_time_mmss: number; total_calls: number; hellos: number }>;
   manual: Record<string, Record<string, number>>;
 }) {
@@ -226,6 +394,28 @@ function AdviserSection({ title, dateLabel, auto, manual }: {
     const aa = auto?.[a] || { talk_time_mmss: 0, total_calls: 0, hellos: 0 };
     return { name: a, ...aa, manual: am };
   });
+  const totals = rows.reduce((acc, r) => ({
+    talk: acc.talk + Math.trunc(r.talk_time_mmss)*60 + Math.round((r.talk_time_mmss - Math.trunc(r.talk_time_mmss))*100),
+    calls: acc.calls + r.total_calls,
+    hellos: acc.hellos + r.hellos,
+    ucf: acc.ucf + (r.manual.UCF || 0),
+    cf: acc.cf + (r.manual.CF || 0),
+    orph: acc.orph + (r.manual.ORPHANS || 0),
+    tq: acc.tq + (r.manual.TQ_Comp || 0),
+    ff: acc.ff + (r.manual.Fact_Find || 0),
+    q: acc.q + (r.manual.Quotes || 0),
+    c: acc.c + (r.manual.Closes || 0),
+    dec: acc.dec + (r.manual.Declines || 0),
+    post: acc.post + (r.manual.Postpones || 0),
+    acc_: acc.acc_ + (r.manual.Acc || 0),
+    ref: acc.ref + (r.manual.Ref || 0),
+  }), { talk: 0, calls: 0, hellos: 0, ucf: 0, cf: 0, orph: 0, tq: 0, ff: 0, q: 0, c: 0, dec: 0, post: 0, acc_: 0, ref: 0 });
+
+  const totalTalkMmss = (() => {
+    const m = Math.floor(totals.talk / 60);
+    const s = totals.talk % 60;
+    return Number(`${m}.${String(s).padStart(2,"0")}`);
+  })();
 
   return (
     <section className="bg-white shadow rounded-lg overflow-x-auto">
@@ -240,13 +430,13 @@ function AdviserSection({ title, dateLabel, auto, manual }: {
             <th className="text-right px-2 py-2 border-b">TQ&nbsp;Comp</th>
             <th className="text-right px-2 py-2 border-b bg-pink-100">Talk&nbsp;Time</th>
             <th className="text-right px-2 py-2 border-b bg-pink-100">Calls</th>
-            <th className="text-right px-2 py-2 border-b bg-amber-100">Hello&apos;s</th>
+            <th className="text-right px-2 py-2 border-b bg-amber-100">Hello's</th>
             <th className="text-right px-2 py-2 border-b">Fact&nbsp;Find</th>
-            <th className="text-right px-2 py-2 border-b">FF&nbsp;%</th>
+            <th className="text-right px-2 py-2 border-b">FF&nbsp;/&nbsp;Hello</th>
             <th className="text-right px-2 py-2 border-b">Quotes</th>
-            <th className="text-right px-2 py-2 border-b">Q&nbsp;%</th>
+            <th className="text-right px-2 py-2 border-b">Q&nbsp;/&nbsp;Hello</th>
             <th className="text-right px-2 py-2 border-b">Closes</th>
-            <th className="text-right px-2 py-2 border-b">C&nbsp;%</th>
+            <th className="text-right px-2 py-2 border-b">C&nbsp;/&nbsp;Hello</th>
             <th className="text-right px-2 py-2 border-b">Decl</th>
             <th className="text-right px-2 py-2 border-b">Post</th>
             <th className="text-right px-2 py-2 border-b">Acc</th>
@@ -276,6 +466,26 @@ function AdviserSection({ title, dateLabel, auto, manual }: {
               <td className="px-2 py-2 text-right tabular-nums">{r.manual.Ref ?? 0}</td>
             </tr>
           ))}
+          <tr className="bg-rose-100 font-semibold">
+            <td className="px-3 py-2">Office Totals</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.ucf}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.cf}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.orph}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.tq}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{fmtDur(totalTalkMmss)}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.calls}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.hellos}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.ff}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{pct(totals.ff, totals.hellos)}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.q}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{pct(totals.q, totals.hellos)}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.c}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{pct(totals.c, totals.hellos)}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.dec}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.post}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.acc_}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{totals.ref}</td>
+          </tr>
         </tbody>
       </table>
     </section>
@@ -284,7 +494,8 @@ function AdviserSection({ title, dateLabel, auto, manual }: {
 
 function RicSection({ daily_auto, manual, comments }: {
   daily_auto: { talk_time_mmss: number; total_calls: number; hellos: number };
-  manual: Record<string, number>; comments: string;
+  manual: Record<string, number>;
+  comments: string;
 }) {
   return (
     <section className="bg-white shadow rounded-lg">
@@ -298,7 +509,8 @@ function RicSection({ daily_auto, manual, comments }: {
       </div>
       {comments && (
         <div className="px-4 pb-4 text-sm">
-          <span className="text-slate-500">Comments: </span><span>{comments}</span>
+          <span className="text-slate-500">Comments: </span>
+          <span>{comments}</span>
         </div>
       )}
     </section>
@@ -323,11 +535,13 @@ function AuditSection({ snap }: { snap: Snapshot }) {
           <thead>
             <tr className="text-slate-500">
               <th className="text-left px-3 py-1">Adviser</th>
+              <th className="text-left px-3 py-1">Clearvolt</th>
+              <th className="text-left px-3 py-1">CloudTalk (display)</th>
               <th className="text-right px-3 py-1">Clearvolt Talk</th>
               <th className="text-right px-3 py-1">CT Talk</th>
-              <th className="text-right px-3 py-1">CV Calls</th>
+              <th className="text-right px-3 py-1">Clearvolt Calls</th>
               <th className="text-right px-3 py-1">CT Calls</th>
-              <th className="text-right px-3 py-1">CV Hellos</th>
+              <th className="text-right px-3 py-1">Clearvolt Hellos</th>
               <th className="text-right px-3 py-1">CT Hellos</th>
             </tr>
           </thead>
@@ -338,6 +552,8 @@ function AuditSection({ snap }: { snap: Snapshot }) {
               return (
                 <tr key={a}>
                   <td className="px-3 py-1 font-medium">{a}</td>
+                  <td className="px-3 py-1 text-slate-500">{cv?.display || "—"}</td>
+                  <td className="px-3 py-1 text-slate-500">{ct?.display || "—"}</td>
                   <td className="px-3 py-1 text-right tabular-nums">{cv ? fmtSeconds(cv.talk_seconds) : "—"}</td>
                   <td className="px-3 py-1 text-right tabular-nums">{ct ? fmtSeconds(ct.talk_seconds) : "—"}</td>
                   <td className="px-3 py-1 text-right tabular-nums">{cv?.total_calls ?? "—"}</td>

@@ -13,10 +13,23 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   DEAL_STATUSES, STATUS_LABELS, type DealStatus,
   type Adviser, type Deal,
+  CANCELLATION_REASONS, CANCELLATION_REASON_LABELS, CANCELLATION_REASON_SHORT,
+  type CancellationReason,
 } from "@/lib/reci/schema";
 
 type Tracker = { week: number; paid: number; on_risk_nyp: number; in_processing: number; nys: number; cxl: number; total: number }[];
-type BundleResp = { adviser: Adviser; deals: Deal[]; tracker: Tracker; year: number };
+
+type CancellationWeek = {
+  week: number; npw: number; postponed: number; declined: number; other: number; total: number; commission: number;
+};
+type CancellationDeal = {
+  id: number; client: string; week: number; commission: number;
+  reason: CancellationReason | null; notes: string | null;
+  cancelled_at: string | null; cancelled_by: string | null; provider: string | null;
+};
+type Cancellations = { weeks: CancellationWeek[]; deals: CancellationDeal[] };
+
+type BundleResp = { adviser: Adviser; deals: Deal[]; tracker: Tracker; cancellations: Cancellations; year: number };
 
 function gbp(n: number | string | null | undefined) {
   const v = Number(n || 0);
@@ -30,6 +43,7 @@ export default function AdviserKanbanPage() {
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const [activeDealId, setActiveDealId] = useState<number | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [cancelling, setCancelling] = useState<{ deal: Deal } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -56,16 +70,21 @@ export default function AdviserKanbanPage() {
     return out;
   }, [data]);
 
-  async function moveStatus(dealId: number, newStatus: DealStatus) {
+  async function moveStatus(dealId: number, newStatus: DealStatus, extra?: { reason?: CancellationReason; notes?: string }) {
     // optimistic update
     setData((d) => d && ({ ...d, deals: d.deals.map(x => x.id === dealId ? { ...x, status: newStatus } : x) }));
     const r = await fetch(`/api/reci/deals/${dealId}/status`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify({ status: newStatus, ...(extra ?? {}) }),
     });
-    if (!r.ok) { alert(`Move failed: HTTP ${r.status}`); load(); return; }
-    load(); // refresh tracker too
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      alert(`Move failed: ${j.error || `HTTP ${r.status}`}`);
+      load();
+      return;
+    }
+    load(); // refresh tracker + cancellations
   }
 
   function onDragStart(e: DragStartEvent) {
@@ -76,7 +95,6 @@ export default function AdviserKanbanPage() {
     const dealId = Number(e.active.id);
     const overId = e.over?.id;
     if (!overId) return;
-    // overId can be either a status column id ("col:paid") or another deal id
     let newStatus: DealStatus | null = null;
     if (typeof overId === "string" && overId.startsWith("col:")) {
       newStatus = overId.slice(4) as DealStatus;
@@ -87,6 +105,11 @@ export default function AdviserKanbanPage() {
     if (!newStatus) return;
     const currentDeal = data?.deals.find(d => d.id === dealId);
     if (!currentDeal || currentDeal.status === newStatus) return;
+    // Intercept move-to-cancelled — open the reason modal first.
+    if (newStatus === "cancelled") {
+      setCancelling({ deal: currentDeal });
+      return;
+    }
     moveStatus(dealId, newStatus);
   }
 
@@ -135,7 +158,20 @@ export default function AdviserKanbanPage() {
 
       <BusinessTracker tracker={data.tracker} />
 
+      <CancellationsBlock cancellations={data.cancellations} year={year} />
+
       {showNew && <NewDealModal slug={slug} year={year} onClose={() => { setShowNew(false); load(); }} />}
+
+      {cancelling && (
+        <CancellationModal
+          deal={cancelling.deal}
+          onClose={() => setCancelling(null)}
+          onConfirm={async (reason, notes) => {
+            await moveStatus(cancelling.deal.id, "cancelled", { reason, notes });
+            setCancelling(null);
+          }}
+        />
+      )}
     </main>
   );
 }
@@ -185,6 +221,12 @@ function DealCard({ deal, onEdit, dragging }: { deal: Deal; onEdit: () => void; 
           <span className="text-slate-600">Week {deal.week}</span>
           <span className="font-medium">{gbp(deal.commission)}</span>
         </div>
+        {deal.status === "cancelled" && deal.cancellation_reason && (
+          <div className="text-xs italic text-rose-600 mt-1 truncate" title={deal.cancellation_notes || ""}>
+            {CANCELLATION_REASON_SHORT[deal.cancellation_reason]}
+            {deal.cancellation_notes ? ` — ${deal.cancellation_notes}` : ""}
+          </div>
+        )}
       </div>
       {editing && <EditDealModal deal={deal} onClose={() => { setEditing(false); onEdit(); }} />}
     </>
@@ -255,6 +297,156 @@ function BusinessTracker({ tracker }: { tracker: Tracker }) {
   );
 }
 
+function CancellationsBlock({ cancellations, year }: { cancellations: Cancellations; year: number }) {
+  const totals = cancellations.weeks.reduce(
+    (acc, r) => ({
+      npw: acc.npw + r.npw, postponed: acc.postponed + r.postponed,
+      declined: acc.declined + r.declined, other: acc.other + r.other,
+      total: acc.total + r.total, commission: acc.commission + r.commission,
+    }),
+    { npw: 0, postponed: 0, declined: 0, other: 0, total: 0, commission: 0 },
+  );
+  return (
+    <section className="bg-white shadow rounded-lg overflow-x-auto">
+      <h2 className="text-lg font-medium p-4 border-b">Cancellations</h2>
+      {cancellations.weeks.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-slate-500">No cancellations on file for {year}.</p>
+      ) : (
+        <>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="text-left px-3 py-2">Week</th>
+                <th className="text-right px-3 py-2">NPW</th>
+                <th className="text-right px-3 py-2">Postponed</th>
+                <th className="text-right px-3 py-2">Declined</th>
+                <th className="text-right px-3 py-2">Other</th>
+                <th className="text-right px-3 py-2">Total</th>
+                <th className="text-right px-3 py-2">Commission £</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cancellations.weeks.map((r) => (
+                <tr key={r.week} className="border-t border-slate-100">
+                  <td className="px-3 py-2">Week {r.week}</td>
+                  <td className="text-right px-3 py-2 tabular-nums">{r.npw}</td>
+                  <td className="text-right px-3 py-2 tabular-nums">{r.postponed}</td>
+                  <td className="text-right px-3 py-2 tabular-nums">{r.declined}</td>
+                  <td className="text-right px-3 py-2 tabular-nums">{r.other}</td>
+                  <td className="text-right px-3 py-2 tabular-nums font-medium">{r.total}</td>
+                  <td className="text-right px-3 py-2 tabular-nums">{gbp(r.commission)}</td>
+                </tr>
+              ))}
+              <tr className="bg-slate-100 font-semibold border-t border-slate-200">
+                <td className="px-3 py-2">TOTAL</td>
+                <td className="text-right px-3 py-2 tabular-nums">{totals.npw}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{totals.postponed}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{totals.declined}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{totals.other}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{totals.total}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{gbp(totals.commission)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <details className="px-4 py-3 border-t">
+            <summary className="cursor-pointer text-sm font-medium text-slate-700">Show all cancelled deals ({cancellations.deals.length})</summary>
+            <table className="w-full text-sm mt-3">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="text-left px-3 py-2">Client</th>
+                  <th className="text-left px-3 py-2">Week</th>
+                  <th className="text-left px-3 py-2">Provider</th>
+                  <th className="text-left px-3 py-2">Reason</th>
+                  <th className="text-left px-3 py-2">Notes</th>
+                  <th className="text-left px-3 py-2">When</th>
+                  <th className="text-right px-3 py-2">£</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cancellations.deals.map((d) => (
+                  <tr key={d.id} className="border-t border-slate-100">
+                    <td className="px-3 py-2">{d.client}</td>
+                    <td className="px-3 py-2">Week {d.week}</td>
+                    <td className="px-3 py-2">{d.provider || "—"}</td>
+                    <td className="px-3 py-2">{d.reason ? CANCELLATION_REASON_SHORT[d.reason] : "—"}</td>
+                    <td className="px-3 py-2 max-w-[28ch] truncate" title={d.notes || ""}>{d.notes || "—"}</td>
+                    <td className="px-3 py-2 text-slate-500">{d.cancelled_at ? new Date(d.cancelled_at).toLocaleDateString("en-GB") : "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{gbp(d.commission)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        </>
+      )}
+    </section>
+  );
+}
+
+function CancellationModal({ deal, onConfirm, onClose }: {
+  deal: Deal;
+  onConfirm: (reason: CancellationReason, notes: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState<CancellationReason | "">("");
+  const [notes, setNotes]   = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!reason) { setErr("Choose a reason"); return; }
+    setSaving(true); setErr(null);
+    try { await onConfirm(reason as CancellationReason, notes); }
+    catch (e2) { setErr(e2 instanceof Error ? e2.message : "save failed"); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-start md:items-center justify-center z-50 p-4 overflow-y-auto">
+      <form onSubmit={submit} className="bg-white rounded-lg shadow-xl w-full max-w-md">
+        <header className="px-4 py-3 border-b flex items-center justify-between">
+          <h2 className="font-semibold">Cancel deal — {deal.client}</h2>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button>
+        </header>
+        <div className="p-4 space-y-3 text-sm">
+          <label className="block">
+            <span className="block text-xs font-medium text-slate-600 mb-1">Reason *</span>
+            <select required value={reason}
+                    onChange={(e) => setReason(e.target.value as CancellationReason)}
+                    className="w-full border rounded px-2 py-1">
+              <option value="">— Choose —</option>
+              {CANCELLATION_REASONS.map(r => (
+                <option key={r} value={r}>{CANCELLATION_REASON_LABELS[r]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="block text-xs font-medium text-slate-600 mb-1">Notes</span>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
+                      placeholder="Anything the adviser needs to know to win this back"
+                      className="w-full border rounded px-2 py-1" />
+          </label>
+          <p className="text-xs text-slate-500">
+            An email will be sent to the adviser (and CC&apos;d to Pauline / management)
+            asking them to call the client back.
+          </p>
+          {err && <p className="text-sm text-red-600">{err}</p>}
+        </div>
+        <footer className="px-4 py-3 border-t flex items-center justify-end gap-2">
+          <button type="button" onClick={onClose} className="text-sm px-3 py-2 text-slate-600 hover:text-slate-900">
+            Cancel
+          </button>
+          <button type="submit" disabled={saving}
+                  className="bg-rose-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-rose-700 disabled:opacity-50">
+            {saving ? "Cancelling…" : "Confirm cancellation"}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
 function NewDealModal({ slug, year, onClose }: { slug: string; year: number; onClose: () => void }) {
   return <DealFormModal
     title="New deal"
@@ -320,6 +512,8 @@ function DealFormModal({ title, initial, canDelete, onSubmit, onDelete, onClose 
     trust_done: initial.trust_done ?? "",
     trust_sent: initial.trust_sent ?? "",
     week: initial.week ?? 1,
+    cancellation_reason: initial.cancellation_reason ?? "",
+    cancellation_notes:  initial.cancellation_notes ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -334,6 +528,8 @@ function DealFormModal({ title, initial, canDelete, onSubmit, onDelete, onClose 
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const isCancelled = form.status === "cancelled";
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-start md:items-center justify-center z-50 p-4 overflow-y-auto">
@@ -372,6 +568,23 @@ function DealFormModal({ title, initial, canDelete, onSubmit, onDelete, onClose 
           <Field label="Commission £" className="col-span-2">
             <input type="number" step="0.01" value={form.commission} onChange={set("commission")} className="w-full border rounded px-2 py-1" />
           </Field>
+
+          {isCancelled && (
+            <>
+              <Field label="Cancellation reason" className="col-span-2">
+                <select value={form.cancellation_reason} onChange={set("cancellation_reason")} className="w-full border rounded px-2 py-1">
+                  <option value="">—</option>
+                  {CANCELLATION_REASONS.map(r => (
+                    <option key={r} value={r}>{CANCELLATION_REASON_LABELS[r]}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Cancellation notes" className="col-span-4">
+                <textarea value={form.cancellation_notes} onChange={set("cancellation_notes")} rows={2}
+                          className="w-full border rounded px-2 py-1" />
+              </Field>
+            </>
+          )}
 
           <Field label="GL SP"><input value={form.gl_sp} onChange={set("gl_sp")} className="w-full border rounded px-2 py-1" /></Field>
           <Field label="GL TXT"><input value={form.gl_txt} onChange={set("gl_txt")} className="w-full border rounded px-2 py-1" /></Field>
