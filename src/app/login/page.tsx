@@ -2,6 +2,14 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginShell><p className="text-sm text-slate-500">Loading…</p></LoginShell>}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
@@ -34,55 +42,55 @@ function LoginForm() {
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="bg-white shadow rounded-lg p-6 w-full max-w-sm space-y-4"
-    >
-      <h1 className="text-xl font-semibold">POST IT Portal</h1>
-      <p className="text-sm text-slate-500">Sign in to enter today&apos;s manual data.</p>
-
-      <label className="block text-sm">
-        <span className="block mb-1 font-medium">Username</span>
-        <input
-          className="w-full rounded border-slate-300 px-3 py-2 border"
-          value={username}
-          onChange={(e) => setU(e.target.value)}
-          autoComplete="username"
-          required
-        />
-      </label>
-
-      <label className="block text-sm">
-        <span className="block mb-1 font-medium">Password</span>
-        <input
-          className="w-full rounded border-slate-300 px-3 py-2 border"
-          type="password"
-          value={password}
-          onChange={(e) => setP(e.target.value)}
-          autoComplete="current-password"
-          required
-        />
-      </label>
-
-      {err && <p className="text-sm text-red-600">{err}</p>}
-
-      <button
-        type="submit"
-        disabled={busy}
-        className="w-full bg-slate-900 text-white rounded py-2 font-medium hover:bg-slate-800 disabled:opacity-60"
+    <LoginShell>
+      <form
+        onSubmit={submit}
+        className="bg-white shadow rounded-lg p-6 w-full max-w-sm space-y-4"
       >
-        {busy ? "Signing in…" : "Sign in"}
-      </button>
-    </form>
+        <h1 className="text-xl font-semibold">POST IT Portal</h1>
+        <p className="text-sm text-slate-500">Sign in to enter today&apos;s manual data.</p>
+
+        <label className="block text-sm">
+          <span className="block mb-1 font-medium">Username</span>
+          <input
+            className="w-full rounded border-slate-300 px-3 py-2 border"
+            value={username}
+            onChange={(e) => setU(e.target.value)}
+            autoComplete="username"
+            required
+          />
+        </label>
+
+        <label className="block text-sm">
+          <span className="block mb-1 font-medium">Password</span>
+          <input
+            className="w-full rounded border-slate-300 px-3 py-2 border"
+            type="password"
+            value={password}
+            onChange={(e) => setP(e.target.value)}
+            autoComplete="current-password"
+            required
+          />
+        </label>
+
+        {err && <p className="text-sm text-red-600">{err}</p>}
+
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full bg-slate-900 text-white rounded py-2 font-medium hover:bg-slate-800 disabled:opacity-60"
+        >
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
+    </LoginShell>
   );
 }
 
-export default function LoginPage() {
+function LoginShell({ children }: { children: React.ReactNode }) {
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
-      <Suspense fallback={<div className="text-slate-500">Loading…</div>}>
-        <LoginForm />
-      </Suspense>
+      {children}
     </main>
   );
 }

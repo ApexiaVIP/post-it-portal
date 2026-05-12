@@ -1,5 +1,6 @@
 /**
  * RECI domain schema — TypeScript side.
+ * Keep in sync with db/migrations/0001_reci_init.sql + 0002_cancellations.sql.
  */
 
 export const DEAL_STATUSES = [
@@ -19,6 +20,8 @@ export const STATUS_LABELS: Record<DealStatus, string> = {
   cancelled:         "Cancelled",
 };
 
+// Commission column mapping — which spreadsheet "COMMS £" column the deal's
+// commission goes into, given its current status.
 export const STATUS_TO_COMMS_COLUMN: Record<DealStatus, "paid"|"on_risk_nyp"|"in_processing"|"nys"|"cxl"> = {
   paid:              "paid",
   on_risk_nyp:       "on_risk_nyp",
@@ -27,12 +30,31 @@ export const STATUS_TO_COMMS_COLUMN: Record<DealStatus, "paid"|"on_risk_nyp"|"in
   cancelled:         "cxl",
 };
 
+// --- Cancellation reasons ---------------------------------------------------
+export const CANCELLATION_REASONS = ["npw", "postponed", "declined", "other"] as const;
+export type CancellationReason = (typeof CANCELLATION_REASONS)[number];
+
+export const CANCELLATION_REASON_LABELS: Record<CancellationReason, string> = {
+  npw:       "NPW (client not proceeding)",
+  postponed: "Postponed",
+  declined:  "Declined",
+  other:     "Other",
+};
+
+export const CANCELLATION_REASON_SHORT: Record<CancellationReason, string> = {
+  npw:       "NPW",
+  postponed: "Postponed",
+  declined:  "Declined",
+  other:     "Other",
+};
+
 export interface Adviser {
   id: number;
   slug: string;
   name: string;
   sort_order: number;
   active: boolean;
+  email?: string | null;
 }
 
 export interface Deal {
@@ -58,6 +80,10 @@ export interface Deal {
   gl_txt: string | null;
   trust_done: string | null;
   trust_sent: string | null;
+  cancellation_reason: CancellationReason | null;
+  cancellation_notes: string | null;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
   created_at: string;
   updated_at: string;
 }

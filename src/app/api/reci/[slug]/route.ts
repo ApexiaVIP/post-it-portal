@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getAdviserBySlug, listDealsForAdviser, businessTrackerFor, createDeal } from "@/lib/reci/db";
+import { getAdviserBySlug, listDealsForAdviser, businessTrackerFor, createDeal, cancellationsFor } from "@/lib/reci/db";
 import { DEAL_STATUSES } from "@/lib/reci/schema";
 
 export const dynamic = "force-dynamic";
@@ -12,11 +12,12 @@ export async function GET(req: Request, { params }: { params: { slug: string } }
   const year = Number(searchParams.get("year") || new Date().getFullYear());
   const adviser = await getAdviserBySlug(params.slug);
   if (!adviser) return NextResponse.json({ error: "adviser not found" }, { status: 404 });
-  const [deals, tracker] = await Promise.all([
+  const [deals, tracker, cancellations] = await Promise.all([
     listDealsForAdviser(adviser.id, year),
     businessTrackerFor(adviser.id, year),
+    cancellationsFor(adviser.id, year),
   ]);
-  return NextResponse.json({ adviser, deals, tracker, year });
+  return NextResponse.json({ adviser, deals, tracker, cancellations, year });
 }
 
 export async function POST(req: Request, { params }: { params: { slug: string } }) {
