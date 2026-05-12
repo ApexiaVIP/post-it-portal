@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ADVISERS, ADVISER_FIELDS, RIC_FIELDS, londonDateIso,
 } from "@/lib/schema";
@@ -299,8 +300,16 @@ function CancellationsSection() {
 
   return (
     <section className="bg-white shadow rounded-lg overflow-x-auto">
-      <h2 className="text-lg font-medium p-4 border-b">
-        RECI Cancellations <span className="text-sm text-slate-500 font-normal">({data.year})</span>
+      <h2 className="flex items-center justify-between p-4 border-b text-lg font-medium">
+        <span>
+          RECI Cancellations <span className="text-sm text-slate-500 font-normal">({data.year})</span>
+        </span>
+        <Link
+          href="/reci/analytics"
+          className="text-sm font-normal text-blue-600 hover:text-blue-800"
+        >
+          View full analytics →
+        </Link>
       </h2>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-4">
         <div>

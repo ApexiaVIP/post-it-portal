@@ -141,6 +141,7 @@ export default function AdviserKanbanPage() {
                   className="bg-slate-900 text-white rounded px-3 py-2 text-sm font-medium hover:bg-slate-800">
             + New deal
           </button>
+          <Link href="/reci/analytics" className="text-sm text-blue-600 hover:text-blue-800">Analytics →</Link>
           <Link href="/" className="text-sm text-slate-500 hover:text-slate-700 underline">POST IT Admin</Link>
         </div>
       </header>
