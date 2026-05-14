@@ -232,8 +232,6 @@ export default function AnalyticsPage() {
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
-            <Link href="/dashboard" className="text-sm text-slate-500 hover:text-slate-900">← Dashboard</Link>
-            <Link href="/reci" className="text-sm text-slate-500 hover:text-slate-900">RECI boards</Link>
             <h1 className="text-lg font-semibold">RECI Analytics</h1>
           </div>
           <div className="flex items-center gap-2 text-sm">

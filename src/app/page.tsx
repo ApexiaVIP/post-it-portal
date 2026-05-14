@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   ADVISERS, ADVISER_FIELDS, RIC_FIELDS,
   type ManualData, emptyManualData, londonDateIso, datesInWeekUpTo,
@@ -191,28 +190,6 @@ export default function AdminPage() {
           </button>
         </div>
       </header>
-
-      <nav className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Go to:</span>
-        <Link
-          href="/reci"
-          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-        >
-          RECI Boards
-        </Link>
-        <Link
-          href="/reci/analytics"
-          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-        >
-          RECI Analytics
-        </Link>
-        <Link
-          href="/dashboard"
-          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-        >
-          Call-Centre Dashboard
-        </Link>
-      </nav>
 
       {!isToday && (
         <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 text-sm">
