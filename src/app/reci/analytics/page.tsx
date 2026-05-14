@@ -24,6 +24,20 @@ type ByAdviserRow = {
   count: number; commission: number; paidCommission: number; cancelled: number;
 };
 type TrendRow = { week: number; count: number; commission: number; paidCommission: number; cancellations: number };
+type CancellationDetailRow = {
+  id: number;
+  adviser_id: number;
+  adviser_name: string;
+  adviser_slug: string;
+  week: number;
+  client: string;
+  reason: CancellationReason | null;
+  notes: string | null;
+  commission: number;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  provider: string | null;
+};
 
 type AnalyticsResp = {
   filters: unknown;
@@ -32,6 +46,7 @@ type AnalyticsResp = {
   byWeekStatus: ByWeekStatusRow[];
   byAdviser: ByAdviserRow[];
   trend: TrendRow[];
+  cancellationDetail: CancellationDetailRow[];
   advisers: AdviserLite[];
 };
 
@@ -218,6 +233,7 @@ export default function AnalyticsPage() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="text-sm text-slate-500 hover:text-slate-900">← Dashboard</Link>
+            <Link href="/reci" className="text-sm text-slate-500 hover:text-slate-900">RECI boards</Link>
             <h1 className="text-lg font-semibold">RECI Analytics</h1>
           </div>
           <div className="flex items-center gap-2 text-sm">
@@ -488,6 +504,78 @@ export default function AnalyticsPage() {
               </ResponsiveContainer>
             )}
           </ChartCard>
+        </section>
+
+        {/* Cancellations detail — the narrative notes, in context */}
+        <section className="rounded-lg border bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <h2 className="text-sm font-semibold text-slate-700">
+              Cancellations Detail
+              {data ? (
+                <span className="ml-2 font-normal text-slate-400">
+                  {data.cancellationDetail.length} deal{data.cancellationDetail.length === 1 ? "" : "s"}
+                </span>
+              ) : null}
+            </h2>
+            <span className="text-xs text-slate-400">Reflects current filters · click an adviser to open their board</span>
+          </div>
+          {!data || data.cancellationDetail.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-slate-400">
+              No cancellations in current filter.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Adviser</th>
+                    <th className="px-3 py-2 text-right">Wk</th>
+                    <th className="px-3 py-2 text-left">Client</th>
+                    <th className="px-3 py-2 text-left">Reason</th>
+                    <th className="px-3 py-2 text-left">Notes</th>
+                    <th className="px-3 py-2 text-right">Commission</th>
+                    <th className="px-3 py-2 text-left">Cancelled</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.cancellationDetail.map((d) => (
+                    <tr key={d.id} className="border-t border-slate-100 align-top hover:bg-slate-50">
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <Link
+                          href={`/reci/${d.adviser_slug}`}
+                          className="font-medium text-blue-600 hover:text-blue-800"
+                        >
+                          {d.adviser_name}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-600">{d.week}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{d.client}</td>
+                      <td className="px-3 py-2">
+                        {d.reason ? (
+                          <span
+                            className="rounded-full px-2 py-0.5 text-xs text-white"
+                            style={{ backgroundColor: REASON_COLORS[d.reason] }}
+                          >
+                            {CANCELLATION_REASON_LABELS[d.reason]}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-slate-700">
+                        {d.notes ? d.notes : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{gbp(d.commission)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">
+                        {d.cancelled_at ? new Date(d.cancelled_at).toLocaleDateString("en-GB") : "—"}
+                        {d.cancelled_by ? <span className="text-slate-400"> · {d.cancelled_by}</span> : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       </main>
     </div>
