@@ -62,6 +62,23 @@ export interface TrendRow {
   cancellations: number;
 }
 
+// Row-level detail for cancelled deals — surfaces the free-text narrative note
+// ("cancellation_notes") on the MI so it can be read in context.
+export interface CancellationDetailRow {
+  id: number;
+  adviser_id: number;
+  adviser_name: string;
+  adviser_slug: string;
+  week: number;
+  client: string;
+  reason: CancellationReason | null;
+  notes: string | null;
+  commission: number;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  provider: string | null;
+}
+
 export interface AnalyticsResult {
   filters: AnalyticsFilters;
   totals: AnalyticsTotals;
@@ -69,13 +86,14 @@ export interface AnalyticsResult {
   byWeekStatus: ByWeekStatusRow[];
   byAdviser: ByAdviserRow[];
   trend: TrendRow[];
+  cancellationDetail: CancellationDetailRow[];
 }
 
-type DealRow = Deal & { adviser_name: string };
+type DealRow = Deal & { adviser_name: string; adviser_slug: string };
 
 async function fetchYearDeals(year: number): Promise<DealRow[]> {
   const { rows } = await sql<DealRow>`
-    SELECT d.*, a.name AS adviser_name
+    SELECT d.*, a.name AS adviser_name, a.slug AS adviser_slug
     FROM deals d
     JOIN advisers a ON a.id = d.adviser_id
     WHERE d.year = ${year}
@@ -137,6 +155,8 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
   // Map<week, TrendRow>
   const trendAcc = new Map<number, TrendRow>();
 
+  const cancellationDetail: CancellationDetailRow[] = [];
+
   for (const d of rows) {
     const c = toNum(d.commission);
     dealsCount += 1;
@@ -148,6 +168,20 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
       const acc = reasonAcc.get(reason)!;
       acc.count += 1;
       acc.commission += c;
+      cancellationDetail.push({
+        id: d.id,
+        adviser_id: d.adviser_id,
+        adviser_name: d.adviser_name,
+        adviser_slug: d.adviser_slug,
+        week: d.week,
+        client: d.client,
+        reason: d.cancellation_reason,
+        notes: d.cancellation_notes,
+        commission: c,
+        cancelled_at: d.cancelled_at,
+        cancelled_by: d.cancelled_by,
+        provider: d.provider,
+      });
     }
 
     const wsKey = `${d.week}|${d.status}`;
@@ -194,6 +228,14 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
   const trend: TrendRow[] = Array.from(trendAcc.values())
     .sort((a, b) => a.week - b.week);
 
+  // Most-recent first: by week desc, then cancelled_at desc.
+  cancellationDetail.sort((a, b) => {
+    if (b.week !== a.week) return b.week - a.week;
+    const at = a.cancelled_at ? Date.parse(a.cancelled_at) : 0;
+    const bt = b.cancelled_at ? Date.parse(b.cancelled_at) : 0;
+    return bt - at;
+  });
+
   const cancelledPct = dealsCount > 0 ? (cancelledCount / dealsCount) * 100 : 0;
 
   return {
@@ -209,6 +251,7 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
     byWeekStatus,
     byAdviser,
     trend,
+    cancellationDetail,
   };
 }
 
