@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession, verifyCredentials, isDashboardUser } from "@/lib/auth";
+import { getSession, verifyCredentials, isPortalUser } from "@/lib/auth";
 
 export async function POST(req: Request) {
   const { username, password } = (await req.json().catch(() => ({}))) as {
@@ -13,9 +13,10 @@ export async function POST(req: Request) {
   if (!ok) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
-  // Allowlist gate: even valid credentials are rejected if the user isn't in
-  // DASHBOARD_USERNAMES. Don't create a session.
-  if (!isDashboardUser(username)) {
+  // Allowlist gate: accept either role (admin via DASHBOARD_USERNAMES, or
+  // data-entry via DATA_ENTRY_USERNAMES). Middleware enforces what each role
+  // can actually reach once they're in.
+  if (!isPortalUser(username)) {
     return NextResponse.json(
       { error: "This account does not have access to the portal." },
       { status: 403 },
