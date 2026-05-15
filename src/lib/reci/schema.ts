@@ -30,6 +30,21 @@ export const STATUS_TO_COMMS_COLUMN: Record<DealStatus, "paid"|"on_risk_nyp"|"in
   cancelled:         "cxl",
 };
 
+// --- In-processing sub-stage ------------------------------------------------
+// Only meaningful when status = 'in_processing'. Lets the team track which
+// step of processing a deal is at (e.g. waiting for GPR, awaiting RFI, etc.).
+export const IN_PROCESSING_STAGES = ["checked", "gpr", "misc", "ns", "rfi", "sot"] as const;
+export type InProcessingStage = (typeof IN_PROCESSING_STAGES)[number];
+
+export const IN_PROCESSING_STAGE_LABELS: Record<InProcessingStage, string> = {
+  checked: "Checked",
+  gpr:     "GPR",
+  misc:    "Misc",
+  ns:      "NS",
+  rfi:     "RFI",
+  sot:     "SOT",
+};
+
 // --- Cancellation reasons ---------------------------------------------------
 export const CANCELLATION_REASONS = ["npw", "postponed", "declined", "other"] as const;
 export type CancellationReason = (typeof CANCELLATION_REASONS)[number];
@@ -74,6 +89,7 @@ export interface Deal {
   submitted: string | null;
   acc_ref: string | null;
   status: DealStatus;
+  in_processing_stage: InProcessingStage | null;
   commission: number;
   notes: string | null;
   gl_sp: string | null;

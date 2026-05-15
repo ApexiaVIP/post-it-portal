@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession, isDashboardUser } from "@/lib/auth";
 import { getDealById, updateDeal, deleteDeal } from "@/lib/reci/db";
-import { CANCELLATION_REASONS, DEAL_STATUSES } from "@/lib/reci/schema";
+import { CANCELLATION_REASONS, DEAL_STATUSES, IN_PROCESSING_STAGES } from "@/lib/reci/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       patch.cancellation_reason = null;
     } else if (CANCELLATION_REASONS.includes(body.cancellation_reason)) {
       patch.cancellation_reason = body.cancellation_reason;
+    }
+  }
+  if ("in_processing_stage" in body) {
+    if (body.in_processing_stage == null || body.in_processing_stage === "") {
+      patch.in_processing_stage = null;
+    } else if (IN_PROCESSING_STAGES.includes(body.in_processing_stage)) {
+      patch.in_processing_stage = body.in_processing_stage;
     }
   }
   if ("cancellation_notes" in body) {

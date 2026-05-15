@@ -15,6 +15,7 @@ import {
   type Adviser, type Deal,
   CANCELLATION_REASONS, CANCELLATION_REASON_LABELS, CANCELLATION_REASON_SHORT,
   type CancellationReason,
+  IN_PROCESSING_STAGES, IN_PROCESSING_STAGE_LABELS,
 } from "@/lib/reci/schema";
 import { PrintButton, PrintHeader } from "@/components/print";
 import { NewDealModal, EditDealModal } from "@/components/deal-modal";
@@ -287,9 +288,58 @@ function DealCard({ deal, onEdit, dragging }: { deal: Deal; onEdit: () => void; 
             {deal.cancellation_notes ? ` — ${deal.cancellation_notes}` : ""}
           </div>
         )}
+        {deal.status === "in_processing" && (
+          <InProcessingStageSelect
+            deal={deal}
+            onChanged={onEdit}
+          />
+        )}
       </div>
       {editing && <EditDealModal deal={deal} onClose={() => { setEditing(false); onEdit(); }} />}
     </>
+  );
+}
+
+function InProcessingStageSelect({ deal, onChanged }: { deal: Deal; onChanged: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const value = deal.in_processing_stage ?? "";
+
+  async function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const next = e.target.value;
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/reci/deals/${deal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ in_processing_stage: next || null }),
+      });
+      if (r.ok) onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="mt-1 flex items-center gap-1 text-xs"
+      // Stop drag-and-drop from intercepting clicks on the select.
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <span className="text-slate-500">Stage:</span>
+      <select
+        value={value}
+        onChange={onChange}
+        disabled={saving}
+        className="flex-1 min-w-0 border rounded px-1 py-0.5"
+      >
+        <option value="">—</option>
+        {IN_PROCESSING_STAGES.map((s) => (
+          <option key={s} value={s}>{IN_PROCESSING_STAGE_LABELS[s]}</option>
+        ))}
+      </select>
+      {saving && <span className="text-slate-400">…</span>}
+    </div>
   );
 }
 
