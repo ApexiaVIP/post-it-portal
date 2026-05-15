@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter, usePathname } from "next/navigation";
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors,
@@ -39,12 +39,18 @@ function gbp(n: number | string | null | undefined) {
 
 export default function AdviserKanbanPage() {
   const { slug } = useParams<{ slug: string }>();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [data, setData] = useState<BundleResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const [activeDealId, setActiveDealId] = useState<number | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [cancelling, setCancelling] = useState<{ deal: Deal } | null>(null);
+  // Edit modal opened via ?openDeal=<id> in the URL (drill-through from the
+  // Analytics Deals table).
+  const [editFromUrl, setEditFromUrl] = useState<Deal | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -56,6 +62,34 @@ export default function AdviserKanbanPage() {
   }, [slug, year]);
 
   useEffect(() => { load(); }, [load]);
+
+  // If the URL carries ?year=<n>, sync the picker to it. This is set by the
+  // Analytics drill-through so the page lands on the same year as the
+  // analytics filter.
+  useEffect(() => {
+    const y = searchParams?.get("year");
+    if (!y) return;
+    const yNum = Number(y);
+    if (Number.isFinite(yNum) && yNum !== year) setYear(yNum);
+  }, [searchParams, year]);
+
+  // When data finishes loading (or the URL changes), open the deal requested
+  // by ?openDeal=<id>. If the deal isn't in scope for the current year, clear
+  // the param.
+  useEffect(() => {
+    if (!data) return;
+    const idStr = searchParams?.get("openDeal");
+    if (!idStr) { setEditFromUrl(null); return; }
+    const id = Number(idStr);
+    if (!Number.isFinite(id)) return;
+    const found = data.deals.find((x) => x.id === id);
+    if (found) {
+      setEditFromUrl(found);
+    } else {
+      // Not in this year's loaded set — clear the param to avoid a stale URL.
+      router.replace(pathname);
+    }
+  }, [data, searchParams, router, pathname]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -182,6 +216,18 @@ export default function AdviserKanbanPage() {
           onConfirm={async (reason, notes) => {
             await moveStatus(cancelling.deal.id, "cancelled", { reason, notes });
             setCancelling(null);
+          }}
+        />
+      )}
+
+      {editFromUrl && (
+        <EditDealModal
+          deal={editFromUrl}
+          onClose={() => {
+            setEditFromUrl(null);
+            // Clean the URL so a refresh doesn't reopen the modal.
+            router.replace(pathname);
+            load();
           }}
         />
       )}
