@@ -17,15 +17,19 @@ type Role = "admin" | "data-entry" | "unknown";
 const ADMIN_LINKS = [
   { href: "/reci",            label: "RECI Boards" },
   { href: "/reci/analytics",  label: "RECI Analytics" },
+  { href: "/reci/tracker",    label: "Deal Tracker" },
   { href: "/dashboard",       label: "Call-Centre Dashboard" },
 ];
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/reci/analytics") return pathname === "/reci/analytics";
+  if (href === "/reci/tracker")   return pathname === "/reci/tracker";
   if (href === "/reci") {
-    // Any /reci/* board page (but not the analytics page) counts as Boards.
-    return pathname === "/reci" ||
-      (pathname.startsWith("/reci/") && pathname !== "/reci/analytics");
+    // Any /reci/* board page (but not the standalone analytics / tracker
+    // pages) counts as Boards.
+    if (pathname === "/reci") return true;
+    if (!pathname.startsWith("/reci/")) return false;
+    return pathname !== "/reci/analytics" && pathname !== "/reci/tracker";
   }
   return pathname === href || pathname.startsWith(href + "/");
 }
