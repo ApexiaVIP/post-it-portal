@@ -70,22 +70,68 @@ export async function verifyCredentials(
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard / portal access allowlist
+// Role-based access
 //
-// Even if an admin credential is configured in env, the user must also appear
-// in DASHBOARD_USERNAMES (comma-separated, case-insensitive) to access the
-// portal pages or APIs. This is the urgent lockdown layer: change the env var
-// to revoke access without having to remove credentials.
+// Two allowlists, both env-driven:
+//
+//   DASHBOARD_USERNAMES  -> "admin" role: full access to every section
+//                           (POST IT data entry, RECI boards, RECI Analytics,
+//                           Call-Centre Dashboard).
+//                           Default: "jimmy,pauline,poz"
+//
+//   DATA_ENTRY_USERNAMES -> "data-entry" role: access to the POST IT page (/)
+//                           and the /api/data endpoint ONLY. Everything else
+//                           is locked down.
+//                           Default: "hayder"
+//
+// Both lists are comma-separated and case insensitive. Even a user with a
+// valid admin credential is rejected unless they appear in one of the lists.
 // ---------------------------------------------------------------------------
-const DASHBOARD_USERNAMES = (process.env.DASHBOARD_USERNAMES ?? "jimmy,pauline,poz")
-  .toLowerCase()
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+function parseList(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .toLowerCase()
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
+const DASHBOARD_USERNAMES  = parseList(process.env.DASHBOARD_USERNAMES  ?? "jimmy,pauline,poz");
+const DATA_ENTRY_USERNAMES = parseList(process.env.DATA_ENTRY_USERNAMES ?? "hayder");
+
+export type Role = "admin" | "data-entry" | "none";
+
+export function roleFor(username: string | null | undefined): Role {
+  if (!username) return "none";
+  const u = username.toLowerCase();
+  if (DASHBOARD_USERNAMES.includes(u))  return "admin";
+  if (DATA_ENTRY_USERNAMES.includes(u)) return "data-entry";
+  return "none";
+}
+
+// Full-access (admin) users. Used by APIs that should remain admin-only.
 export function isDashboardUser(username: string | null | undefined): username is string {
-  if (!username) return false;
-  return DASHBOARD_USERNAMES.includes(username.toLowerCase());
+  return roleFor(username) === "admin";
+}
+
+// Any authenticated user with a role (admin OR data-entry). Used by /api/data
+// which both roles need.
+export function isPortalUser(username: string | null | undefined): username is string {
+  const r = roleFor(username);
+  return r === "admin" || r === "data-entry";
+}
+
+// Path-level authorisation. Admins get everything. Data-entry users get only
+// the POST IT data-entry page and its API plus the bare auth/role endpoints.
+export function canAccessPath(username: string | null | undefined, pathname: string): boolean {
+  const role = roleFor(username);
+  if (role === "none")  return false;
+  if (role === "admin") return true;
+  // data-entry role from here on:
+  if (pathname === "/")                       return true;
+  if (pathname.startsWith("/api/data"))       return true;
+  if (pathname.startsWith("/api/auth"))       return true;
+  if (pathname === "/api/me")                 return true;
+  return false;
 }
 
 export function verifyApiToken(authHeader: string | null): boolean {
