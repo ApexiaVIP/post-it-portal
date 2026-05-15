@@ -62,15 +62,17 @@ export interface TrendRow {
   cancellations: number;
 }
 
-// Row-level detail for cancelled deals — surfaces the free-text narrative note
-// ("cancellation_notes") on the MI so it can be read in context.
-export interface CancellationDetailRow {
+// Row-level detail for every deal in scope (after filters). Includes the
+// free-text narrative: cancellation_notes for cancelled rows, otherwise the
+// deal's general notes. This is what gets printed.
+export interface DealDetailRow {
   id: number;
   adviser_id: number;
   adviser_name: string;
   adviser_slug: string;
   week: number;
   client: string;
+  status: DealStatus;
   reason: CancellationReason | null;
   notes: string | null;
   commission: number;
@@ -86,7 +88,7 @@ export interface AnalyticsResult {
   byWeekStatus: ByWeekStatusRow[];
   byAdviser: ByAdviserRow[];
   trend: TrendRow[];
-  cancellationDetail: CancellationDetailRow[];
+  dealDetail: DealDetailRow[];
 }
 
 type DealRow = Deal & { adviser_name: string; adviser_slug: string };
@@ -155,7 +157,7 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
   // Map<week, TrendRow>
   const trendAcc = new Map<number, TrendRow>();
 
-  const cancellationDetail: CancellationDetailRow[] = [];
+  const dealDetail: DealDetailRow[] = [];
 
   for (const d of rows) {
     const c = toNum(d.commission);
@@ -168,21 +170,26 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
       const acc = reasonAcc.get(reason)!;
       acc.count += 1;
       acc.commission += c;
-      cancellationDetail.push({
-        id: d.id,
-        adviser_id: d.adviser_id,
-        adviser_name: d.adviser_name,
-        adviser_slug: d.adviser_slug,
-        week: d.week,
-        client: d.client,
-        reason: d.cancellation_reason,
-        notes: d.cancellation_notes,
-        commission: c,
-        cancelled_at: d.cancelled_at,
-        cancelled_by: d.cancelled_by,
-        provider: d.provider,
-      });
     }
+
+    // Every filtered deal makes the detail list — not just cancelled — so the
+    // table reflects whatever status the user has filtered to.
+    dealDetail.push({
+      id: d.id,
+      adviser_id: d.adviser_id,
+      adviser_name: d.adviser_name,
+      adviser_slug: d.adviser_slug,
+      week: d.week,
+      client: d.client,
+      status: d.status,
+      reason: d.status === "cancelled" ? d.cancellation_reason : null,
+      // For cancelled: show cancellation_notes; otherwise the deal's general notes.
+      notes: d.status === "cancelled" ? d.cancellation_notes : d.notes,
+      commission: c,
+      cancelled_at: d.cancelled_at,
+      cancelled_by: d.cancelled_by,
+      provider: d.provider,
+    });
 
     const wsKey = `${d.week}|${d.status}`;
     const ws = weekStatusAcc.get(wsKey) ?? {
@@ -228,12 +235,14 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
   const trend: TrendRow[] = Array.from(trendAcc.values())
     .sort((a, b) => a.week - b.week);
 
-  // Most-recent first: by week desc, then cancelled_at desc.
-  cancellationDetail.sort((a, b) => {
+  // Most-recent first: by week desc, then cancelled_at desc (cancelled rows
+  // surface first inside a week), then id desc.
+  dealDetail.sort((a, b) => {
     if (b.week !== a.week) return b.week - a.week;
     const at = a.cancelled_at ? Date.parse(a.cancelled_at) : 0;
     const bt = b.cancelled_at ? Date.parse(b.cancelled_at) : 0;
-    return bt - at;
+    if (bt !== at) return bt - at;
+    return b.id - a.id;
   });
 
   const cancelledPct = dealsCount > 0 ? (cancelledCount / dealsCount) * 100 : 0;
@@ -251,7 +260,7 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
     byWeekStatus,
     byAdviser,
     trend,
-    cancellationDetail,
+    dealDetail,
   };
 }
 
