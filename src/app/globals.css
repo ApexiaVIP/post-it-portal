@@ -1,3 +1,60 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ------------------------------------------------------------------ */
+/* Print styles                                                        */
+/*                                                                     */
+/* Strategy: hide app chrome and any element tagged .no-print, reveal  */
+/* .print-only elements, force white background, and let the page      */
+/* content flow at full width with sensible margins.                   */
+/* ------------------------------------------------------------------ */
+@media print {
+  @page { margin: 12mm; }
+
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Hide app chrome and anything explicitly marked. */
+  nav.sticky,
+  .no-print,
+  .no-print * {
+    display: none !important;
+  }
+
+  /* Reveal print-only blocks. */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Stretch content to the full page width. */
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Strip the soft slate shadows / backgrounds; let the paper show. */
+  .shadow,
+  .shadow-sm {
+    box-shadow: none !important;
+  }
+
+  /* Avoid splitting a table row, KPI tile, or chart card across pages. */
+  tr, .kpi-tile, .chart-card, .print-keep {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Make table borders crisp for paper. */
+  table { border-collapse: collapse; }
+  th, td { border-color: #cbd5e1 !important; }
+
+  /* Links shouldn't carry blue + underline noise on paper. */
+  a { color: inherit !important; text-decoration: none !important; }
+}
+
+/* By default .print-only is hidden on screen. */
+.print-only { display: none; }

@@ -11,6 +11,7 @@ import {
   DEAL_STATUSES, STATUS_LABELS, type DealStatus,
   CANCELLATION_REASONS, CANCELLATION_REASON_LABELS, type CancellationReason,
 } from "@/lib/reci/schema";
+import { PrintButton, PrintHeader } from "@/components/print";
 
 type AdviserLite = { id: number; name: string };
 type Totals = {
@@ -227,9 +228,37 @@ export default function AnalyticsPage() {
     return rows;
   }, [data, leagueMetric]);
 
+  // Build the print-only header summary so a paper printout is identifiable
+  // without the on-screen filter chrome.
+  const printMeta = useMemo(() => {
+    const advNames = filters.adviserIds.length
+      ? (data?.advisers ?? [])
+          .filter((a) => filters.adviserIds.includes(a.id))
+          .map((a) => a.name)
+          .join(", ") || "All"
+      : "All";
+    const statusNames = filters.statuses.length
+      ? filters.statuses.map((s) => STATUS_LABELS[s]).join(", ")
+      : "All";
+    const reasonNames = filters.reasons.length
+      ? filters.reasons.map((r) => CANCELLATION_REASON_LABELS[r]).join(", ")
+      : (cancelledInScope ? "All" : "n/a");
+    const weekRange =
+      filters.weekFrom != null || filters.weekTo != null
+        ? `${filters.weekFrom ?? 1} to ${filters.weekTo ?? 53}`
+        : "All weeks";
+    return [
+      { label: "Year",     value: String(filters.year) },
+      { label: "Advisers", value: advNames },
+      { label: "Status",   value: statusNames },
+      { label: "Reason",   value: reasonNames },
+      { label: "Weeks",    value: weekRange },
+    ];
+  }, [filters, data, cancelledInScope]);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b bg-white">
+      <header className="no-print border-b bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-semibold">RECI Analytics</h1>
@@ -242,13 +271,15 @@ export default function AnalyticsPage() {
               onChange={(e) => setYear(e.target.value)}
               className="w-20 rounded border border-slate-300 px-2 py-1 text-right"
             />
+            <PrintButton />
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
+        <PrintHeader title="RECI Analytics" meta={printMeta} />
         {/* Filter bar */}
-        <section className="rounded-lg border bg-white p-4 shadow-sm">
+        <section className="no-print rounded-lg border bg-white p-4 shadow-sm">
           <div className="grid gap-4 md:grid-cols-4">
             <FilterGroup label="Adviser">
               {data?.advisers?.length ? (

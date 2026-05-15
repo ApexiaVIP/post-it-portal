@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   ADVISERS, ADVISER_FIELDS, RIC_FIELDS, londonDateIso,
 } from "@/lib/schema";
+import { PrintButton, PrintHeader } from "@/components/print";
 
 type Snapshot = {
   capturedAt: string;
@@ -165,7 +166,14 @@ export default function DashboardPage() {
 
   return (
     <main className="max-w-[1400px] mx-auto p-4 md:p-6 space-y-4">
-      <header className="flex items-center justify-between gap-4 flex-wrap">
+      <PrintHeader
+        title="POST IT Live Dashboard"
+        meta={[
+          { label: "Date",     value: snap ? `${snap.date} ${snap.target}` : date },
+          { label: "Captured", value: snap ? lastRefreshedLabel : "no snapshot loaded" },
+        ]}
+      />
+      <header className="no-print flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold">POST IT Live Dashboard</h1>
           <p className="text-sm text-slate-500">
@@ -215,6 +223,7 @@ export default function DashboardPage() {
           >
             {refreshing ? "Refreshing… (~90s)" : "Refresh now"}
           </button>
+          <PrintButton />
           <a href="/" className="text-sm text-slate-500 hover:text-slate-700 underline">
             Admin
           </a>

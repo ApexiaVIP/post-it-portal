@@ -16,6 +16,7 @@ import {
   CANCELLATION_REASONS, CANCELLATION_REASON_LABELS, CANCELLATION_REASON_SHORT,
   type CancellationReason,
 } from "@/lib/reci/schema";
+import { PrintButton, PrintHeader } from "@/components/print";
 
 type Tracker = { week: number; paid: number; on_risk_nyp: number; in_processing: number; nys: number; cxl: number; total: number }[];
 
@@ -120,7 +121,15 @@ export default function AdviserKanbanPage() {
 
   return (
     <main className="max-w-[1800px] mx-auto p-4 md:p-6 space-y-6">
-      <header className="flex items-center justify-between gap-4 flex-wrap">
+      <PrintHeader
+        title={`${data.adviser.name} — RECI`}
+        subtitle={`Year ${year}`}
+        meta={[
+          { label: "Adviser", value: data.adviser.name },
+          { label: "Year",    value: String(year) },
+        ]}
+      />
+      <header className="no-print flex items-center justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <Link href="/reci" className="hover:underline">RECI</Link>
@@ -141,21 +150,24 @@ export default function AdviserKanbanPage() {
                   className="bg-slate-900 text-white rounded px-3 py-2 text-sm font-medium hover:bg-slate-800">
             + New deal
           </button>
+          <PrintButton />
           <Link href="/reci/analytics" className="text-sm text-blue-600 hover:text-blue-800">Analytics →</Link>
           <Link href="/" className="text-sm text-slate-500 hover:text-slate-700 underline">POST IT Admin</Link>
         </div>
       </header>
 
-      <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-5 gap-3 min-w-[1200px]">
-          {DEAL_STATUSES.map((s) => (
-            <StatusColumn key={s} status={s} deals={dealsByStatus[s]} onEdit={load} />
-          ))}
-        </div>
-        <DragOverlay>
-          {activeDeal ? <DealCard deal={activeDeal} dragging onEdit={() => {}} /> : null}
-        </DragOverlay>
-      </DndContext>
+      <div className="no-print">
+        <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+          <div className="grid grid-cols-5 gap-3 min-w-[1200px]">
+            {DEAL_STATUSES.map((s) => (
+              <StatusColumn key={s} status={s} deals={dealsByStatus[s]} onEdit={load} />
+            ))}
+          </div>
+          <DragOverlay>
+            {activeDeal ? <DealCard deal={activeDeal} dragging onEdit={() => {}} /> : null}
+          </DragOverlay>
+        </DndContext>
+      </div>
 
       <BusinessTracker tracker={data.tracker} />
 
