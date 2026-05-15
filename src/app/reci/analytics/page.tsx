@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   PieChart, Pie, Cell, Tooltip as RTooltip, Legend, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -134,6 +135,7 @@ function persistSavedViews(views: SavedView[]) {
 }
 
 export default function AnalyticsPage() {
+  const router = useRouter();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS());
   const [data, setData] = useState<AnalyticsResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -548,7 +550,7 @@ export default function AnalyticsPage() {
                 </span>
               ) : null}
             </h2>
-            <span className="no-print text-xs text-slate-400">Reflects current filters · click an adviser to open their board</span>
+            <span className="no-print text-xs text-slate-400">Click a row to open and edit that deal</span>
           </div>
           {!data || data.dealDetail.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-slate-400">
@@ -570,11 +572,17 @@ export default function AnalyticsPage() {
                 </thead>
                 <tbody>
                   {data.dealDetail.map((d) => (
-                    <tr key={d.id} className="border-t border-slate-100 align-top hover:bg-slate-50">
+                    <tr
+                      key={d.id}
+                      className="cursor-pointer border-t border-slate-100 align-top hover:bg-slate-50"
+                      onClick={() => router.push(`/reci/${d.adviser_slug}?openDeal=${d.id}&year=${filters.year}`)}
+                      title="Open and edit this deal"
+                    >
                       <td className="px-3 py-2 whitespace-nowrap">
                         <Link
                           href={`/reci/${d.adviser_slug}`}
                           className="font-medium text-blue-600 hover:text-blue-800"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           {d.adviser_name}
                         </Link>
