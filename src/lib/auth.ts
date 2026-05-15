@@ -69,6 +69,25 @@ export async function verifyCredentials(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard / portal access allowlist
+//
+// Even if an admin credential is configured in env, the user must also appear
+// in DASHBOARD_USERNAMES (comma-separated, case-insensitive) to access the
+// portal pages or APIs. This is the urgent lockdown layer: change the env var
+// to revoke access without having to remove credentials.
+// ---------------------------------------------------------------------------
+const DASHBOARD_USERNAMES = (process.env.DASHBOARD_USERNAMES ?? "jimmy,pauline,poz")
+  .toLowerCase()
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+export function isDashboardUser(username: string | null | undefined): username is string {
+  if (!username) return false;
+  return DASHBOARD_USERNAMES.includes(username.toLowerCase());
+}
+
 export function verifyApiToken(authHeader: string | null): boolean {
   if (!authHeader) return false;
   const expected = process.env.READ_API_TOKEN;

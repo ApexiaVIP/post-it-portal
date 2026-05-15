@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isDashboardUser } from "@/lib/auth";
 import { loadManualDataFor, saveManualDataFor } from "@/lib/store";
 import {
   ADVISERS, ADVISER_FIELDS, RIC_FIELDS,
@@ -10,8 +10,8 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: Request) {
   const session = await getSession();
-  if (!session.username) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!isDashboardUser(session.username)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const url = new URL(req.url);
   const date = url.searchParams.get("date") || londonDateIso();
@@ -24,8 +24,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const session = await getSession();
-  if (!session.username) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!isDashboardUser(session.username)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const body = (await req.json().catch(() => null)) as

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isDashboardUser } from "@/lib/auth";
 import { updateDeal, deleteDeal } from "@/lib/reci/db";
 import { CANCELLATION_REASONS, DEAL_STATUSES } from "@/lib/reci/schema";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const session = await getSession();
-  if (!session.username) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!isDashboardUser(session.username)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const id = Number(params.id);
   const body = (await req.json().catch(() => null)) as any;
   if (!body) return NextResponse.json({ error: "bad body" }, { status: 400 });
@@ -39,7 +39,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   const session = await getSession();
-  if (!session.username) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!isDashboardUser(session.username)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const ok = await deleteDeal(Number(params.id), session.username);
   if (!ok) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ ok: true });

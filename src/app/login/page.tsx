@@ -13,6 +13,7 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
+  const denied = params.get("denied") === "1";
   const [username, setU] = useState("");
   const [password, setP] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -49,6 +50,12 @@ function LoginForm() {
       >
         <h1 className="text-xl font-semibold">POST IT Portal</h1>
         <p className="text-sm text-slate-500">Sign in to enter today&apos;s manual data.</p>
+
+        {denied && (
+          <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Your account does not have access to this portal. If you believe this is wrong, contact Jimmy.
+          </div>
+        )}
 
         <label className="block text-sm">
           <span className="block mb-1 font-medium">Username</span>

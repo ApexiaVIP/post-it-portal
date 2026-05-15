@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isDashboardUser } from "@/lib/auth";
 import { changeDealStatus } from "@/lib/reci/db";
 import { CANCELLATION_REASONS, DEAL_STATUSES, type CancellationReason } from "@/lib/reci/schema";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const session = await getSession();
-  if (!session.username) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!isDashboardUser(session.username)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = (await req.json().catch(() => null)) as any;
   if (!body?.status || !DEAL_STATUSES.includes(body.status)) {
     return NextResponse.json({ error: "bad status" }, { status: 400 });
