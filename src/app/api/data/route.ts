@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession, isDashboardUser } from "@/lib/auth";
+import { getSession, isPortalUser } from "@/lib/auth";
 import { loadManualDataFor, saveManualDataFor } from "@/lib/store";
 import {
   ADVISERS, ADVISER_FIELDS, RIC_FIELDS,
@@ -10,7 +10,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: Request) {
   const session = await getSession();
-  if (!isDashboardUser(session.username)) {
+  if (!isPortalUser(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const url = new URL(req.url);
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const session = await getSession();
-  if (!isDashboardUser(session.username)) {
+  if (!isPortalUser(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

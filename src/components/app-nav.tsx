@@ -3,11 +3,18 @@
 /**
  * Global sticky navigation bar. Rendered once in the root layout so it
  * persists across every authenticated page. Hidden on /login.
+ *
+ * Adapts to the signed-in user's role (fetched from /api/me):
+ *   - "admin"      -> shows all four sections
+ *   - "data-entry" -> shows only POST IT Portal (and Sign out)
  */
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const LINKS = [
+type Role = "admin" | "data-entry" | "unknown";
+
+const ADMIN_LINKS = [
   { href: "/reci",            label: "RECI Boards" },
   { href: "/reci/analytics",  label: "RECI Analytics" },
   { href: "/dashboard",       label: "Call-Centre Dashboard" },
@@ -25,6 +32,20 @@ function isActive(pathname: string, href: string): boolean {
 
 export default function AppNav() {
   const pathname = usePathname();
+  const [role, setRole] = useState<Role>("unknown");
+
+  useEffect(() => {
+    // Don't bother fetching on the login page.
+    if (pathname === "/login" || pathname.startsWith("/login/")) return;
+    let alive = true;
+    fetch("/api/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { role?: Role } | null) => {
+        if (alive && j?.role) setRole(j.role);
+      })
+      .catch(() => { /* ignore */ });
+    return () => { alive = false; };
+  }, [pathname]);
 
   // No chrome on the login screen.
   if (pathname === "/login" || pathname.startsWith("/login/")) return null;
@@ -38,6 +59,8 @@ export default function AppNav() {
     window.location.href = "/login";
   }
 
+  const showAdminLinks = role === "admin";
+
   return (
     <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-[1800px] flex-wrap items-center gap-1 px-4 py-2">
@@ -49,7 +72,7 @@ export default function AppNav() {
         >
           POST IT Portal
         </Link>
-        {LINKS.map((l) => {
+        {showAdminLinks && ADMIN_LINKS.map((l) => {
           const active = isActive(pathname, l.href);
           return (
             <Link
