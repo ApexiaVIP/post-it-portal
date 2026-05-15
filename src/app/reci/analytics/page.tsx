@@ -25,13 +25,14 @@ type ByAdviserRow = {
   count: number; commission: number; paidCommission: number; cancelled: number;
 };
 type TrendRow = { week: number; count: number; commission: number; paidCommission: number; cancellations: number };
-type CancellationDetailRow = {
+type DealDetailRow = {
   id: number;
   adviser_id: number;
   adviser_name: string;
   adviser_slug: string;
   week: number;
   client: string;
+  status: DealStatus;
   reason: CancellationReason | null;
   notes: string | null;
   commission: number;
@@ -47,7 +48,7 @@ type AnalyticsResp = {
   byWeekStatus: ByWeekStatusRow[];
   byAdviser: ByAdviserRow[];
   trend: TrendRow[];
-  cancellationDetail: CancellationDetailRow[];
+  dealDetail: DealDetailRow[];
   advisers: AdviserLite[];
 };
 
@@ -392,7 +393,7 @@ export default function AnalyticsPage() {
         </section>
 
         {/* KPI tiles */}
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="no-print grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Kpi label="Total Deals" value={data?.totals.deals.toLocaleString() ?? "–"} />
           <Kpi label="Total Commission" value={data ? gbp(data.totals.commission) : "–"} />
           <Kpi label="Paid Commission" value={data ? gbp(data.totals.paidCommission) : "–"} />
@@ -404,7 +405,7 @@ export default function AnalyticsPage() {
         </section>
 
         {/* Charts */}
-        <section className="grid gap-4 lg:grid-cols-2">
+        <section className="no-print grid gap-4 lg:grid-cols-2">
           <ChartCard title="Cancellations by Reason">
             {reasonPieData.length === 0 ? (
               <Empty msg="No cancellations in current filter." />
@@ -535,22 +536,23 @@ export default function AnalyticsPage() {
           </ChartCard>
         </section>
 
-        {/* Cancellations detail — the narrative notes, in context */}
+        {/* Deals detail — every filtered deal, with status + narrative notes.
+            This is the section that prints. */}
         <section className="rounded-lg border bg-white shadow-sm">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <h2 className="text-sm font-semibold text-slate-700">
-              Cancellations Detail
+              Deals
               {data ? (
                 <span className="ml-2 font-normal text-slate-400">
-                  {data.cancellationDetail.length} deal{data.cancellationDetail.length === 1 ? "" : "s"}
+                  {data.dealDetail.length} deal{data.dealDetail.length === 1 ? "" : "s"}
                 </span>
               ) : null}
             </h2>
-            <span className="text-xs text-slate-400">Reflects current filters · click an adviser to open their board</span>
+            <span className="no-print text-xs text-slate-400">Reflects current filters · click an adviser to open their board</span>
           </div>
-          {!data || data.cancellationDetail.length === 0 ? (
+          {!data || data.dealDetail.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-slate-400">
-              No cancellations in current filter.
+              No deals in current filter.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -560,14 +562,14 @@ export default function AnalyticsPage() {
                     <th className="px-3 py-2 text-left">Adviser</th>
                     <th className="px-3 py-2 text-right">Wk</th>
                     <th className="px-3 py-2 text-left">Client</th>
+                    <th className="px-3 py-2 text-left">Status</th>
                     <th className="px-3 py-2 text-left">Reason</th>
                     <th className="px-3 py-2 text-left">Notes</th>
                     <th className="px-3 py-2 text-right">Commission</th>
-                    <th className="px-3 py-2 text-left">Cancelled</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.cancellationDetail.map((d) => (
+                  {data.dealDetail.map((d) => (
                     <tr key={d.id} className="border-t border-slate-100 align-top hover:bg-slate-50">
                       <td className="px-3 py-2 whitespace-nowrap">
                         <Link
@@ -580,6 +582,14 @@ export default function AnalyticsPage() {
                       <td className="px-3 py-2 text-right tabular-nums text-slate-600">{d.week}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{d.client}</td>
                       <td className="px-3 py-2">
+                        <span
+                          className="rounded-full px-2 py-0.5 text-xs text-white"
+                          style={{ backgroundColor: STATUS_COLORS[d.status] }}
+                        >
+                          {STATUS_LABELS[d.status]}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
                         {d.reason ? (
                           <span
                             className="rounded-full px-2 py-0.5 text-xs text-white"
@@ -588,17 +598,13 @@ export default function AnalyticsPage() {
                             {CANCELLATION_REASON_LABELS[d.reason]}
                           </span>
                         ) : (
-                          <span className="text-xs text-slate-400">—</span>
+                          <span className="text-xs text-slate-300">-</span>
                         )}
                       </td>
                       <td className="px-3 py-2 text-slate-700">
-                        {d.notes ? d.notes : <span className="text-slate-300">—</span>}
+                        {d.notes ? d.notes : <span className="text-slate-300">-</span>}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{gbp(d.commission)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">
-                        {d.cancelled_at ? new Date(d.cancelled_at).toLocaleDateString("en-GB") : "—"}
-                        {d.cancelled_by ? <span className="text-slate-400"> · {d.cancelled_by}</span> : null}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
