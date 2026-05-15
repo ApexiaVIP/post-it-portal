@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
 import { getSession, isDashboardUser } from "@/lib/auth";
-import { updateDeal, deleteDeal } from "@/lib/reci/db";
+import { getDealById, updateDeal, deleteDeal } from "@/lib/reci/db";
 import { CANCELLATION_REASONS, DEAL_STATUSES } from "@/lib/reci/schema";
 
 export const dynamic = "force-dynamic";
+
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  const session = await getSession();
+  if (!isDashboardUser(session.username)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const id = Number(params.id);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: "bad id" }, { status: 400 });
+  const deal = await getDealById(id);
+  if (!deal) return NextResponse.json({ error: "not found" }, { status: 404 });
+  return NextResponse.json({ deal });
+}
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const session = await getSession();
