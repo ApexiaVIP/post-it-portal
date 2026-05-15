@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   PieChart, Pie, Cell, Tooltip as RTooltip, Legend, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -11,8 +10,10 @@ import {
 import {
   DEAL_STATUSES, STATUS_LABELS, type DealStatus,
   CANCELLATION_REASONS, CANCELLATION_REASON_LABELS, type CancellationReason,
+  type Deal,
 } from "@/lib/reci/schema";
 import { PrintButton, PrintHeader } from "@/components/print";
+import { EditDealModal } from "@/components/deal-modal";
 
 type AdviserLite = { id: number; name: string };
 type Totals = {
@@ -135,8 +136,25 @@ function persistSavedViews(views: SavedView[]) {
 }
 
 export default function AnalyticsPage() {
-  const router = useRouter();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS());
+  // In-place edit: when a row is clicked we fetch the full deal and feed it
+  // straight into the EditDealModal on this page (no navigation away).
+  const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
+  const [opening, setOpening] = useState<number | null>(null);
+
+  async function openDealForEdit(id: number) {
+    setOpening(id);
+    try {
+      const r = await fetch(`/api/reci/deals/${id}`, { cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = (await r.json()) as { deal: Deal };
+      setEditingDeal(j.deal);
+    } catch {
+      // swallow — if it fails the row simply doesn't open
+    } finally {
+      setOpening(null);
+    }
+  }
   const [data, setData] = useState<AnalyticsResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -574,15 +592,18 @@ export default function AnalyticsPage() {
                   {data.dealDetail.map((d) => (
                     <tr
                       key={d.id}
-                      className="cursor-pointer border-t border-slate-100 align-top hover:bg-slate-50"
-                      onClick={() => router.push(`/reci/${d.adviser_slug}?openDeal=${d.id}&year=${filters.year}`)}
-                      title="Open and edit this deal"
+                      className={`cursor-pointer border-t border-slate-100 align-top hover:bg-slate-50 ${
+                        opening === d.id ? "opacity-60" : ""
+                      }`}
+                      onClick={() => openDealForEdit(d.id)}
+                      title="Click to edit this deal"
                     >
                       <td className="px-3 py-2 whitespace-nowrap">
                         <Link
                           href={`/reci/${d.adviser_slug}`}
                           className="font-medium text-blue-600 hover:text-blue-800"
                           onClick={(e) => e.stopPropagation()}
+                          title="Open this adviser's board"
                         >
                           {d.adviser_name}
                         </Link>
@@ -621,6 +642,18 @@ export default function AnalyticsPage() {
           )}
         </section>
       </main>
+
+      {editingDeal && (
+        <EditDealModal
+          deal={editingDeal}
+          onClose={() => {
+            setEditingDeal(null);
+            // Refresh analytics so any edit shows immediately.
+            const ctrl = new AbortController();
+            load(ctrl.signal);
+          }}
+        />
+      )}
     </div>
   );
 }

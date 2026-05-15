@@ -42,6 +42,11 @@ export async function getAdviserById(id: number): Promise<Adviser | null> {
   return rows[0] ?? null;
 }
 
+export async function getDealById(id: number): Promise<Deal | null> {
+  const { rows } = await sql<Deal>`SELECT * FROM deals WHERE id = ${id} LIMIT 1`;
+  return rows[0] ?? null;
+}
+
 export async function listDealsForAdviser(adviserId: number, year: number): Promise<Deal[]> {
   const { rows } = await sql<Deal>`
     SELECT * FROM deals
