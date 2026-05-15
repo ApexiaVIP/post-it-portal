@@ -57,7 +57,7 @@ export async function listDealsForAdviser(adviserId: number, year: number): Prom
 }
 
 export async function createDeal(
-  data: Omit<Deal, "id" | "created_at" | "updated_at" | "position" | "cancellation_reason" | "cancellation_notes" | "cancelled_at" | "cancelled_by">,
+  data: Omit<Deal, "id" | "created_at" | "updated_at" | "position" | "cancellation_reason" | "cancellation_notes" | "cancelled_at" | "cancelled_by" | "in_processing_stage">,
   username: string,
 ): Promise<Deal> {
   const { rows } = await sql<Deal>`
@@ -117,6 +117,7 @@ export async function updateDeal(
       gl_txt = ${next.gl_txt},
       trust_done = ${next.trust_done},
       trust_sent = ${next.trust_sent},
+      in_processing_stage = ${next.in_processing_stage},
       cancellation_reason = ${next.cancellation_reason},
       cancellation_notes  = ${next.cancellation_notes},
       cancelled_at        = ${next.cancelled_at},

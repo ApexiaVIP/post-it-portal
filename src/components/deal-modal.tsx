@@ -16,6 +16,7 @@ import { useState } from "react";
 import {
   DEAL_STATUSES, STATUS_LABELS, type Deal,
   CANCELLATION_REASONS, CANCELLATION_REASON_LABELS,
+  IN_PROCESSING_STAGES, IN_PROCESSING_STAGE_LABELS,
 } from "@/lib/reci/schema";
 
 export function NewDealModal({ slug, year, onClose }: { slug: string; year: number; onClose: () => void }) {
@@ -85,6 +86,7 @@ function DealFormModal({ title, initial, canDelete, onSubmit, onDelete, onClose 
     week: initial.week ?? 1,
     cancellation_reason: initial.cancellation_reason ?? "",
     cancellation_notes:  initial.cancellation_notes ?? "",
+    in_processing_stage: initial.in_processing_stage ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -100,7 +102,8 @@ function DealFormModal({ title, initial, canDelete, onSubmit, onDelete, onClose 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const isCancelled = form.status === "cancelled";
+  const isCancelled    = form.status === "cancelled";
+  const isInProcessing = form.status === "in_processing";
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-start md:items-center justify-center z-50 p-4 overflow-y-auto">
@@ -139,6 +142,17 @@ function DealFormModal({ title, initial, canDelete, onSubmit, onDelete, onClose 
           <Field label="Commission £" className="col-span-2">
             <input type="number" step="0.01" value={form.commission} onChange={set("commission")} className="w-full border rounded px-2 py-1" />
           </Field>
+
+          {isInProcessing && (
+            <Field label="In Processing stage" className="col-span-4">
+              <select value={form.in_processing_stage} onChange={set("in_processing_stage")} className="w-full border rounded px-2 py-1">
+                <option value="">— pick a stage —</option>
+                {IN_PROCESSING_STAGES.map((s) => (
+                  <option key={s} value={s}>{IN_PROCESSING_STAGE_LABELS[s]}</option>
+                ))}
+              </select>
+            </Field>
+          )}
 
           {isCancelled && (
             <>
