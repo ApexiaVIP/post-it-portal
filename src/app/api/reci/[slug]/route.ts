@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isDashboardUser } from "@/lib/auth";
 import { getAdviserBySlug, listDealsForAdviser, businessTrackerFor, createDeal, cancellationsFor } from "@/lib/reci/db";
 import { DEAL_STATUSES } from "@/lib/reci/schema";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: { slug: string } }) {
   const session = await getSession();
-  if (!session.username) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!isDashboardUser(session.username)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { searchParams } = new URL(req.url);
   const year = Number(searchParams.get("year") || new Date().getFullYear());
   const adviser = await getAdviserBySlug(params.slug);
@@ -22,7 +22,7 @@ export async function GET(req: Request, { params }: { params: { slug: string } }
 
 export async function POST(req: Request, { params }: { params: { slug: string } }) {
   const session = await getSession();
-  if (!session.username) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!isDashboardUser(session.username)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const adviser = await getAdviserBySlug(params.slug);
   if (!adviser) return NextResponse.json({ error: "adviser not found" }, { status: 404 });
   const body = (await req.json().catch(() => null)) as any;

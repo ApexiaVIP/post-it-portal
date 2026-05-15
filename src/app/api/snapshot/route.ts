@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyApiToken, getSession } from "@/lib/auth";
+import { verifyApiToken, getSession, isDashboardUser } from "@/lib/auth";
 import { saveSnapshot, getSnapshot, getLatestSnapshot, Snapshot } from "@/lib/snapshots";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +23,8 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   const session = await getSession();
-  if (!session.username) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!isDashboardUser(session.username)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const { searchParams } = new URL(req.url);
   const date = searchParams.get("date");

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isDashboardUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
   const session = await getSession();
-  if (!session.username) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!isDashboardUser(session.username)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const owner = process.env.GITHUB_OWNER;
   const repo = process.env.GITHUB_REPO;
