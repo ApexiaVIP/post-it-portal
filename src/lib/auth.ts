@@ -82,7 +82,7 @@ export async function verifyCredentials(
 //   DATA_ENTRY_USERNAMES -> "data-entry" role: access to the POST IT page (/)
 //                           and the /api/data endpoint ONLY. Everything else
 //                           is locked down.
-//                           Default: "hayder"
+//                           Default: "hayder,tan"
 //
 // Both lists are comma-separated and case insensitive. Even a user with a
 // valid admin credential is rejected unless they appear in one of the lists.
@@ -96,7 +96,7 @@ function parseList(raw: string | undefined): string[] {
 }
 
 const DASHBOARD_USERNAMES  = parseList(process.env.DASHBOARD_USERNAMES  ?? "jimmy,pauline,poz");
-const DATA_ENTRY_USERNAMES = parseList(process.env.DATA_ENTRY_USERNAMES ?? "hayder");
+const DATA_ENTRY_USERNAMES = parseList(process.env.DATA_ENTRY_USERNAMES ?? "hayder,tan");
 
 export type Role = "admin" | "data-entry" | "none";
 
