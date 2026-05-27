@@ -53,6 +53,8 @@ export default function AdviserKanbanPage() {
   // Edit modal opened via ?openDeal=<id> in the URL (drill-through from the
   // Analytics Deals table).
   const [editFromUrl, setEditFromUrl] = useState<Deal | null>(null);
+  // Live search across all kanban columns. Matches multiple text fields.
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -100,12 +102,27 @@ export default function AdviserKanbanPage() {
       not_yet_submitted: [], in_processing: [], on_risk_nyp: [], paid: [], cancelled: [],
     };
     if (!data) return out;
-    for (const d of data.deals) out[d.status].push(d);
+    const q = search.trim().toLowerCase();
+    const matches = (d: Deal): boolean => {
+      if (!q) return true;
+      const fields: (string | null | undefined)[] = [
+        d.client, d.postcode, d.provider, d.notes, d.cancellation_notes,
+        d.miscellaneous, d.confirmed_date, d.acc_ref, d.gl_sp, d.gl_txt,
+      ];
+      return fields.some((f) => f && String(f).toLowerCase().includes(q));
+    };
+    for (const d of data.deals) if (matches(d)) out[d.status].push(d);
     for (const s of DEAL_STATUSES) {
       out[s].sort((a, b) => a.week - b.week || a.position - b.position || a.id - b.id);
     }
     return out;
-  }, [data]);
+  }, [data, search]);
+
+  const searchTotals = useMemo(() => {
+    const total = data?.deals.length ?? 0;
+    const shown = Object.values(dealsByStatus).reduce((acc, arr) => acc + arr.length, 0);
+    return { total, shown };
+  }, [data, dealsByStatus]);
 
   async function moveStatus(dealId: number, newStatus: DealStatus, extra?: { reason?: CancellationReason; notes?: string }) {
     // optimistic update
@@ -175,6 +192,20 @@ export default function AdviserKanbanPage() {
           <h1 className="text-2xl font-semibold">{data.adviser.name} — RECI {year}</h1>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search client, postcode, provider, notes…"
+              className="w-72 border border-slate-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+            />
+            {search.trim() && (
+              <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                {searchTotals.shown} of {searchTotals.total}
+              </span>
+            )}
+          </div>
           <label className="text-sm flex items-center gap-2">
             <span className="text-slate-600">Year:</span>
             <select value={year} onChange={(e) => setYear(Number(e.target.value))}
