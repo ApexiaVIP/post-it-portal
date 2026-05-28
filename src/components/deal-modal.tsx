@@ -12,7 +12,7 @@
  *  - DealFormModal: the actual modal UI shared by both
  *  - Field:         small label wrapper
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   DEAL_STATUSES, STATUS_LABELS, type Deal,
   CANCELLATION_REASONS, CANCELLATION_REASON_LABELS,
@@ -23,6 +23,7 @@ export function NewDealModal({ slug, year, onClose }: { slug: string; year: numb
   return <DealFormModal
     title="New deal"
     initial={{ client: "", week: 1, status: "not_yet_submitted", commission: 0, year }}
+    allowAddAnother
     onSubmit={async (payload) => {
       const r = await fetch(`/api/reci/${slug}`, {
         method: "POST",
@@ -57,10 +58,14 @@ export function EditDealModal({ deal, onClose }: { deal: Deal; onClose: () => vo
   />;
 }
 
-function DealFormModal({ title, initial, canDelete, onSubmit, onDelete, onClose }: {
+function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, onDelete, onClose }: {
   title: string;
   initial: Partial<Deal> & { year?: number };
   canDelete?: boolean;
+  /** Show a "Save and add another" button. Used by NewDealModal so Pauline can
+   *  enter multiple policies for one client without retyping client-level
+   *  fields (client, postcode, week, listened-to, confirmed date, etc.). */
+  allowAddAnother?: boolean;
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
   onDelete?: () => Promise<void>;
   onClose: () => void;
@@ -90,13 +95,52 @@ function DealFormModal({ title, initial, canDelete, onSubmit, onDelete, onClose 
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // "Save and add another" mode: which button triggered the submit, and how
+  // many deals we've already saved in this modal session (shown in the banner).
+  const continueModeRef = useRef(false);
+  const [savedCount, setSavedCount] = useState(0);
+  const [lastSavedClient, setLastSavedClient] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true); setErr(null);
-    try { await onSubmit(form); onClose(); }
-    catch (e2) { setErr(e2 instanceof Error ? e2.message : "save failed"); }
-    finally { setSaving(false); }
+    const wasContinue = continueModeRef.current;
+    continueModeRef.current = false;
+    try {
+      await onSubmit(form);
+      if (wasContinue) {
+        // Keep the modal open: increment counter and reset only per-policy
+        // fields. Client-level fields stay so Pauline can enter the next
+        // policy for the same person without retyping their info.
+        setSavedCount((c) => c + 1);
+        setLastSavedClient(String(form.client || "this client"));
+        setForm((f) => ({
+          ...f,
+          no_of_deals: 1,
+          provider: "",
+          premium: "",
+          acc_ref: "",
+          status: "not_yet_submitted",
+          commission: 0,
+          notes: "",
+          gl_sp: "",
+          gl_txt: "",
+          trust_done: "",
+          trust_sent: "",
+          cancellation_reason: "",
+          cancellation_notes: "",
+          in_processing_stage: "",
+          // KEEP: client, postcode, week, poz_listened, miscellaneous,
+          //       confirmed_date, submitted, year
+        }));
+      } else {
+        onClose();
+      }
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : "save failed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -109,9 +153,21 @@ function DealFormModal({ title, initial, canDelete, onSubmit, onDelete, onClose 
     <div className="fixed inset-0 bg-black/30 flex items-start md:items-center justify-center z-50 p-4 overflow-y-auto">
       <form onSubmit={submit} className="bg-white rounded-lg shadow-xl w-full max-w-3xl">
         <header className="px-4 py-3 border-b flex items-center justify-between">
-          <h2 className="font-semibold">{title}</h2>
+          <h2 className="font-semibold">
+            {title}
+            {savedCount > 0 && (
+              <span className="ml-2 text-xs font-normal text-emerald-700">
+                {savedCount} saved so far
+              </span>
+            )}
+          </h2>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button>
         </header>
+        {allowAddAnother && savedCount > 0 && lastSavedClient && (
+          <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+            ✓ Saved deal {savedCount} for <strong>{lastSavedClient}</strong>. Client details are kept below — enter the next policy and Save again.
+          </div>
+        )}
         <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <Field label="Client" className="col-span-2" required>
             <input value={form.client} onChange={set("client")} required
@@ -187,7 +243,20 @@ function DealFormModal({ title, initial, canDelete, onSubmit, onDelete, onClose 
                     className="text-sm text-red-600 hover:underline">Delete</button>
           ) : <span />}
           <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="text-sm px-3 py-2 text-slate-600 hover:text-slate-900">Cancel</button>
+            <button type="button" onClick={onClose} className="text-sm px-3 py-2 text-slate-600 hover:text-slate-900">
+              {savedCount > 0 ? "Done" : "Cancel"}
+            </button>
+            {allowAddAnother && (
+              <button
+                type="submit"
+                disabled={saving}
+                onClick={() => { continueModeRef.current = true; }}
+                className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                title="Save this deal and keep the modal open so you can add another for the same client"
+              >
+                {saving ? "Saving…" : "Save and add another"}
+              </button>
+            )}
             <button type="submit" disabled={saving}
                     className="bg-slate-900 text-white rounded px-4 py-2 text-sm font-medium hover:bg-slate-800 disabled:opacity-50">
               {saving ? "Saving…" : "Save"}
