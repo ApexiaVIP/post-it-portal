@@ -12,6 +12,7 @@
  * across BST/GMT (Hobby plan has a 2-cron-per-project limit).
  */
 import { NextResponse } from "next/server";
+import { runNightlyBackup } from "@/lib/reci/backup";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -86,6 +87,28 @@ export async function GET(req: Request) {
     const auth = req.headers.get("authorization") || "";
     if (auth !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: "forbidden" }, { status: 401 });
+    }
+  }
+
+  // Nightly RECI backup: if the cron fires between 02:00 and 02:15 UTC,
+  // snapshot deals + deal_history + advisers into Vercel KV. We use UTC here
+  // (not London) so a single daily firing covers BST and GMT consistently.
+  const utcMin = new Date().getUTCHours() * 60 + new Date().getUTCMinutes();
+  if (utcMin >= 120 && utcMin <= 135) {
+    try {
+      const summary = await runNightlyBackup();
+      return NextResponse.json({
+        ok: true,
+        action: "backup",
+        ...summary,
+      });
+    } catch (e) {
+      console.error("[cron] nightly backup failed:", e);
+      return NextResponse.json({
+        ok: false,
+        action: "backup",
+        error: e instanceof Error ? e.message : String(e),
+      }, { status: 500 });
     }
   }
 
