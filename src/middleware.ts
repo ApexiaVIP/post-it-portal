@@ -14,6 +14,7 @@ export const config = {
     "/api/snapshots/:path*",
     "/api/refresh/:path*",
     "/api/reci/:path*",
+    "/api/admin/:path*",
     "/api/me",
   ],
 };
