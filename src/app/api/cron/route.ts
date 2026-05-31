@@ -42,6 +42,20 @@ function londonMinutesNow(): number {
   return h * 60 + m;
 }
 
+/** Sun=0 .. Sat=6 in Europe/London (handles BST/GMT cleanly). */
+function londonWeekday(): number {
+  const wd = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/London",
+    weekday: "short",
+  }).format(new Date());
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
+}
+
+function isLondonWeekend(): boolean {
+  const d = londonWeekday();
+  return d === 0 || d === 6;
+}
+
 function matchingTarget(nowMin: number): string | null {
   for (const tm of TARGETS_MIN) {
     const delta = nowMin - tm;
@@ -121,6 +135,18 @@ export async function GET(req: Request) {
       action: "skipped",
       reason: "no target in window",
       nowMin,
+    });
+  }
+
+  // POST IT dispatch is Mon-Fri only. The cron schedule went 7-day so the
+  // 02:00 UTC backup branch can run on weekends, but the call centre isn't
+  // open Sat/Sun so the scraper has nothing to scrape and would just time out.
+  if (isLondonWeekend()) {
+    return NextResponse.json({
+      ok: true,
+      action: "skipped",
+      reason: "weekend (POST IT runs Mon-Fri only)",
+      target,
     });
   }
 
