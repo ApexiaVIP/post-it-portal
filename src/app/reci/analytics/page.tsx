@@ -10,6 +10,7 @@ import {
 import {
   DEAL_STATUSES, STATUS_LABELS, type DealStatus,
   CANCELLATION_REASONS, CANCELLATION_REASON_LABELS, type CancellationReason,
+  IN_PROCESSING_STAGE_LABELS, type InProcessingStage,
   type Deal,
 } from "@/lib/reci/schema";
 import { PrintButton, PrintHeader } from "@/components/print";
@@ -41,6 +42,7 @@ type DealDetailRow = {
   cancelled_at: string | null;
   cancelled_by: string | null;
   provider: string | null;
+  in_processing_stage: InProcessingStage | null;
 };
 
 type AnalyticsResp = {
@@ -616,12 +618,22 @@ export default function AnalyticsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
+                <colgroup>
+                  <col style={{ width: "3rem" }} />            {/* Wk */}
+                  <col style={{ width: "16%" }} />             {/* Client */}
+                  <col style={{ width: "7.5rem" }} />          {/* Status */}
+                  <col style={{ width: "5rem" }} />            {/* Stage */}
+                  <col style={{ width: "6.5rem" }} />          {/* Reason */}
+                  <col />                                       {/* Notes — flex */}
+                  <col style={{ width: "6.5rem" }} />          {/* Commission */}
+                </colgroup>
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-3 py-2 text-right w-10">Wk</th>
+                    <th className="px-3 py-2 text-right">Wk</th>
                     <th className="px-3 py-2 text-left">Client</th>
                     <th className="px-3 py-2 text-left">Status</th>
+                    <th className="px-3 py-2 text-left">Stage</th>
                     <th className="px-3 py-2 text-left">Reason</th>
                     <th className="px-3 py-2 text-left">Notes</th>
                     <th className="px-3 py-2 text-right">Commission</th>
@@ -632,10 +644,10 @@ export default function AnalyticsPage() {
                     <Fragment key={g.adviser_id}>
                       {/* Adviser banner — section break, clickable to open board */}
                       <tr className="bg-slate-200 print-keep">
-                        <td colSpan={6} className="px-3 py-2 text-sm font-semibold text-slate-800">
+                        <td colSpan={7} className="px-3 py-2 text-sm font-semibold text-slate-800">
                           <Link
                             href={`/reci/${g.adviser_slug}`}
-                            className="hover:text-blue-700 no-print-link"
+                            className="hover:text-blue-700"
                             title="Open this adviser's board"
                           >
                             {g.adviser_name}
@@ -656,19 +668,28 @@ export default function AnalyticsPage() {
                           title="Click to edit this deal"
                         >
                           <td className="px-3 py-2 text-right tabular-nums text-slate-600">{d.week}</td>
-                          <td className="px-3 py-2 whitespace-nowrap">{d.client}</td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 whitespace-nowrap overflow-hidden text-ellipsis" title={d.client}>{d.client}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
                             <span
-                              className="rounded-full px-2 py-0.5 text-xs text-white"
+                              className="inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium leading-4 text-white"
                               style={{ backgroundColor: STATUS_COLORS[d.status] }}
                             >
                               {STATUS_LABELS[d.status]}
                             </span>
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {d.in_processing_stage ? (
+                              <span className="inline-block whitespace-nowrap rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium leading-4 text-blue-800">
+                                {IN_PROCESSING_STAGE_LABELS[d.in_processing_stage]}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-300">-</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
                             {d.reason ? (
                               <span
-                                className="rounded-full px-2 py-0.5 text-xs text-white"
+                                className="inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium leading-4 text-white"
                                 style={{ backgroundColor: REASON_COLORS[d.reason] }}
                               >
                                 {CANCELLATION_REASON_LABELS[d.reason]}
@@ -677,24 +698,22 @@ export default function AnalyticsPage() {
                               <span className="text-xs text-slate-300">-</span>
                             )}
                           </td>
-                          <td className="px-3 py-2 text-slate-700">
+                          <td className="px-3 py-2 text-slate-700 break-words whitespace-normal leading-snug">
                             {d.notes ? d.notes : <span className="text-slate-300">-</span>}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums">{gbp(d.commission)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{gbp(d.commission)}</td>
                         </tr>
                       ))}
                       {/* Adviser subtotal */}
                       <tr className="bg-amber-50 border-t-2 border-amber-200 text-sm font-semibold print-keep">
                         <td className="px-3 py-2"></td>
-                        <td className="px-3 py-2 text-xs uppercase tracking-wide text-amber-800">
+                        <td className="px-3 py-2 whitespace-nowrap text-xs uppercase tracking-wide text-amber-800">
                           {g.adviser_name} subtotal
                         </td>
-                        <td className="px-3 py-2 text-xs text-slate-600">
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-600" colSpan={4}>
                           {g.subtotal.count} deal{g.subtotal.count === 1 ? "" : "s"}
                         </td>
-                        <td className="px-3 py-2"></td>
-                        <td className="px-3 py-2"></td>
-                        <td className="px-3 py-2 text-right tabular-nums text-amber-900">
+                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-amber-900">
                           {gbp(g.subtotal.commission)}
                         </td>
                       </tr>
@@ -704,13 +723,11 @@ export default function AnalyticsPage() {
                   {dealGroups.groups.length > 1 && (
                     <tr className="bg-slate-900 text-white text-sm font-bold print-keep">
                       <td className="px-3 py-3"></td>
-                      <td className="px-3 py-3 uppercase tracking-wide">Overall Total</td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 whitespace-nowrap uppercase tracking-wide">Overall Total</td>
+                      <td className="px-3 py-3 whitespace-nowrap" colSpan={4}>
                         {dealGroups.grand.count} deals
                       </td>
-                      <td className="px-3 py-3"></td>
-                      <td className="px-3 py-3"></td>
-                      <td className="px-3 py-3 text-right tabular-nums">
+                      <td className="px-3 py-3 text-right tabular-nums whitespace-nowrap">
                         {gbp(dealGroups.grand.commission)}
                       </td>
                     </tr>
