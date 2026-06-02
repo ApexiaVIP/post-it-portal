@@ -31,10 +31,11 @@ export interface TrackerRow {
   kind: "week" | "monthly-total" | "weekly-average" | "ytd";
   label: string;
   weekNumbers: number[];           // weeks covered
-  deals: number;                   // total non-cancelled no_of_deals
-  est_gross_comm: number;          // commission of ALL deals (incl cancelled)
-  clawback: number;                // commission of cancelled deals only
-  est_net_comm: number;            // gross - clawback
+  deals: number;                   // total deals excluding cancelled and clawback
+  est_gross_comm: number;          // commission of ALL deals (incl cancelled and clawback)
+  cancelled: number;               // commission of cancelled deals (lost forecast)
+  clawback: number;                // commission of clawback deals (refunded after payout)
+  est_net_comm: number;            // gross - cancelled - clawback (truly retained)
   byAdviser: Record<number, AdviserCell>;
 }
 
@@ -134,6 +135,7 @@ function aggregate(
 ): TrackerRow {
   let totalDeals = 0;
   let grossComm = 0;
+  let cancelled = 0;
   let clawback = 0;
   const acc = new Map<number, AdviserAcc>();
   for (const a of advisers) acc.set(a.id, { deals: 0, commSum: 0, premSum: 0, premCount: 0 });
@@ -141,20 +143,23 @@ function aggregate(
   for (const d of rows) {
     const c = Number(d.commission ?? 0) || 0;
     const isCancelled = d.status === "cancelled";
+    const isClawback  = d.status === "clawback";
 
-    // Aggregate columns.
+    // Aggregate columns: gross includes everything.
     grossComm += c;
-    if (isCancelled) {
-      clawback += c;
-    } else {
+    if (isCancelled) cancelled += c;
+    if (isClawback)  clawback  += c;
+    if (!isCancelled && !isClawback) {
       totalDeals += Number(d.no_of_deals ?? 0) || 0;
     }
 
-    if (isCancelled) continue;
+    // Per-adviser excludes both cancelled (never realised) and clawback
+    // (realised then refunded). Sum of per-adviser Est Comm therefore equals
+    // Est Net Comm = Gross - Cancelled - Clawback.
+    if (isCancelled || isClawback) continue;
 
-    // Per-adviser (non-cancelled only).
     const a = acc.get(d.adviser_id);
-    if (!a) continue; // adviser not in active list -> skip
+    if (!a) continue;
     a.deals    += Number(d.no_of_deals ?? 0) || 0;
     a.commSum  += c;
     if (d.premium != null) {
@@ -178,8 +183,9 @@ function aggregate(
     kind, label, weekNumbers,
     deals: totalDeals,
     est_gross_comm: grossComm,
+    cancelled,
     clawback,
-    est_net_comm: grossComm - clawback,
+    est_net_comm: grossComm - cancelled - clawback,
     byAdviser,
   };
 }
@@ -203,6 +209,7 @@ function averageRow(monthlyTotal: TrackerRow, weeksInMonth: number, advisers: Tr
     weekNumbers: monthlyTotal.weekNumbers,
     deals:           monthlyTotal.deals / div,
     est_gross_comm:  monthlyTotal.est_gross_comm / div,
+    cancelled:       monthlyTotal.cancelled / div,
     clawback:        monthlyTotal.clawback / div,
     est_net_comm:    monthlyTotal.est_net_comm / div,
     byAdviser,
