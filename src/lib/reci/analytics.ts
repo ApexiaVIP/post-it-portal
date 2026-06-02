@@ -79,6 +79,7 @@ export interface DealDetailRow {
   cancelled_at: string | null;
   cancelled_by: string | null;
   provider: string | null;
+  in_processing_stage: import("./schema").InProcessingStage | null;
 }
 
 export interface AnalyticsResult {
@@ -189,6 +190,7 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
       cancelled_at: d.cancelled_at,
       cancelled_by: d.cancelled_by,
       provider: d.provider,
+      in_processing_stage: d.status === "in_processing" ? d.in_processing_stage : null,
     });
 
     const wsKey = `${d.week}|${d.status}`;
