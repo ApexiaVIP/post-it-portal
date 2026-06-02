@@ -23,6 +23,7 @@ interface TrackerRow {
   weekNumbers: number[];
   deals: number;
   est_gross_comm: number;
+  cancelled: number;
   clawback: number;
   est_net_comm: number;
   byAdviser: Record<number, AdviserCell>;
@@ -249,6 +250,7 @@ function TrackerTable({ advisers, rows, title }: {
               <th className="border-b border-r border-slate-200 px-2 py-1 text-left">Week</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Deals</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Est Gross Comm</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Cancelled</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Clawback</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Est Net Comm</th>
               {advisers.map((a) => (
@@ -263,6 +265,7 @@ function TrackerTable({ advisers, rows, title }: {
             </tr>
             <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
               <th className="border-b border-r border-slate-200 px-2 py-1 text-left"></th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right"></th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right"></th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right"></th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right"></th>
@@ -306,6 +309,7 @@ function Row({ row, advisers }: { row: TrackerRow; advisers: TrackerAdviser[] })
         {row.kind === "weekly-average" ? num(row.deals, 1) : num(row.deals)}
       </td>
       <td className="border-b border-r border-slate-200 px-2 py-1 text-right tabular-nums">{gbp(row.est_gross_comm)}</td>
+      <td className="border-b border-r border-slate-200 px-2 py-1 text-right tabular-nums">{gbp(row.cancelled)}</td>
       <td className="border-b border-r border-slate-200 px-2 py-1 text-right tabular-nums">{gbp(row.clawback)}</td>
       <td className="border-b border-r border-slate-200 px-2 py-1 text-right tabular-nums">{gbp(row.est_net_comm)}</td>
       {advisers.map((a) => {
