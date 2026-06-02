@@ -36,7 +36,7 @@ type BundleResp = { adviser: Adviser; deals: Deal[]; tracker: Tracker; cancellat
 
 function gbp(n: number | string | null | undefined) {
   const v = Number(n || 0);
-  return v.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2 });
+  return v.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export default function AdviserKanbanPage() {

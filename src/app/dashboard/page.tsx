@@ -296,7 +296,7 @@ function CancellationsSection() {
   }
 
   const gbp = (n: number) =>
-    n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2 });
+    n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const adviserTotals = data.byAdviser.reduce(
     (acc, a) => ({
