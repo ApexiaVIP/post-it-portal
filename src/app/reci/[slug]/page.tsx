@@ -99,7 +99,7 @@ export default function AdviserKanbanPage() {
 
   const dealsByStatus = useMemo(() => {
     const out: Record<DealStatus, Deal[]> = {
-      not_yet_submitted: [], in_processing: [], on_risk_nyp: [], paid: [], cancelled: [],
+      not_yet_submitted: [], in_processing: [], on_risk_nyp: [], paid: [], cancelled: [], clawback: [],
     };
     if (!data) return out;
     const q = search.trim().toLowerCase();
@@ -225,7 +225,7 @@ export default function AdviserKanbanPage() {
 
       <div className="no-print">
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-          <div className="grid grid-cols-5 gap-3 min-w-[1200px]">
+          <div className="grid grid-cols-6 gap-3 min-w-[1440px]">
             {DEAL_STATUSES.map((s) => (
               <StatusColumn key={s} status={s} deals={dealsByStatus[s]} onEdit={load} />
             ))}
@@ -277,6 +277,7 @@ function StatusColumn({ status, deals, onEdit }: { status: DealStatus; deals: De
     on_risk_nyp: "bg-sky-50 border-sky-300",
     paid: "bg-emerald-50 border-emerald-400",
     cancelled: "bg-rose-50 border-rose-300",
+    clawback: "bg-orange-100 border-orange-500",
   };
   return (
     <div ref={setNodeRef} className={`rounded-lg border ${colorMap[status]} ${isOver ? "ring-2 ring-slate-400" : ""} min-h-[400px]`}>

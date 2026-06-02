@@ -78,6 +78,7 @@ const STATUS_COLORS: Record<DealStatus, string> = {
   on_risk_nyp:       "#8b5cf6", // violet-500
   paid:              "#10b981", // emerald-500
   cancelled:         "#ef4444", // red-500
+  clawback:          "#7c2d12", // amber-900 (distinct from cancelled red)
 };
 
 type LeagueMetric = "commission" | "count";

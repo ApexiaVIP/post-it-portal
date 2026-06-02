@@ -288,6 +288,7 @@ export async function businessTrackerFor(adviserId: number, year: number): Promi
     else if (r.status === "in_processing") w.in_processing += amt;
     else if (r.status === "not_yet_submitted") w.nys += amt;
     else if (r.status === "cancelled") w.cxl += amt;
+    else if (r.status === "clawback")  w.cxl += amt;
     w.total = w.paid + w.on_risk_nyp + w.in_processing + w.nys + w.cxl;
     byWeek.set(r.week, w);
   }
