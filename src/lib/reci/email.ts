@@ -43,7 +43,7 @@ export interface CancellationEmailInput {
 }
 
 function gbp(n: number) {
-  return n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2 });
+  return n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export async function sendCancellationEmail(i: CancellationEmailInput): Promise<{ sent: boolean; reason?: string }> {

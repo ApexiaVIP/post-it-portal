@@ -91,8 +91,10 @@ const TREND_METRIC_LABELS: Record<TrendMetric, string> = {
 };
 
 function gbp(n: number): string {
+  // Always show pounds AND pence, never round. Pauline needs the exact figure
+  // (£3.05 stays £3.05) for client-facing reports.
   return Number(n || 0).toLocaleString("en-GB", {
-    style: "currency", currency: "GBP", minimumFractionDigits: 0, maximumFractionDigits: 0,
+    style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2,
   });
 }
 
