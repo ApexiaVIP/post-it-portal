@@ -83,7 +83,6 @@ export async function sendCancellationEmail(i: CancellationEmailInput): Promise<
     `  Week:          ${i.deal.week}`,
     `  Provider:      ${i.deal.provider || "—"}`,
     `  Premium:       ${i.deal.premium != null ? gbp(Number(i.deal.premium)) : "—"}`,
-    `  Commission:    ${gbp(Number(i.deal.commission || 0))}`,
     `  Reason:        ${reasonLabel}`,
     `  Notes:         ${i.notes || "—"}`,
     `  Cancelled by:  ${i.changedBy}`,
@@ -102,7 +101,6 @@ export async function sendCancellationEmail(i: CancellationEmailInput): Promise<
     row("Week", String(i.deal.week)) +
     row("Provider", i.deal.provider || "—") +
     row("Premium", i.deal.premium != null ? gbp(Number(i.deal.premium)) : "—") +
-    row("Commission", gbp(Number(i.deal.commission || 0))) +
     row("Reason", reasonLabel) +
     row("Notes", i.notes || "—") +
     row("Cancelled by", i.changedBy) +
