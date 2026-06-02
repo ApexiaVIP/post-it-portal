@@ -18,18 +18,22 @@ const ADMIN_LINKS = [
   { href: "/reci",            label: "RECI Boards" },
   { href: "/reci/analytics",  label: "RECI Analytics" },
   { href: "/reci/tracker",    label: "Deal Tracker" },
+  { href: "/reci/weekly",     label: "Weekly Deals" },
   { href: "/dashboard",       label: "Call-Centre Dashboard" },
 ];
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/reci/analytics") return pathname === "/reci/analytics";
   if (href === "/reci/tracker")   return pathname === "/reci/tracker";
+  if (href === "/reci/weekly")    return pathname === "/reci/weekly";
   if (href === "/reci") {
-    // Any /reci/* board page (but not the standalone analytics / tracker
-    // pages) counts as Boards.
+    // Any /reci/* board page (but not the standalone analytics / tracker /
+    // weekly pages) counts as Boards.
     if (pathname === "/reci") return true;
     if (!pathname.startsWith("/reci/")) return false;
-    return pathname !== "/reci/analytics" && pathname !== "/reci/tracker";
+    return pathname !== "/reci/analytics"
+        && pathname !== "/reci/tracker"
+        && pathname !== "/reci/weekly";
   }
   return pathname === href || pathname.startsWith(href + "/");
 }
