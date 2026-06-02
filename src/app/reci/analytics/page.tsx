@@ -544,7 +544,13 @@ export default function AnalyticsPage() {
                   margin={{ top: 4, right: 8, bottom: 0, left: 8 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 11 }}
+                    allowDecimals={leagueMetric === "commission"}
+                    tickFormatter={leagueMetric === "commission" ? ((v: number) => gbp(v)) : undefined}
+                    width={70}
+                  />
                   <YAxis type="category" dataKey="adviser_name" width={80} tick={{ fontSize: 11 }} />
                   <RTooltip
                     formatter={(value) =>
@@ -575,10 +581,19 @@ export default function AnalyticsPage() {
               <Empty msg="No deals in current filter." />
             ) : (
               <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={data!.trend} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+                <LineChart data={data!.trend} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="week" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    allowDecimals={trendMetric === "commission" || trendMetric === "paidCommission"}
+                    tickFormatter={
+                      (trendMetric === "commission" || trendMetric === "paidCommission")
+                        ? ((v: number) => gbp(v))
+                        : undefined
+                    }
+                    width={80}
+                  />
                   <RTooltip
                     labelFormatter={(w) => `Week ${w}`}
                     formatter={(value) => {
