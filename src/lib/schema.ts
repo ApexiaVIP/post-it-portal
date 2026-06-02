@@ -72,6 +72,22 @@ export function londonDateIso(d: Date = new Date()): string {
   return fmt.format(d);
 }
 
+/**
+ * ISO 8601 week number (1-53) for the given moment in London time. Week 1
+ * is the week containing the first Thursday of the calendar year. Matches
+ * the convention used in the deals table and the Deal Tracker rollups.
+ */
+export function isoWeekNumber(d: Date = new Date()): number {
+  const [y, m, day] = londonDateIso(d).split("-").map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, day));
+  const dayNum = (utc.getUTCDay() + 6) % 7; // Mon=0 .. Sun=6
+  utc.setUTCDate(utc.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(utc.getUTCFullYear(), 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  return 1 + Math.round((utc.getTime() - firstThursday.getTime()) / (7 * 24 * 60 * 60 * 1000));
+}
+
 /** Monday of the week containing the given London date. */
 export function londonMondayOf(isoDate: string): string {
   const [y, m, d] = isoDate.split("-").map(Number);
