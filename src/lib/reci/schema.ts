@@ -9,6 +9,7 @@ export const DEAL_STATUSES = [
   "on_risk_nyp",
   "paid",
   "cancelled",
+  "clawback",
 ] as const;
 export type DealStatus = (typeof DEAL_STATUSES)[number];
 
@@ -18,16 +19,20 @@ export const STATUS_LABELS: Record<DealStatus, string> = {
   on_risk_nyp:       "On Risk NYP",
   paid:              "Paid",
   cancelled:         "Cancelled",
+  clawback:          "Clawback",
 };
 
 // Commission column mapping — which spreadsheet "COMMS £" column the deal's
-// commission goes into, given its current status.
+// commission goes into, given its current status. Clawback maps to the same
+// "cxl" bucket as Cancelled for now so the Business Tracker totals stay
+// consistent with Pauline's existing report; we can split it out later.
 export const STATUS_TO_COMMS_COLUMN: Record<DealStatus, "paid"|"on_risk_nyp"|"in_processing"|"nys"|"cxl"> = {
   paid:              "paid",
   on_risk_nyp:       "on_risk_nyp",
   in_processing:     "in_processing",
   not_yet_submitted: "nys",
   cancelled:         "cxl",
+  clawback:          "cxl",
 };
 
 // --- In-processing sub-stage ------------------------------------------------
