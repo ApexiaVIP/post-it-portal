@@ -18,11 +18,15 @@ import {
   CANCELLATION_REASONS, CANCELLATION_REASON_LABELS,
   IN_PROCESSING_STAGES, IN_PROCESSING_STAGE_LABELS,
 } from "@/lib/reci/schema";
+import { isoWeekNumber } from "@/lib/schema";
 
 export function NewDealModal({ slug, year, onClose }: { slug: string; year: number; onClose: () => void }) {
+  // Default to the current ISO week in London time so Pauline doesn't have to
+  // calculate it. If she's adding a deal for a different week she can still
+  // edit the field.
   return <DealFormModal
     title="New deal"
-    initial={{ client: "", week: 1, status: "not_yet_submitted", commission: 0, year }}
+    initial={{ client: "", week: isoWeekNumber(), status: "not_yet_submitted", commission: 0, year }}
     allowAddAnother
     onSubmit={async (payload) => {
       const r = await fetch(`/api/reci/${slug}`, {

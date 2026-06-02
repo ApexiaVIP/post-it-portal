@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   PieChart, Pie, Cell, Tooltip as RTooltip, Legend, ResponsiveContainer,
@@ -182,6 +182,17 @@ export default function AnalyticsPage() {
     return () => ctrl.abort();
   }, [load]);
 
+  // Force landscape A4 for printing this page (the Deals table is wide). Only
+  // affects prints while this route is mounted; cleaned up on unmount so it
+  // doesn't bleed into other pages.
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.setAttribute("data-analytics-print", "1");
+    style.textContent = "@media print { @page { size: A4 landscape; margin: 8mm; } }";
+    document.head.appendChild(style);
+    return () => { style.remove(); };
+  }, []);
+
   const toggleInArray = <T,>(arr: T[], v: T): T[] =>
     arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 
@@ -239,6 +250,35 @@ export default function AnalyticsPage() {
       map.set(r.week, w);
     }
     return Array.from(map.values()).sort((a, b) => a.week - b.week);
+  }, [data]);
+
+  // Deals detail grouped by adviser, ordered by the advisers list (which the
+  // API returns in sort_order from the DB). Each group sorted by week asc,
+  // then id asc. Used by both screen and print.
+  const dealGroups = useMemo(() => {
+    if (!data) return { groups: [] as Array<{ adviser_id: number; adviser_name: string; adviser_slug: string; rows: DealDetailRow[]; subtotal: { count: number; commission: number } }>, grand: { count: 0, commission: 0 } };
+    const byAdv = new Map<number, DealDetailRow[]>();
+    for (const d of data.dealDetail) {
+      const arr = byAdv.get(d.adviser_id) ?? [];
+      arr.push(d);
+      byAdv.set(d.adviser_id, arr);
+    }
+    const groups = data.advisers
+      .map((a) => {
+        const rows = (byAdv.get(a.id) ?? []).slice()
+          .sort((x, y) => x.week - y.week || x.id - y.id);
+        const subtotal = rows.reduce(
+          (acc, r) => ({ count: acc.count + 1, commission: acc.commission + r.commission }),
+          { count: 0, commission: 0 },
+        );
+        return { adviser_id: a.id, adviser_name: a.name, adviser_slug: rows[0]?.adviser_slug ?? "", rows, subtotal };
+      })
+      .filter((g) => g.rows.length > 0);
+    const grand = data.dealDetail.reduce(
+      (acc, r) => ({ count: acc.count + 1, commission: acc.commission + r.commission }),
+      { count: 0, commission: 0 },
+    );
+    return { groups, grand };
   }, [data]);
 
   const leagueData = useMemo(() => {
@@ -579,8 +619,7 @@ export default function AnalyticsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-3 py-2 text-left">Adviser</th>
-                    <th className="px-3 py-2 text-right">Wk</th>
+                    <th className="px-3 py-2 text-right w-10">Wk</th>
                     <th className="px-3 py-2 text-left">Client</th>
                     <th className="px-3 py-2 text-left">Status</th>
                     <th className="px-3 py-2 text-left">Reason</th>
@@ -589,53 +628,93 @@ export default function AnalyticsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.dealDetail.map((d) => (
-                    <tr
-                      key={d.id}
-                      className={`cursor-pointer border-t border-slate-100 align-top hover:bg-slate-50 ${
-                        opening === d.id ? "opacity-60" : ""
-                      }`}
-                      onClick={() => openDealForEdit(d.id)}
-                      title="Click to edit this deal"
-                    >
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <Link
-                          href={`/reci/${d.adviser_slug}`}
-                          className="font-medium text-blue-600 hover:text-blue-800"
-                          onClick={(e) => e.stopPropagation()}
-                          title="Open this adviser's board"
-                        >
-                          {d.adviser_name}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-slate-600">{d.week}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{d.client}</td>
-                      <td className="px-3 py-2">
-                        <span
-                          className="rounded-full px-2 py-0.5 text-xs text-white"
-                          style={{ backgroundColor: STATUS_COLORS[d.status] }}
-                        >
-                          {STATUS_LABELS[d.status]}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        {d.reason ? (
-                          <span
-                            className="rounded-full px-2 py-0.5 text-xs text-white"
-                            style={{ backgroundColor: REASON_COLORS[d.reason] }}
+                  {dealGroups.groups.map((g) => (
+                    <Fragment key={g.adviser_id}>
+                      {/* Adviser banner — section break, clickable to open board */}
+                      <tr className="bg-slate-200 print-keep">
+                        <td colSpan={6} className="px-3 py-2 text-sm font-semibold text-slate-800">
+                          <Link
+                            href={`/reci/${g.adviser_slug}`}
+                            className="hover:text-blue-700 no-print-link"
+                            title="Open this adviser's board"
                           >
-                            {CANCELLATION_REASON_LABELS[d.reason]}
+                            {g.adviser_name}
+                          </Link>
+                          <span className="ml-2 text-xs font-normal text-slate-500">
+                            {g.subtotal.count} deal{g.subtotal.count === 1 ? "" : "s"}
                           </span>
-                        ) : (
-                          <span className="text-xs text-slate-300">-</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">
-                        {d.notes ? d.notes : <span className="text-slate-300">-</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{gbp(d.commission)}</td>
-                    </tr>
+                        </td>
+                      </tr>
+                      {/* Data rows */}
+                      {g.rows.map((d) => (
+                        <tr
+                          key={d.id}
+                          className={`cursor-pointer border-t border-slate-100 align-top hover:bg-slate-50 ${
+                            opening === d.id ? "opacity-60" : ""
+                          }`}
+                          onClick={() => openDealForEdit(d.id)}
+                          title="Click to edit this deal"
+                        >
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-600">{d.week}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{d.client}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className="rounded-full px-2 py-0.5 text-xs text-white"
+                              style={{ backgroundColor: STATUS_COLORS[d.status] }}
+                            >
+                              {STATUS_LABELS[d.status]}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            {d.reason ? (
+                              <span
+                                className="rounded-full px-2 py-0.5 text-xs text-white"
+                                style={{ backgroundColor: REASON_COLORS[d.reason] }}
+                              >
+                                {CANCELLATION_REASON_LABELS[d.reason]}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-300">-</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700">
+                            {d.notes ? d.notes : <span className="text-slate-300">-</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">{gbp(d.commission)}</td>
+                        </tr>
+                      ))}
+                      {/* Adviser subtotal */}
+                      <tr className="bg-amber-50 border-t-2 border-amber-200 text-sm font-semibold print-keep">
+                        <td className="px-3 py-2"></td>
+                        <td className="px-3 py-2 text-xs uppercase tracking-wide text-amber-800">
+                          {g.adviser_name} subtotal
+                        </td>
+                        <td className="px-3 py-2 text-xs text-slate-600">
+                          {g.subtotal.count} deal{g.subtotal.count === 1 ? "" : "s"}
+                        </td>
+                        <td className="px-3 py-2"></td>
+                        <td className="px-3 py-2"></td>
+                        <td className="px-3 py-2 text-right tabular-nums text-amber-900">
+                          {gbp(g.subtotal.commission)}
+                        </td>
+                      </tr>
+                    </Fragment>
                   ))}
+                  {/* Grand total — only meaningful when 2+ advisers in scope */}
+                  {dealGroups.groups.length > 1 && (
+                    <tr className="bg-slate-900 text-white text-sm font-bold print-keep">
+                      <td className="px-3 py-3"></td>
+                      <td className="px-3 py-3 uppercase tracking-wide">Overall Total</td>
+                      <td className="px-3 py-3">
+                        {dealGroups.grand.count} deals
+                      </td>
+                      <td className="px-3 py-3"></td>
+                      <td className="px-3 py-3"></td>
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        {gbp(dealGroups.grand.commission)}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
