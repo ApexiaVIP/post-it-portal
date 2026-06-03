@@ -17,6 +17,7 @@ import {
   DEAL_STATUSES, STATUS_LABELS, type Deal,
   CANCELLATION_REASONS, CANCELLATION_REASON_LABELS,
   IN_PROCESSING_STAGES, IN_PROCESSING_STAGE_LABELS,
+  NYS_CHECK_STATUSES, NYS_CHECK_STATUS_LABELS,
 } from "@/lib/reci/schema";
 import { isoWeekNumber } from "@/lib/schema";
 
@@ -96,6 +97,8 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
     cancellation_reason: initial.cancellation_reason ?? "",
     cancellation_notes:  initial.cancellation_notes ?? "",
     in_processing_stage: initial.in_processing_stage ?? "",
+    nys_check_status:    initial.nys_check_status    ?? "",
+    nys_check_notes:     initial.nys_check_notes     ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -152,6 +155,7 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
 
   const isCancelled    = form.status === "cancelled";
   const isInProcessing = form.status === "in_processing";
+  const isNys          = form.status === "not_yet_submitted";
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-start md:items-center justify-center z-50 p-4 overflow-y-auto">
@@ -212,6 +216,28 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
                 ))}
               </select>
             </Field>
+          )}
+
+          {isNys && (
+            <>
+              <Field label="Pre-submit check" className="col-span-2">
+                <select value={form.nys_check_status} onChange={set("nys_check_status")} className="w-full border rounded px-2 py-1">
+                  <option value="">— OK —</option>
+                  {NYS_CHECK_STATUSES.map((s) => (
+                    <option key={s} value={s}>{NYS_CHECK_STATUS_LABELS[s]}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Pre-submit check notes" className="col-span-4">
+                <textarea
+                  value={form.nys_check_notes}
+                  onChange={set("nys_check_notes")}
+                  rows={2}
+                  className="w-full border rounded px-2 py-1"
+                  placeholder="What needs addressing? Sent to the seller by email when you save."
+                />
+              </Field>
+            </>
           )}
 
           {isCancelled && (

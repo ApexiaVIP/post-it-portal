@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession, isDashboardUser } from "@/lib/auth";
 import { getDealById, updateDeal, deleteDeal } from "@/lib/reci/db";
-import { CANCELLATION_REASONS, DEAL_STATUSES, IN_PROCESSING_STAGES } from "@/lib/reci/schema";
+import { CANCELLATION_REASONS, DEAL_STATUSES, IN_PROCESSING_STAGES, NYS_CHECK_STATUSES } from "@/lib/reci/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +45,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     } else if (IN_PROCESSING_STAGES.includes(body.in_processing_stage)) {
       patch.in_processing_stage = body.in_processing_stage;
     }
+  }
+  if ("nys_check_status" in body) {
+    if (body.nys_check_status == null || body.nys_check_status === "") {
+      patch.nys_check_status = null;
+    } else if (NYS_CHECK_STATUSES.includes(body.nys_check_status)) {
+      patch.nys_check_status = body.nys_check_status;
+    }
+  }
+  if ("nys_check_notes" in body) {
+    patch.nys_check_notes = body.nys_check_notes != null ? String(body.nys_check_notes).slice(0, 1000) : null;
   }
   if ("cancellation_notes" in body) {
     patch.cancellation_notes = body.cancellation_notes != null ? String(body.cancellation_notes).slice(0, 1000) : null;
