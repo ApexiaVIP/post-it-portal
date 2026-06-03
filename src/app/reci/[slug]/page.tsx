@@ -16,6 +16,7 @@ import {
   CANCELLATION_REASONS, CANCELLATION_REASON_LABELS, CANCELLATION_REASON_SHORT,
   type CancellationReason,
   IN_PROCESSING_STAGES, IN_PROCESSING_STAGE_LABELS,
+  NYS_CHECK_STATUSES, NYS_CHECK_STATUS_LABELS,
 } from "@/lib/reci/schema";
 import { PrintButton, PrintHeader } from "@/components/print";
 import { NewDealModal, EditDealModal } from "@/components/deal-modal";
@@ -326,9 +327,75 @@ function DealCard({ deal, onEdit, dragging }: { deal: Deal; onEdit: () => void; 
             onChanged={onEdit}
           />
         )}
+        {deal.status === "not_yet_submitted" && (
+          <NysCheckSelect
+            deal={deal}
+            onChanged={onEdit}
+          />
+        )}
+        {deal.status === "not_yet_submitted" && deal.nys_check_status === "checked" && deal.nys_check_notes && (
+          <div className="mt-1 truncate text-xs italic text-amber-700" title={deal.nys_check_notes}>
+            Check: {deal.nys_check_notes}
+          </div>
+        )}
       </div>
       {editing && <EditDealModal deal={deal} onClose={() => { setEditing(false); onEdit(); }} />}
     </>
+  );
+}
+
+function NysCheckSelect({ deal, onChanged }: { deal: Deal; onChanged: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const value = deal.nys_check_status ?? "";
+
+  async function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const next = e.target.value;
+    // If marking as checked for the first time, ask Pauline for a note so the
+    // email to the seller is meaningful.
+    let notes: string | null | undefined = undefined;
+    if (next === "checked" && deal.nys_check_status !== "checked") {
+      const promptInput = window.prompt(
+        "What needs addressing on this deal? (Sent to the seller by email.)",
+        deal.nys_check_notes ?? "",
+      );
+      if (promptInput === null) return; // cancelled
+      notes = promptInput.trim() || null;
+    }
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = { nys_check_status: next || null };
+      if (notes !== undefined) body.nys_check_notes = notes;
+      const r = await fetch(`/api/reci/deals/${deal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (r.ok) onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="mt-1 flex items-center gap-1 text-xs"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <span className="text-slate-500">Check:</span>
+      <select
+        value={value}
+        onChange={onChange}
+        disabled={saving}
+        className={`flex-1 min-w-0 border rounded px-1 py-0.5 ${value ? "border-amber-500 bg-amber-50 text-amber-900" : ""}`}
+      >
+        <option value="">— OK —</option>
+        {NYS_CHECK_STATUSES.map((s) => (
+          <option key={s} value={s}>{NYS_CHECK_STATUS_LABELS[s]}</option>
+        ))}
+      </select>
+      {saving && <span className="text-slate-400">…</span>}
+    </div>
   );
 }
 

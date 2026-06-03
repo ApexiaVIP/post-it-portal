@@ -10,7 +10,7 @@ import {
   Deal,
   DealStatus,
 } from "./schema";
-import { sendCancellationEmail } from "./email";
+import { sendCancellationEmail, sendNysCheckEmail } from "./email";
 
 export async function listAdvisers(): Promise<Adviser[]> {
   const { rows } = await sql<Adviser>`
@@ -57,7 +57,7 @@ export async function listDealsForAdviser(adviserId: number, year: number): Prom
 }
 
 export async function createDeal(
-  data: Omit<Deal, "id" | "created_at" | "updated_at" | "position" | "cancellation_reason" | "cancellation_notes" | "cancelled_at" | "cancelled_by" | "in_processing_stage">,
+  data: Omit<Deal, "id" | "created_at" | "updated_at" | "position" | "cancellation_reason" | "cancellation_notes" | "cancelled_at" | "cancelled_by" | "in_processing_stage" | "nys_check_status" | "nys_check_notes" | "nys_checked_at" | "nys_checked_by">,
   username: string,
 ): Promise<Deal> {
   const { rows } = await sql<Deal>`
@@ -122,6 +122,10 @@ export async function updateDeal(
       cancellation_notes  = ${next.cancellation_notes},
       cancelled_at        = ${next.cancelled_at},
       cancelled_by        = ${next.cancelled_by},
+      nys_check_status    = ${next.nys_check_status},
+      nys_check_notes     = ${next.nys_check_notes},
+      nys_checked_at      = ${(prev.nys_check_status !== "checked" && next.nys_check_status === "checked") ? new Date().toISOString() : next.nys_checked_at},
+      nys_checked_by      = ${(prev.nys_check_status !== "checked" && next.nys_check_status === "checked") ? username : next.nys_checked_by},
       updated_at = now()
     WHERE id = ${id}
     RETURNING *
@@ -133,6 +137,22 @@ export async function updateDeal(
       VALUES (${id}, ${username}, ${prev.status}, ${updated.status}, ${prev.commission}, ${updated.commission}, 'updated')
     `;
   }
+
+  // Fire the NYS-check email on the transition from null -> 'checked'.
+  if (prev.nys_check_status !== "checked" && updated.nys_check_status === "checked") {
+    const adviser = await getAdviserById(updated.adviser_id);
+    if (adviser) {
+      const result = await sendNysCheckEmail({
+        deal: updated,
+        adviser,
+        notes: updated.nys_check_notes,
+        changedBy: username,
+      });
+      if (!result.sent) console.error("[reci] nys check email NOT sent:", result.reason);
+      else              console.log("[reci] nys check email sent for deal", updated.id);
+    }
+  }
+
   return updated;
 }
 
@@ -220,6 +240,21 @@ export async function changeDealStatus(
         status = ${newStatus},
         position = ${pos},
         updated_at = now()
+      WHERE id = ${id}
+      RETURNING *
+    `;
+    updated = r.rows[0];
+  }
+
+  // NYS check is a sub-state of Not Yet Submitted only. When the deal moves
+  // out of NYS into anything else, "release" the check (per Pauline's spec).
+  if (prev.status === "not_yet_submitted" && newStatus !== "not_yet_submitted" && prev.nys_check_status) {
+    const r = await sql<Deal>`
+      UPDATE deals SET
+        nys_check_status = NULL,
+        nys_check_notes  = NULL,
+        nys_checked_at   = NULL,
+        nys_checked_by   = NULL
       WHERE id = ${id}
       RETURNING *
     `;

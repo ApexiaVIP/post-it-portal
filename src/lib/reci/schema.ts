@@ -35,6 +35,17 @@ export const STATUS_TO_COMMS_COLUMN: Record<DealStatus, "paid"|"on_risk_nyp"|"in
   clawback:          "cxl",
 };
 
+// --- NYS pre-submit check ---------------------------------------------------
+// Pauline marks an NYS deal as 'checked' if she's reviewed it and isn't happy
+// (e.g. the call needs revisiting). The seller gets an email with her notes.
+// Cleared automatically when the deal moves to In Processing or On Risk NYP.
+export const NYS_CHECK_STATUSES = ["checked"] as const;
+export type NysCheckStatus = (typeof NYS_CHECK_STATUSES)[number];
+
+export const NYS_CHECK_STATUS_LABELS: Record<NysCheckStatus, string> = {
+  checked: "Checked",
+};
+
 // --- In-processing sub-stage ------------------------------------------------
 // Only meaningful when status = 'in_processing'. Lets the team track which
 // step of processing a deal is at (e.g. waiting for GPR, awaiting RFI, etc.).
@@ -105,6 +116,10 @@ export interface Deal {
   cancellation_notes: string | null;
   cancelled_at: string | null;
   cancelled_by: string | null;
+  nys_check_status: NysCheckStatus | null;
+  nys_check_notes: string | null;
+  nys_checked_at: string | null;
+  nys_checked_by: string | null;
   created_at: string;
   updated_at: string;
 }

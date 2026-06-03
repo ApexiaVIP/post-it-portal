@@ -132,6 +132,87 @@ function row(label: string, value: string) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// NYS "Checked" email — sent when Pauline marks a Not Yet Submitted deal as
+// checked because she's not happy with it and wants the seller to address
+// something before it can be submitted.
+// ---------------------------------------------------------------------------
+export interface NysCheckEmailInput {
+  deal: Deal;
+  adviser: Adviser;
+  notes: string | null;
+  changedBy: string;
+}
+
+export async function sendNysCheckEmail(i: NysCheckEmailInput): Promise<{ sent: boolean; reason?: string }> {
+  const transporter = getTransporter();
+  if (!transporter) return { sent: false, reason: "no SMTP credentials" };
+
+  const ccList = (process.env.RECI_CANCELLATION_CC || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const to: string[] = [];
+  const cc: string[] = [];
+  if (i.adviser.email) {
+    to.push(i.adviser.email);
+    cc.push(...ccList);
+  } else if (ccList.length > 0) {
+    to.push(...ccList);
+  } else {
+    return { sent: false, reason: "no recipient" };
+  }
+
+  const subject = `[RECI] Deal needs review: ${i.deal.client}`;
+
+  const lines = [
+    `Hi ${i.adviser.name},`,
+    ``,
+    `Pauline has reviewed one of your Not Yet Submitted deals and has flagged it for attention before it can move forward.`,
+    ``,
+    `  Client:       ${i.deal.client}`,
+    `  Week:         ${i.deal.week}`,
+    `  Provider:     ${i.deal.provider || "—"}`,
+    `  Premium:      ${i.deal.premium != null ? gbp(Number(i.deal.premium)) : "—"}`,
+    `  Notes:        ${i.notes || "—"}`,
+    `  Checked by:   ${i.changedBy}`,
+    ``,
+    `Please address the notes above. Once Pauline is happy she'll move the deal into In Processing or On Risk NYP, which will release the Checked status.`,
+    ``,
+    `— RECI portal`,
+  ];
+  const text = lines.join("\n");
+
+  const html =
+    `<p>Hi ${escapeHtml(i.adviser.name)},</p>` +
+    `<p>Pauline has reviewed one of your <strong>Not Yet Submitted</strong> deals and has flagged it for attention before it can move forward.</p>` +
+    `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">` +
+    row("Client", i.deal.client) +
+    row("Week", String(i.deal.week)) +
+    row("Provider", i.deal.provider || "—") +
+    row("Premium", i.deal.premium != null ? gbp(Number(i.deal.premium)) : "—") +
+    row("Notes", i.notes || "—") +
+    row("Checked by", i.changedBy) +
+    `</table>` +
+    `<p>Please address the notes above. Once Pauline is happy she'll move the deal into In Processing or On Risk NYP, which will release the Checked status.</p>` +
+    `<p style="color:#888;font-size:12px">— RECI portal</p>`;
+
+  try {
+    await transporter.sendMail({
+      from: `"RECI" <${process.env.GMAIL_USER}>`,
+      to: to.join(","),
+      cc: cc.length > 0 ? cc.join(",") : undefined,
+      subject,
+      text,
+      html,
+    });
+    return { sent: true };
+  } catch (e) {
+    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 function escapeHtml(s: string) {
   return s
     .replace(/&/g, "&amp;")
