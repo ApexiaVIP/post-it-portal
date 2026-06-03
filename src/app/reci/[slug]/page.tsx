@@ -306,9 +306,16 @@ function DealCard({ deal, onEdit, dragging }: { deal: Deal; onEdit: () => void; 
            className="bg-white rounded border border-slate-200 p-2 shadow-sm hover:shadow cursor-grab">
         <div className="flex items-center justify-between">
           <div className="font-medium text-sm">{deal.client}</div>
-          <button onClick={(e) => { e.stopPropagation(); setEditing(true); }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  className="text-xs text-slate-400 hover:text-slate-700">edit</button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label={`Edit ${deal.client}`}
+            title="Edit deal"
+            className="ml-2 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-900 hover:text-white focus:outline-none focus:ring-2 focus:ring-slate-400 active:bg-slate-700"
+          >
+            Edit
+          </button>
         </div>
         <div className="text-xs text-slate-500 mt-1">{deal.postcode || "—"} · {deal.provider || "—"}</div>
         <div className="text-xs mt-1 flex justify-between tabular-nums">
