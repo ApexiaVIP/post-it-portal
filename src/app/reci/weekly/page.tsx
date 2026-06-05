@@ -70,10 +70,10 @@ const STATUS_COLORS: Record<DealStatus, string> = {
 };
 
 const REASON_COLORS: Record<CancellationReason, string> = {
-  npw:       "#dc2626",
-  postponed: "#f59e0b",
-  declined:  "#ea580c",
-  other:     "#6b7280",
+  npw:       "#dc2626", // red-600
+  postponed: "#2563eb", // blue-600
+  declined:  "#16a34a", // green-600
+  other:     "#f59e0b", // amber-500
 };
 
 function gbp(n: number): string {
