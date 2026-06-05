@@ -217,43 +217,99 @@ export default function BusinessTrackerPage() {
           ]}
         />
 
-        {!data || data.advisers.length === 0 ? (
+        {!data ? (
           <div className="rounded-lg border bg-white p-6 text-sm text-slate-500">
-            {loading ? "Loading…" : "No deals in current scope."}
+            {loading ? "Loading…" : "Loading…"}
           </div>
-        ) : (
-          data.advisers.map((a) => <AdviserBlock key={a.adviser_id} block={a} />)
-        )}
+        ) : <PivotedView data={data} />}
       </main>
     </div>
   );
 }
 
-function AdviserBlock({ block }: { block: BizAdviserRollup }) {
+// Pivot the data: for each week in scope, build a row per adviser plus a week
+// total. Skip weeks with zero overall activity.
+function PivotedView({ data }: { data: Resp }) {
+  // Build the per-week sections.
+  const sections = data.weeksInScope.map((week) => {
+    const rows = data.advisers.map((a) => {
+      const row = a.weeks.find((w) => w.week === week)
+        ?? emptyRow(week);
+      return { adviser_id: a.adviser_id, adviser_name: a.adviser_name, row };
+    });
+    const weekTotal = rows.reduce(
+      (acc, { row }) => ({
+        week,
+        paid:              acc.paid + row.paid,
+        on_risk_nyp:       acc.on_risk_nyp + row.on_risk_nyp,
+        in_processing:     acc.in_processing + row.in_processing,
+        not_yet_submitted: acc.not_yet_submitted + row.not_yet_submitted,
+        cancelled:         acc.cancelled + row.cancelled,
+        total:             acc.total + row.total,
+      }),
+      emptyRow(week),
+    );
+    return { week, rows, weekTotal };
+  }).filter((s) => s.weekTotal.total > 0);
+
+  // Overall scope total (across every week shown).
+  const grand = sections.reduce(
+    (acc, s) => ({
+      week: 0,
+      paid:              acc.paid + s.weekTotal.paid,
+      on_risk_nyp:       acc.on_risk_nyp + s.weekTotal.on_risk_nyp,
+      in_processing:     acc.in_processing + s.weekTotal.in_processing,
+      not_yet_submitted: acc.not_yet_submitted + s.weekTotal.not_yet_submitted,
+      cancelled:         acc.cancelled + s.weekTotal.cancelled,
+      total:             acc.total + s.weekTotal.total,
+    }),
+    emptyRow(0),
+  );
+
+  if (sections.length === 0) {
+    return (
+      <div className="rounded-lg border bg-white p-6 text-sm text-slate-500">
+        No deals in current scope.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {sections.map((s) => <WeekBlock key={s.week} week={s.week} rows={s.rows} weekTotal={s.weekTotal} />)}
+      <section className="rounded-lg border bg-slate-900 text-white shadow-sm print-keep">
+        <div className="border-b border-slate-700 px-3 py-2 text-sm font-bold uppercase tracking-wide">
+          Overall total
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full table-fixed border-collapse text-xs">
+            <ColGroup />
+            <tbody>
+              <Row label="OVERALL" row={grand} kind="grand" />
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function WeekBlock({ week, rows, weekTotal }: {
+  week: number;
+  rows: { adviser_id: number; adviser_name: string; row: BizWeekRow }[];
+  weekTotal: BizWeekRow;
+}) {
   return (
     <section className="rounded-lg border bg-white shadow-sm print-keep">
       <h2 className="border-b bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">
-        {block.adviser_name}
+        Week {week}
       </h2>
       <div className="overflow-x-auto">
         <table className="w-full table-fixed border-collapse text-xs">
-          <colgroup>
-            <col style={{ width: "4.5rem" }} />     {/* Week */}
-            <col style={{ width: "6.5rem" }} />     {/* Paid £ */}
-            <col style={{ width: "3rem"   }} />     {/* Paid % */}
-            <col style={{ width: "6.5rem" }} />     {/* On Risk NYP £ */}
-            <col style={{ width: "3rem"   }} />     {/* On Risk NYP % */}
-            <col style={{ width: "6.5rem" }} />     {/* In Proc £ */}
-            <col style={{ width: "3rem"   }} />     {/* In Proc % */}
-            <col style={{ width: "6.5rem" }} />     {/* NYS £ */}
-            <col style={{ width: "3rem"   }} />     {/* NYS % */}
-            <col style={{ width: "6.5rem" }} />     {/* Cancelled £ */}
-            <col style={{ width: "3rem"   }} />     {/* Cancelled % */}
-            <col />                                  {/* Total £ — flex */}
-          </colgroup>
+          <ColGroup />
           <thead>
             <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-left">Week</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-left">Agent</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Paid</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">On Risk NYP</th>
@@ -268,10 +324,10 @@ function AdviserBlock({ block }: { block: BizAdviserRollup }) {
             </tr>
           </thead>
           <tbody>
-            {block.weeks.map((w) => (
-              <Row key={w.week} row={w} weekLabel={`Week ${w.week}`} kind="week" />
+            {rows.map((r) => (
+              <Row key={r.adviser_id} label={r.adviser_name} row={r.row} kind="adviser" />
             ))}
-            <Row row={block.total} weekLabel="TOTAL" kind="total" />
+            <Row label={`Week ${week} total`} row={weekTotal} kind="weekTotal" />
           </tbody>
         </table>
       </div>
@@ -279,28 +335,62 @@ function AdviserBlock({ block }: { block: BizAdviserRollup }) {
   );
 }
 
-function Row({ row, weekLabel, kind }: {
-  row: BizWeekRow; weekLabel: string; kind: "week" | "total";
+function ColGroup() {
+  return (
+    <colgroup>
+      <col style={{ width: "7rem"   }} />     {/* Label (agent name / week total) */}
+      <col style={{ width: "6.5rem" }} />     {/* Paid £ */}
+      <col style={{ width: "3rem"   }} />     {/* Paid % */}
+      <col style={{ width: "6.5rem" }} />     {/* On Risk NYP £ */}
+      <col style={{ width: "3rem"   }} />     {/* On Risk NYP % */}
+      <col style={{ width: "6.5rem" }} />     {/* In Proc £ */}
+      <col style={{ width: "3rem"   }} />     {/* In Proc % */}
+      <col style={{ width: "6.5rem" }} />     {/* NYS £ */}
+      <col style={{ width: "3rem"   }} />     {/* NYS % */}
+      <col style={{ width: "6.5rem" }} />     {/* Cancelled £ */}
+      <col style={{ width: "3rem"   }} />     {/* Cancelled % */}
+      <col />                                  {/* Total £ — flex */}
+    </colgroup>
+  );
+}
+
+function emptyRow(week: number): BizWeekRow {
+  return { week, paid: 0, on_risk_nyp: 0, in_processing: 0, not_yet_submitted: 0, cancelled: 0, total: 0 };
+}
+
+function Row({ row, label, kind }: {
+  row: BizWeekRow;
+  label: string;
+  kind: "adviser" | "weekTotal" | "grand";
 }) {
-  const bg = kind === "total" ? "bg-slate-900 text-white font-semibold" : "";
-  const cellBorder = kind === "total" ? "border-slate-700" : "border-slate-100";
-  const cellEmpty = (n: number) => kind === "total" ? "" : (n === 0 ? "text-slate-300" : "");
+  const bg =
+    kind === "grand"     ? "bg-slate-900 text-white text-sm font-bold" :
+    kind === "weekTotal" ? "bg-amber-50 font-semibold" :
+    "";
+  const labelClass =
+    kind === "grand"     ? "uppercase tracking-wide" :
+    kind === "weekTotal" ? "uppercase tracking-wide text-amber-800 text-[11px]" :
+    "font-medium text-slate-700";
+  const cellBorder =
+    kind === "grand"     ? "border-slate-700" :
+    kind === "weekTotal" ? "border-amber-200" :
+    "border-slate-100";
+  const isData = kind === "adviser";
+  const dim = (n: number) => (isData && n === 0 ? "text-slate-300" : "");
   return (
     <tr className={`${bg} print-keep`}>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 whitespace-nowrap ${kind === "total" ? "uppercase tracking-wide" : "text-slate-600"}`}>
-        {weekLabel}
-      </td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.paid)}`}>{gbp(row.paid)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.paid)}`}>{pct(row.paid, row.total)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.on_risk_nyp)}`}>{gbp(row.on_risk_nyp)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.on_risk_nyp)}`}>{pct(row.on_risk_nyp, row.total)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.in_processing)}`}>{gbp(row.in_processing)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.in_processing)}`}>{pct(row.in_processing, row.total)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.not_yet_submitted)}`}>{gbp(row.not_yet_submitted)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.not_yet_submitted)}`}>{pct(row.not_yet_submitted, row.total)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.cancelled)}`}>{gbp(row.cancelled)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.cancelled)}`}>{pct(row.cancelled, row.total)}</td>
-      <td className={`border-b ${cellBorder} px-2 py-1 text-right tabular-nums ${kind === "total" ? "" : "font-medium"}`}>{gbp(row.total)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 whitespace-nowrap ${labelClass}`}>{label}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.paid)}`}>{gbp(row.paid)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.paid)}`}>{pct(row.paid, row.total)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.on_risk_nyp)}`}>{gbp(row.on_risk_nyp)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.on_risk_nyp)}`}>{pct(row.on_risk_nyp, row.total)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.in_processing)}`}>{gbp(row.in_processing)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.in_processing)}`}>{pct(row.in_processing, row.total)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.not_yet_submitted)}`}>{gbp(row.not_yet_submitted)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.not_yet_submitted)}`}>{pct(row.not_yet_submitted, row.total)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.cancelled)}`}>{gbp(row.cancelled)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.cancelled)}`}>{pct(row.cancelled, row.total)}</td>
+      <td className={`border-b ${cellBorder} px-2 py-1 text-right tabular-nums ${kind === "adviser" ? "font-medium" : ""}`}>{gbp(row.total)}</td>
     </tr>
   );
 }
