@@ -13,7 +13,7 @@
  *   - Est Net Comm = Gross - Clawback (matches sum of per-adviser Est Comms).
  */
 import { sql } from "@vercel/postgres";
-import { Deal } from "./schema";
+import { Deal, DealStatus } from "./schema";
 
 export type Scope =
   | { kind: "year" }
@@ -302,6 +302,143 @@ export async function dealTracker(year: number, scope: Scope): Promise<TrackerRe
   }
 
   return { year, scope, advisers, months };
+}
+
+// ----------------------------------------------------------------------------
+// Per-adviser Business Tracker — one table per adviser with week rows showing
+// each status's commission and percentage of that week's total. Matches the
+// printed report Pauline uses.
+// ----------------------------------------------------------------------------
+
+export interface BizWeekRow {
+  week: number;
+  paid: number;
+  on_risk_nyp: number;
+  in_processing: number;
+  not_yet_submitted: number;
+  cancelled: number;       // includes status='cancelled' AND status='clawback' so it
+                           // matches the long-standing 5-column Business Tracker layout
+  total: number;
+}
+
+export interface BizAdviserRollup {
+  adviser_id: number;
+  adviser_name: string;
+  weeks: BizWeekRow[];     // ordered by week ascending
+  total: BizWeekRow;       // sum across the weeks in scope; .week = 0 sentinel
+}
+
+export interface BusinessTrackerByAdviserResult {
+  year: number;
+  scope: Scope;
+  weeksInScope: number[];
+  advisers: BizAdviserRollup[]; // one block per adviser actually having data in scope
+  allAdvisers: TrackerAdviser[]; // for filter UI population
+}
+
+function emptyBizRow(week: number): BizWeekRow {
+  return {
+    week,
+    paid: 0, on_risk_nyp: 0, in_processing: 0,
+    not_yet_submitted: 0, cancelled: 0, total: 0,
+  };
+}
+
+function addToBiz(row: BizWeekRow, status: DealStatus, c: number): void {
+  if (status === "paid")              row.paid += c;
+  else if (status === "on_risk_nyp")  row.on_risk_nyp += c;
+  else if (status === "in_processing") row.in_processing += c;
+  else if (status === "not_yet_submitted") row.not_yet_submitted += c;
+  else if (status === "cancelled")    row.cancelled += c;
+  else if (status === "clawback")     row.cancelled += c;
+  row.total = row.paid + row.on_risk_nyp + row.in_processing + row.not_yet_submitted + row.cancelled;
+}
+
+export async function businessTrackerByAdviser(
+  year: number,
+  scope: Scope,
+  filterAdviserIds?: number[] | null,
+): Promise<BusinessTrackerByAdviserResult> {
+  const [allDeals, advisers] = await Promise.all([
+    fetchYearDeals(year),
+    fetchActiveAdvisers(),
+  ]);
+
+  // Map<week, void>: which weeks the scope wants.
+  const weeks = (() => {
+    if (scope.kind === "week")    return [scope.week];
+    if (scope.kind === "year")    return Array.from({length: 53}, (_, i) => i + 1);
+    const months = scope.kind === "quarter"
+      ? [scope.q * 3 - 2, scope.q * 3 - 1, scope.q * 3]
+      : [scope.month];
+    const out: number[] = [];
+    for (let w = 1; w <= 53; w++) {
+      if (months.includes(monthForWeek(year, w))) out.push(w);
+    }
+    return out;
+  })();
+  const weekSet = new Set(weeks);
+
+  const wantedAdvisers = (filterAdviserIds && filterAdviserIds.length > 0)
+    ? new Set(filterAdviserIds)
+    : null; // null = all
+
+  // Per adviser, Map<week, BizWeekRow>.
+  const byAdviser = new Map<number, Map<number, BizWeekRow>>();
+
+  for (const d of allDeals) {
+    if (!weekSet.has(d.week)) continue;
+    if (wantedAdvisers && !wantedAdvisers.has(d.adviser_id)) continue;
+    let weeks = byAdviser.get(d.adviser_id);
+    if (!weeks) {
+      weeks = new Map<number, BizWeekRow>();
+      byAdviser.set(d.adviser_id, weeks);
+    }
+    let row = weeks.get(d.week);
+    if (!row) { row = emptyBizRow(d.week); weeks.set(d.week, row); }
+    const c = Number(d.commission ?? 0) || 0;
+    addToBiz(row, d.status, c);
+  }
+
+  // Build the result ordered by adviser sort_order.
+  const result: BizAdviserRollup[] = [];
+  for (const a of advisers) {
+    if (wantedAdvisers && !wantedAdvisers.has(a.id)) continue;
+    const wkMap = byAdviser.get(a.id);
+    if (!wkMap || wkMap.size === 0) continue; // skip advisers with no data in scope
+
+    const wkRows: BizWeekRow[] = [];
+    for (const w of weeks.slice().sort((a, b) => a - b)) {
+      const row = wkMap.get(w) ?? emptyBizRow(w);
+      wkRows.push(row);
+    }
+    const total = wkRows.reduce(
+      (acc, r) => ({
+        week: 0,
+        paid:              acc.paid + r.paid,
+        on_risk_nyp:       acc.on_risk_nyp + r.on_risk_nyp,
+        in_processing:     acc.in_processing + r.in_processing,
+        not_yet_submitted: acc.not_yet_submitted + r.not_yet_submitted,
+        cancelled:         acc.cancelled + r.cancelled,
+        total:             acc.total + r.total,
+      }),
+      emptyBizRow(0),
+    );
+    result.push({
+      adviser_id: a.id,
+      adviser_name: a.name,
+      weeks: wkRows,
+      total,
+    });
+  }
+
+  return {
+    year,
+    scope,
+    weeksInScope: weeks,
+    advisers: result,
+    allAdvisers: advisers,
+  };
 }
 
 export function parseScopeFromParams(p: URLSearchParams): Scope {

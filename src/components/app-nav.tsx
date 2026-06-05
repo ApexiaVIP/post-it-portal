@@ -17,7 +17,7 @@ type Role = "admin" | "data-entry" | "unknown";
 const ADMIN_LINKS = [
   { href: "/reci",            label: "RECI Boards" },
   { href: "/reci/analytics",  label: "RECI Analytics" },
-  { href: "/reci/tracker",    label: "Deal Tracker" },
+  { href: "/reci/tracker",    label: "Business Tracker" },
   { href: "/reci/weekly",     label: "Weekly Deals" },
   { href: "/dashboard",       label: "Call-Centre Dashboard" },
 ];
