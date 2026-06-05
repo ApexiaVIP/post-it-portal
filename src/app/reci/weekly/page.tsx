@@ -300,28 +300,30 @@ function WeekSection({ group, year }: { group: WeekGroup; year: number }) {
                 ))}
                 {/* Agent subtotal — bottom of the agent's deals */}
                 <tr className="border-y-2 border-amber-200 bg-amber-50 text-xs font-semibold print-keep">
-                  <td colSpan={9} className="px-2 py-1 text-right uppercase tracking-wide text-amber-800">
-                    {agent.adviser_name} subtotal
-                  </td>
-                  <td className="px-2 py-1 text-right tabular-nums text-slate-600">
-                    {agent.subtotal.count} deal{agent.subtotal.count === 1 ? "" : "s"}
-                  </td>
-                  <td className="px-2 py-1 text-right tabular-nums text-amber-900">
-                    {gbp(agent.subtotal.commission)}
+                  <td colSpan={11} className="px-3 py-1.5">
+                    <div className="flex items-center justify-between gap-4 whitespace-nowrap">
+                      <span className="uppercase tracking-wide text-amber-800">{agent.adviser_name} subtotal</span>
+                      <div className="flex items-center gap-6 tabular-nums">
+                        <span className="text-slate-600">
+                          {agent.subtotal.count} deal{agent.subtotal.count === 1 ? "" : "s"}
+                        </span>
+                        <span className="text-amber-900">{gbp(agent.subtotal.commission)}</span>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               </Fragment>
             ))}
             {/* Week total — bottom of the entire week's table */}
             <tr className="bg-slate-900 text-sm font-bold text-white print-keep">
-              <td colSpan={9} className="px-2 py-2 text-right uppercase tracking-wide">
-                Week {group.week} total
-              </td>
-              <td className="px-2 py-2 text-right tabular-nums">
-                {group.total.count} deal{group.total.count === 1 ? "" : "s"}
-              </td>
-              <td className="px-2 py-2 text-right tabular-nums">
-                {gbp(group.total.commission)}
+              <td colSpan={11} className="px-3 py-2">
+                <div className="flex items-center justify-between gap-4 whitespace-nowrap">
+                  <span className="uppercase tracking-wide">Week {group.week} total</span>
+                  <div className="flex items-center gap-6 tabular-nums">
+                    <span>{group.total.count} deal{group.total.count === 1 ? "" : "s"}</span>
+                    <span>{gbp(group.total.commission)}</span>
+                  </div>
+                </div>
               </td>
             </tr>
           </tbody>
