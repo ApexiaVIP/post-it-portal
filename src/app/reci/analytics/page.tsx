@@ -67,9 +67,9 @@ interface Filters {
 
 const REASON_COLORS: Record<CancellationReason, string> = {
   npw:       "#dc2626", // red-600
-  postponed: "#f59e0b", // amber-500
-  declined:  "#ea580c", // orange-600
-  other:     "#6b7280", // gray-500
+  postponed: "#2563eb", // blue-600
+  declined:  "#16a34a", // green-600
+  other:     "#f59e0b", // amber-500
 };
 
 const STATUS_COLORS: Record<DealStatus, string> = {
