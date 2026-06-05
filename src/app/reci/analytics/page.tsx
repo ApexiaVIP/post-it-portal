@@ -26,6 +26,7 @@ type ByWeekStatusRow = { week: number; status: DealStatus; count: number; commis
 type ByAdviserRow = {
   adviser_id: number; adviser_name: string;
   count: number; commission: number; paidCommission: number; cancelled: number;
+  cancelledByReason: Record<CancellationReason, { count: number; commission: number }>;
 };
 type TrendRow = { week: number; count: number; commission: number; paidCommission: number; cancellations: number };
 type DealDetailRow = {
@@ -468,6 +469,88 @@ export default function AnalyticsPage() {
             tone="warn"
           />
         </section>
+
+        {/* Cancel-reason summary (totals) + per-adviser breakdown */}
+        {data && data.totals.cancelledCount > 0 && (
+          <section className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {CANCELLATION_REASONS.map((r) => {
+                const row = data.byReason.find((x) => x.reason === r);
+                const count = row?.count ?? 0;
+                const commission = row?.commission ?? 0;
+                return (
+                  <div key={r} className="rounded-lg border bg-white p-3 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block h-3 w-3 rounded-full"
+                        style={{ backgroundColor: REASON_COLORS[r] }}
+                      />
+                      <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                        {CANCELLATION_REASON_LABELS[r]}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-baseline gap-2">
+                      <span className="text-2xl font-semibold text-slate-900 tabular-nums">{count}</span>
+                      <span className="text-xs text-slate-500 tabular-nums">{gbp(commission)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Per-adviser × per-reason breakdown */}
+            <div className="rounded-lg border bg-white shadow-sm">
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <h2 className="text-sm font-semibold text-slate-700">
+                  Cancellations by adviser
+                </h2>
+                <span className="no-print text-xs text-slate-400">Counts shown; commission below in grey</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Adviser</th>
+                      {CANCELLATION_REASONS.map((r) => (
+                        <th key={r} className="px-3 py-2 text-right">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: REASON_COLORS[r] }} />
+                            {CANCELLATION_REASON_LABELS[r]}
+                          </span>
+                        </th>
+                      ))}
+                      <th className="px-3 py-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.byAdviser
+                      .filter((a) => a.cancelled > 0)
+                      .sort((a, b) => b.cancelled - a.cancelled)
+                      .map((a) => (
+                        <tr key={a.adviser_id} className="border-t border-slate-100 hover:bg-slate-50">
+                          <td className="px-3 py-2 font-medium">{a.adviser_name}</td>
+                          {CANCELLATION_REASONS.map((r) => {
+                            const cell = a.cancelledByReason[r] ?? { count: 0, commission: 0 };
+                            return (
+                              <td key={r} className="px-3 py-2 text-right tabular-nums">
+                                <div className={cell.count > 0 ? "text-slate-900 font-semibold" : "text-slate-300"}>
+                                  {cell.count}
+                                </div>
+                                {cell.count > 0 && (
+                                  <div className="text-[11px] text-slate-500">{gbp(cell.commission)}</div>
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900">{a.cancelled}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Charts */}
         <section className="no-print grid gap-4 lg:grid-cols-2">
