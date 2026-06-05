@@ -10,7 +10,7 @@ import {
   Deal,
   DealStatus,
 } from "./schema";
-import { sendCancellationEmail, sendNysCheckEmail } from "./email";
+import { sendCancellationEmail, sendNysCheckEmail, sendClawbackEmail } from "./email";
 
 export async function listAdvisers(): Promise<Adviser[]> {
   const { rows } = await sql<Adviser>`
@@ -287,6 +287,24 @@ export async function changeDealStatus(
         console.error("[reci] cancellation email NOT sent:", result.reason);
       } else {
         console.log("[reci] cancellation email sent for deal", updated.id);
+      }
+    }
+  }
+
+  // Same pattern for clawback transitions.
+  if (newStatus === "clawback" && prev.status !== "clawback") {
+    const adviser = await getAdviserById(updated.adviser_id);
+    if (adviser) {
+      const result = await sendClawbackEmail({
+        deal: updated,
+        adviser,
+        notes: updated.notes ?? null,
+        changedBy: username,
+      });
+      if (!result.sent) {
+        console.error("[reci] clawback email NOT sent:", result.reason);
+      } else {
+        console.log("[reci] clawback email sent for deal", updated.id);
       }
     }
   }
