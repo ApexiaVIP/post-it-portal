@@ -52,6 +52,7 @@ export interface ByAdviserRow {
   commission: number;
   paidCommission: number;
   cancelled: number;
+  cancelledByReason: Record<CancellationReason, { count: number; commission: number }>;
 }
 
 export interface TrendRow {
@@ -204,11 +205,22 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
     const adv = adviserAcc.get(d.adviser_id) ?? {
       adviser_id: d.adviser_id, adviser_name: d.adviser_name,
       count: 0, commission: 0, paidCommission: 0, cancelled: 0,
+      cancelledByReason: {
+        npw:       { count: 0, commission: 0 },
+        postponed: { count: 0, commission: 0 },
+        declined:  { count: 0, commission: 0 },
+        other:     { count: 0, commission: 0 },
+      },
     };
     adv.count += 1;
     adv.commission += c;
     if (d.status === "paid")      adv.paidCommission += c;
-    if (d.status === "cancelled") adv.cancelled += 1;
+    if (d.status === "cancelled") {
+      adv.cancelled += 1;
+      const reason = (d.cancellation_reason ?? "other") as CancellationReason;
+      adv.cancelledByReason[reason].count += 1;
+      adv.cancelledByReason[reason].commission += c;
+    }
     adviserAcc.set(d.adviser_id, adv);
 
     const tr = trendAcc.get(d.week) ?? {
