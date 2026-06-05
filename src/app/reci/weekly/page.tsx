@@ -224,11 +224,8 @@ export default function WeeklyPage() {
 function WeekSection({ group, year }: { group: WeekGroup; year: number }) {
   return (
     <section className="mb-5 rounded-lg border bg-white shadow-sm print-keep">
-      <h2 className="flex items-center justify-between border-b bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">
-        <span>Week {group.week} <span className="text-xs font-normal text-slate-500">· {group.monthName} {year} · Q{group.quarter}</span></span>
-        <span className="text-xs font-normal tabular-nums text-slate-600">
-          {group.total.count} deal{group.total.count === 1 ? "" : "s"} · {gbp(group.total.commission)}
-        </span>
+      <h2 className="border-b bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">
+        Week {group.week} <span className="text-xs font-normal text-slate-500">· {group.monthName} {year} · Q{group.quarter}</span>
       </h2>
       <div className="overflow-x-auto">
         <table className="w-full table-fixed text-xs">
@@ -266,9 +263,6 @@ function WeekSection({ group, year }: { group: WeekGroup; year: number }) {
                 <tr className="bg-slate-200 print-keep">
                   <td colSpan={11} className="px-2 py-1 text-xs font-semibold text-slate-800">
                     {agent.adviser_name}
-                    <span className="ml-2 text-[11px] font-normal text-slate-500">
-                      {agent.subtotal.count} deal{agent.subtotal.count === 1 ? "" : "s"} · {gbp(agent.subtotal.commission)}
-                    </span>
                   </td>
                 </tr>
                 {agent.deals.map((d) => (
@@ -304,8 +298,32 @@ function WeekSection({ group, year }: { group: WeekGroup; year: number }) {
                     <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap">{gbp(d.commission)}</td>
                   </tr>
                 ))}
+                {/* Agent subtotal — bottom of the agent's deals */}
+                <tr className="border-y-2 border-amber-200 bg-amber-50 text-xs font-semibold print-keep">
+                  <td colSpan={9} className="px-2 py-1 text-right uppercase tracking-wide text-amber-800">
+                    {agent.adviser_name} subtotal
+                  </td>
+                  <td className="px-2 py-1 text-right tabular-nums text-slate-600">
+                    {agent.subtotal.count} deal{agent.subtotal.count === 1 ? "" : "s"}
+                  </td>
+                  <td className="px-2 py-1 text-right tabular-nums text-amber-900">
+                    {gbp(agent.subtotal.commission)}
+                  </td>
+                </tr>
               </Fragment>
             ))}
+            {/* Week total — bottom of the entire week's table */}
+            <tr className="bg-slate-900 text-sm font-bold text-white print-keep">
+              <td colSpan={9} className="px-2 py-2 text-right uppercase tracking-wide">
+                Week {group.week} total
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums">
+                {group.total.count} deal{group.total.count === 1 ? "" : "s"}
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums">
+                {gbp(group.total.commission)}
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
