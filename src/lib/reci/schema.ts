@@ -66,7 +66,7 @@ export const CANCELLATION_REASONS = ["npw", "postponed", "declined", "other"] as
 export type CancellationReason = (typeof CANCELLATION_REASONS)[number];
 
 export const CANCELLATION_REASON_LABELS: Record<CancellationReason, string> = {
-  npw:       "NPW (client not proceeding)",
+  npw:       "NPW",
   postponed: "Postponed",
   declined:  "Declined",
   other:     "Other",
