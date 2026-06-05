@@ -1,49 +1,49 @@
 "use client";
 
 /**
- * Deal Tracker page — the report Pauline generates for Guy. Layout matches
- * the PDF she shared: per-month sections with weekly rows + Monthly Total,
- * Weekly Average and YTD summary rows. Per-adviser 3-column groups
- * (Deals / Est Comm / Av Prem) plus left-side aggregate columns
- * (Deals / Est Gross / Clawback / Est Net).
+ * Business Tracker — per-adviser weekly commission breakdown by status, with
+ * percentages of weekly total. Matches the printed report Pauline uses.
  *
- * Period picker chooses Year / Quarter / Month / Week scope.
- * Print produces a landscape paper version (one @page landscape rule is
- * injected when this page mounts and removed when it unmounts).
+ * Filter bar at top: Year, Scope (Week / Month / Quarter / Year), and a
+ * multi-select adviser pill row. If no advisers are selected, the page shows
+ * all advisers that have data in scope, stacked one block per adviser.
+ *
+ * Each block:
+ *   Adviser name
+ *   12-column table: WEEK | PAID £ | % | ON RISK NYP £ | % | IN PROC £ | %
+ *                  | NYS £ | % | CANCELLED £ | % | TOTAL £
+ *   Rows: each week in scope.
+ *   TOTAL row at the bottom of the block: sum across the weeks.
+ *
+ * Force landscape A4 for print (the 12-column table is wide).
  */
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PrintButton, PrintHeader } from "@/components/print";
 
 type ScopeKind = "year" | "quarter" | "month" | "week";
 
-interface AdviserCell { deals: number; est_comm: number; av_prem: number }
-interface TrackerRow {
-  kind: "week" | "monthly-total" | "weekly-average" | "ytd";
-  label: string;
-  weekNumbers: number[];
-  deals: number;
-  est_gross_comm: number;
+interface BizWeekRow {
+  week: number;
+  paid: number;
+  on_risk_nyp: number;
+  in_processing: number;
+  not_yet_submitted: number;
   cancelled: number;
-  clawback: number;
-  est_net_comm: number;
-  byAdviser: Record<number, AdviserCell>;
+  total: number;
 }
-interface TrackerMonth {
-  monthNumber: number;
-  monthName: string;
-  quarter: number;
-  weekRows: TrackerRow[];
-  monthlyTotal: TrackerRow;
-  weeklyAverage: TrackerRow;
-  yearToDate: TrackerRow;
+interface BizAdviserRollup {
+  adviser_id: number;
+  adviser_name: string;
+  weeks: BizWeekRow[];
+  total: BizWeekRow;
 }
-interface TrackerAdviser { id: number; name: string }
-interface TrackerResp {
+interface Adviser { id: number; name: string }
+interface Resp {
   year: number;
   scope: { kind: ScopeKind; q?: number; month?: number; week?: number };
-  advisers: TrackerAdviser[];
-  months: TrackerMonth[];
-  weekOnly?: TrackerRow;
+  weeksInScope: number[];
+  advisers: BizAdviserRollup[];
+  allAdvisers: Adviser[];
 }
 
 const MONTH_NAMES = [
@@ -57,26 +57,28 @@ function gbp(n: number): string {
   });
 }
 
-function num(n: number, decimals = 0): string {
-  return Number(n || 0).toLocaleString("en-GB", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+function pct(part: number, whole: number): string {
+  if (whole <= 0) return "0%";
+  return `${Math.round((part / whole) * 100)}%`;
 }
 
-export default function TrackerPage() {
+export default function BusinessTrackerPage() {
   const now = new Date();
-  const [year,  setYear]  = useState<number>(now.getFullYear());
-  const [kind,  setKind]  = useState<ScopeKind>("month");
+  const [year, setYear] = useState<number>(now.getFullYear());
+  const [kind, setKind] = useState<ScopeKind>("year");
   const [month, setMonth] = useState<number>(now.getMonth() + 1);
   const [quarter, setQuarter] = useState<number>(Math.ceil((now.getMonth() + 1) / 3));
   const [week, setWeek] = useState<number>(1);
+  const [selectedAdvisers, setSelectedAdvisers] = useState<number[]>([]);
 
-  const [data, setData] = useState<TrackerResp | null>(null);
+  const [data, setData] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Inject a landscape @page rule for this route only; remove on unmount.
+  // Landscape print for this page only.
   useEffect(() => {
     const style = document.createElement("style");
-    style.setAttribute("data-tracker-print", "1");
+    style.setAttribute("data-bizt-print", "1");
     style.textContent = "@media print { @page { size: A4 landscape; margin: 8mm; } }";
     document.head.appendChild(style);
     return () => { style.remove(); };
@@ -86,18 +88,19 @@ export default function TrackerPage() {
     const p = new URLSearchParams();
     p.set("year", String(year));
     p.set("scope", kind);
-    if (kind === "quarter") p.set("q", String(quarter));
+    if (kind === "quarter") p.set("q",     String(quarter));
     if (kind === "month")   p.set("month", String(month));
-    if (kind === "week")    p.set("week", String(week));
+    if (kind === "week")    p.set("week",  String(week));
+    if (selectedAdvisers.length > 0) p.set("advisers", selectedAdvisers.join(","));
     return p.toString();
-  }, [year, kind, quarter, month, week]);
+  }, [year, kind, quarter, month, week, selectedAdvisers]);
 
   const load = useCallback(async (signal: AbortSignal) => {
     setLoading(true); setErr(null);
     try {
-      const r = await fetch(`/api/reci/tracker?${qs}`, { signal, cache: "no-store" });
+      const r = await fetch(`/api/reci/business-tracker?${qs}`, { signal, cache: "no-store" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = (await r.json()) as TrackerResp;
+      const j = (await r.json()) as Resp;
       setData(j);
     } catch (e) {
       if ((e as { name?: string })?.name === "AbortError") return;
@@ -120,12 +123,15 @@ export default function TrackerPage() {
     return `Week ${week} ${year}`;
   }, [kind, year, month, quarter, week]);
 
+  const toggleAdviser = (id: number) =>
+    setSelectedAdvisers((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="no-print border-b bg-white">
         <div className="mx-auto flex max-w-[1800px] flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold">RECI Deal Tracker</h1>
+            <h1 className="text-lg font-semibold">Business Tracker</h1>
             <span className="text-sm text-slate-500">{scopeLabel}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -156,6 +162,43 @@ export default function TrackerPage() {
             <PrintButton />
           </div>
         </div>
+
+        {/* Adviser multi-select filter */}
+        {data && data.allAdvisers.length > 0 && (
+          <div className="mx-auto flex max-w-[1800px] flex-wrap items-center gap-2 px-4 pb-3 text-xs">
+            <span className="font-medium uppercase tracking-wide text-slate-500">Advisers</span>
+            {data.allAdvisers.map((a) => {
+              const active = selectedAdvisers.includes(a.id);
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => toggleAdviser(a.id)}
+                  className={`rounded-full border px-2.5 py-0.5 transition-colors ${
+                    active
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {a.name}
+                </button>
+              );
+            })}
+            {selectedAdvisers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedAdvisers([])}
+                className="text-xs text-slate-500 hover:text-slate-900 underline ml-1"
+              >
+                Clear (show all)
+              </button>
+            )}
+            {selectedAdvisers.length === 0 && (
+              <span className="text-slate-400">none selected — showing all advisers with data in scope</span>
+            )}
+          </div>
+        )}
+
         {(loading || err) && (
           <div className="mx-auto max-w-[1800px] px-4 pb-2 text-xs">
             {loading ? <span className="text-slate-500">Loading…</span>
@@ -164,9 +207,9 @@ export default function TrackerPage() {
         )}
       </header>
 
-      <main className="mx-auto max-w-[1800px] px-4 py-4">
+      <main className="mx-auto max-w-[1800px] px-4 py-4 space-y-6">
         <PrintHeader
-          title="RECI Deal Tracker"
+          title="Business Tracker"
           subtitle={scopeLabel}
           meta={[
             { label: "Year",  value: String(year) },
@@ -174,28 +217,95 @@ export default function TrackerPage() {
           ]}
         />
 
-        {data && data.weekOnly && (
-          <TrackerTable advisers={data.advisers} rows={[data.weekOnly]} title={`Week ${data.weekOnly.label}`} />
-        )}
-
-        {data && data.months.map((m) => (
-          <TrackerTable
-            key={m.monthNumber}
-            advisers={data.advisers}
-            title={`${m.monthName} ${data.year} — Q${m.quarter}`}
-            rows={[...m.weekRows, m.monthlyTotal, m.weeklyAverage, m.yearToDate]}
-          />
-        ))}
-
-        {!data && !loading && !err && (
-          <div className="rounded-lg border bg-white p-6 text-sm text-slate-500">No data yet.</div>
+        {!data || data.advisers.length === 0 ? (
+          <div className="rounded-lg border bg-white p-6 text-sm text-slate-500">
+            {loading ? "Loading…" : "No deals in current scope."}
+          </div>
+        ) : (
+          data.advisers.map((a) => <AdviserBlock key={a.adviser_id} block={a} />)
         )}
       </main>
     </div>
   );
 }
 
-// --- Sub-components ---------------------------------------------------------
+function AdviserBlock({ block }: { block: BizAdviserRollup }) {
+  return (
+    <section className="rounded-lg border bg-white shadow-sm print-keep">
+      <h2 className="border-b bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">
+        {block.adviser_name}
+      </h2>
+      <div className="overflow-x-auto">
+        <table className="w-full table-fixed border-collapse text-xs">
+          <colgroup>
+            <col style={{ width: "4.5rem" }} />     {/* Week */}
+            <col style={{ width: "6.5rem" }} />     {/* Paid £ */}
+            <col style={{ width: "3rem"   }} />     {/* Paid % */}
+            <col style={{ width: "6.5rem" }} />     {/* On Risk NYP £ */}
+            <col style={{ width: "3rem"   }} />     {/* On Risk NYP % */}
+            <col style={{ width: "6.5rem" }} />     {/* In Proc £ */}
+            <col style={{ width: "3rem"   }} />     {/* In Proc % */}
+            <col style={{ width: "6.5rem" }} />     {/* NYS £ */}
+            <col style={{ width: "3rem"   }} />     {/* NYS % */}
+            <col style={{ width: "6.5rem" }} />     {/* Cancelled £ */}
+            <col style={{ width: "3rem"   }} />     {/* Cancelled % */}
+            <col />                                  {/* Total £ — flex */}
+          </colgroup>
+          <thead>
+            <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-left">Week</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Paid</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">On Risk NYP</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">In Proc</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">NYS</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Cancelled</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-slate-200 px-2 py-1 text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {block.weeks.map((w) => (
+              <Row key={w.week} row={w} weekLabel={`Week ${w.week}`} kind="week" />
+            ))}
+            <Row row={block.total} weekLabel="TOTAL" kind="total" />
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function Row({ row, weekLabel, kind }: {
+  row: BizWeekRow; weekLabel: string; kind: "week" | "total";
+}) {
+  const bg = kind === "total" ? "bg-slate-900 text-white font-semibold" : "";
+  const cellBorder = kind === "total" ? "border-slate-700" : "border-slate-100";
+  const cellEmpty = (n: number) => kind === "total" ? "" : (n === 0 ? "text-slate-300" : "");
+  return (
+    <tr className={`${bg} print-keep`}>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 whitespace-nowrap ${kind === "total" ? "uppercase tracking-wide" : "text-slate-600"}`}>
+        {weekLabel}
+      </td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.paid)}`}>{gbp(row.paid)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.paid)}`}>{pct(row.paid, row.total)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.on_risk_nyp)}`}>{gbp(row.on_risk_nyp)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.on_risk_nyp)}`}>{pct(row.on_risk_nyp, row.total)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.in_processing)}`}>{gbp(row.in_processing)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.in_processing)}`}>{pct(row.in_processing, row.total)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.not_yet_submitted)}`}>{gbp(row.not_yet_submitted)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.not_yet_submitted)}`}>{pct(row.not_yet_submitted, row.total)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.cancelled)}`}>{gbp(row.cancelled)}</td>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${cellEmpty(row.cancelled)}`}>{pct(row.cancelled, row.total)}</td>
+      <td className={`border-b ${cellBorder} px-2 py-1 text-right tabular-nums ${kind === "total" ? "" : "font-medium"}`}>{gbp(row.total)}</td>
+    </tr>
+  );
+}
+
+// ---------- Header controls ----------
 
 function ScopeToggle({ value, onChange }: { value: ScopeKind; onChange: (v: ScopeKind) => void }) {
   const opts: { value: ScopeKind; label: string }[] = [
@@ -207,12 +317,8 @@ function ScopeToggle({ value, onChange }: { value: ScopeKind; onChange: (v: Scop
   return (
     <div className="inline-flex overflow-hidden rounded border border-slate-300 bg-white text-xs">
       {opts.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onChange(o.value)}
-          className={`px-2 py-1 ${value === o.value ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"}`}
-        >
+        <button key={o.value} type="button" onClick={() => onChange(o.value)}
+          className={`px-2 py-1 ${value === o.value ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"}`}>
           {o.label}
         </button>
       ))}
@@ -225,105 +331,10 @@ function SelectInline<T extends number>({ value, onChange, options }: {
   options: { value: T; label: string }[];
 }) {
   return (
-    <select
-      value={value}
+    <select value={value}
       onChange={(e) => onChange(Number(e.target.value) as T)}
-      className="rounded border border-slate-300 bg-white px-2 py-1 text-sm"
-    >
+      className="rounded border border-slate-300 bg-white px-2 py-1 text-sm">
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
-  );
-}
-
-function TrackerTable({ advisers, rows, title }: {
-  advisers: TrackerAdviser[];
-  rows: TrackerRow[];
-  title: string;
-}) {
-  return (
-    <section className="mb-6 rounded-lg border bg-white shadow-sm print-keep">
-      <h2 className="border-b px-3 py-2 text-sm font-semibold text-slate-700">{title}</h2>
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-xs">
-          <thead>
-            <tr className="bg-slate-100 text-slate-600">
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-left">Week</th>
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Deals</th>
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Est Gross Comm</th>
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Cancelled</th>
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Clawback</th>
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Est Net Comm</th>
-              {advisers.map((a) => (
-                <th
-                  key={a.id}
-                  colSpan={3}
-                  className="border-b border-r border-slate-200 bg-slate-50 px-2 py-1 text-center"
-                >
-                  {a.name}
-                </th>
-              ))}
-            </tr>
-            <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-left"></th>
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-right"></th>
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-right"></th>
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-right"></th>
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-right"></th>
-              <th className="border-b border-r border-slate-200 px-2 py-1 text-right"></th>
-              {advisers.map((a) => (
-                <Fragment key={a.id}>
-                  <th className="border-b border-r border-slate-100 px-2 py-1 text-right">Deals</th>
-                  <th className="border-b border-r border-slate-100 px-2 py-1 text-right">Est Comm</th>
-                  <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Av Prem</th>
-                </Fragment>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <Row key={`${r.kind}-${i}-${r.label}`} row={r} advisers={advisers} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function Row({ row, advisers }: { row: TrackerRow; advisers: TrackerAdviser[] }) {
-  // Styling by row kind.
-  const bg =
-    row.kind === "monthly-total"   ? "bg-slate-100 font-semibold" :
-    row.kind === "weekly-average"  ? "bg-slate-50 italic" :
-    row.kind === "ytd"             ? "bg-amber-50 font-semibold" :
-    "";
-
-  const labelCell =
-    row.kind === "week" ? row.label
-                        : row.label;
-
-  return (
-    <tr className={`${bg} print-keep`}>
-      <td className="border-b border-r border-slate-200 px-2 py-1 whitespace-nowrap">{labelCell}</td>
-      <td className="border-b border-r border-slate-200 px-2 py-1 text-right tabular-nums">
-        {row.kind === "weekly-average" ? num(row.deals, 1) : num(row.deals)}
-      </td>
-      <td className="border-b border-r border-slate-200 px-2 py-1 text-right tabular-nums">{gbp(row.est_gross_comm)}</td>
-      <td className="border-b border-r border-slate-200 px-2 py-1 text-right tabular-nums">{gbp(row.cancelled)}</td>
-      <td className="border-b border-r border-slate-200 px-2 py-1 text-right tabular-nums">{gbp(row.clawback)}</td>
-      <td className="border-b border-r border-slate-200 px-2 py-1 text-right tabular-nums">{gbp(row.est_net_comm)}</td>
-      {advisers.map((a) => {
-        const c = row.byAdviser[a.id] ?? { deals: 0, est_comm: 0, av_prem: 0 };
-        return (
-          <Fragment key={a.id}>
-            <td className="border-b border-r border-slate-100 px-2 py-1 text-right tabular-nums">
-              {row.kind === "weekly-average" ? num(c.deals, 1) : num(c.deals)}
-            </td>
-            <td className="border-b border-r border-slate-100 px-2 py-1 text-right tabular-nums">{gbp(c.est_comm)}</td>
-            <td className="border-b border-r border-slate-200 px-2 py-1 text-right tabular-nums">{gbp(c.av_prem)}</td>
-          </Fragment>
-        );
-      })}
-    </tr>
   );
 }
