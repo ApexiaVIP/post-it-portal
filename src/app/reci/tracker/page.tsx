@@ -17,7 +17,7 @@
  *
  * Force landscape A4 for print (the 12-column table is wide).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { PrintButton, PrintHeader } from "@/components/print";
 
 type ScopeKind = "year" | "quarter" | "month" | "week";
@@ -228,25 +228,30 @@ export default function BusinessTrackerPage() {
 }
 
 // Pivot the data: for each week in scope, build a row per adviser plus a week
-// total. Skip weeks with zero overall activity.
+// total. Skip weeks with zero overall activity. Group consecutive weeks into
+// quarters (Q1-Q4) and insert a quarter subtotal block after each quarter
+// when more than one quarter has data in scope. Finally a per-adviser scope
+// totals block (so Pauline can see Tan's YTD, Hayder's YTD, etc. all in one
+// spot) and the overall grand total card.
 function PivotedView({ data }: { data: Resp }) {
+  const sumRows = (a: BizWeekRow, b: BizWeekRow, week: number): BizWeekRow => ({
+    week,
+    paid:              a.paid + b.paid,
+    on_risk_nyp:       a.on_risk_nyp + b.on_risk_nyp,
+    in_processing:     a.in_processing + b.in_processing,
+    not_yet_submitted: a.not_yet_submitted + b.not_yet_submitted,
+    cancelled:         a.cancelled + b.cancelled,
+    total:             a.total + b.total,
+  });
+
   // Build the per-week sections.
   const sections = data.weeksInScope.map((week) => {
     const rows = data.advisers.map((a) => {
-      const row = a.weeks.find((w) => w.week === week)
-        ?? emptyRow(week);
+      const row = a.weeks.find((w) => w.week === week) ?? emptyRow(week);
       return { adviser_id: a.adviser_id, adviser_name: a.adviser_name, row };
     });
     const weekTotal = rows.reduce(
-      (acc, { row }) => ({
-        week,
-        paid:              acc.paid + row.paid,
-        on_risk_nyp:       acc.on_risk_nyp + row.on_risk_nyp,
-        in_processing:     acc.in_processing + row.in_processing,
-        not_yet_submitted: acc.not_yet_submitted + row.not_yet_submitted,
-        cancelled:         acc.cancelled + row.cancelled,
-        total:             acc.total + row.total,
-      }),
+      (acc, { row }) => sumRows(acc, row, week),
       emptyRow(week),
     );
     return { week, rows, weekTotal };
@@ -254,17 +259,21 @@ function PivotedView({ data }: { data: Resp }) {
 
   // Overall scope total (across every week shown).
   const grand = sections.reduce(
-    (acc, s) => ({
-      week: 0,
-      paid:              acc.paid + s.weekTotal.paid,
-      on_risk_nyp:       acc.on_risk_nyp + s.weekTotal.on_risk_nyp,
-      in_processing:     acc.in_processing + s.weekTotal.in_processing,
-      not_yet_submitted: acc.not_yet_submitted + s.weekTotal.not_yet_submitted,
-      cancelled:         acc.cancelled + s.weekTotal.cancelled,
-      total:             acc.total + s.weekTotal.total,
-    }),
+    (acc, s) => sumRows(acc, s.weekTotal, 0),
     emptyRow(0),
   );
+
+  // Group sections by calendar quarter.
+  const sectionsByQuarter = new Map<number, typeof sections>();
+  for (const s of sections) {
+    const q = quarterFromWeek(data.year, s.week);
+    const arr = sectionsByQuarter.get(q) ?? [];
+    arr.push(s);
+    sectionsByQuarter.set(q, arr);
+  }
+  const quarterEntries = Array.from(sectionsByQuarter.entries()).sort((a, b) => a[0] - b[0]);
+  const showQuarterSubtotals = quarterEntries.length > 1;
+  const showAdviserTotals    = data.advisers.length > 1;
 
   if (sections.length === 0) {
     return (
@@ -276,7 +285,21 @@ function PivotedView({ data }: { data: Resp }) {
 
   return (
     <>
-      {sections.map((s) => <WeekBlock key={s.week} week={s.week} rows={s.rows} weekTotal={s.weekTotal} />)}
+      {quarterEntries.map(([q, qSections]) => (
+        <Fragment key={q}>
+          {qSections.map((s) => (
+            <WeekBlock key={s.week} week={s.week} rows={s.rows} weekTotal={s.weekTotal} />
+          ))}
+          {showQuarterSubtotals && (
+            <QuarterBlock q={q} sections={qSections} advisers={data.advisers} sumRows={sumRows} />
+          )}
+        </Fragment>
+      ))}
+
+      {showAdviserTotals && (
+        <AdviserTotalsBlock advisers={data.advisers} />
+      )}
+
       <section className="rounded-lg border bg-slate-900 text-white shadow-sm print-keep">
         <div className="border-b border-slate-700 px-3 py-2 text-sm font-bold uppercase tracking-wide">
           Overall total
@@ -291,6 +314,108 @@ function PivotedView({ data }: { data: Resp }) {
         </div>
       </section>
     </>
+  );
+}
+
+/**
+ * ISO calendar quarter (1-4) for a given ISO week number.
+ * Mirrors the logic in tracker.ts: based on the Monday of that ISO week.
+ */
+function quarterFromWeek(year: number, week: number): number {
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  const week1Mon = new Date(jan4);
+  week1Mon.setUTCDate(jan4.getUTCDate() - (jan4Day - 1));
+  const target = new Date(week1Mon);
+  target.setUTCDate(week1Mon.getUTCDate() + (week - 1) * 7);
+  const m = target.getUTCMonth() + 1;
+  return Math.ceil(m / 3);
+}
+
+function QuarterBlock({ q, sections, advisers, sumRows }: {
+  q: number;
+  sections: { week: number; rows: { adviser_id: number; adviser_name: string; row: BizWeekRow }[]; weekTotal: BizWeekRow }[];
+  advisers: BizAdviserRollup[];
+  sumRows: (a: BizWeekRow, b: BizWeekRow, week: number) => BizWeekRow;
+}) {
+  const advRows = advisers.map((a) => {
+    const total = sections.reduce((acc, s) => {
+      const r = s.rows.find((x) => x.adviser_id === a.adviser_id)?.row ?? emptyRow(0);
+      return sumRows(acc, r, 0);
+    }, emptyRow(0));
+    return { adviser_id: a.adviser_id, adviser_name: a.adviser_name, row: total };
+  });
+  const qTotal = advRows.reduce((acc, r) => sumRows(acc, r.row, 0), emptyRow(0));
+
+  return (
+    <section className="rounded-lg border-2 border-amber-300 bg-white shadow-sm print-keep">
+      <h2 className="border-b-2 border-amber-300 bg-amber-100 px-3 py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
+        Q{q} subtotal
+      </h2>
+      <div className="overflow-x-auto">
+        <table className="w-full table-fixed border-collapse text-xs">
+          <ColGroup />
+          <thead>
+            <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-left">Agent</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Paid</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">On Risk NYP</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">In Proc</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">NYS</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Cancelled</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-slate-200 px-2 py-1 text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {advRows.map((r) => (
+              <Row key={r.adviser_id} label={r.adviser_name} row={r.row} kind="adviser" />
+            ))}
+            <Row label={`Q${q} total`} row={qTotal} kind="weekTotal" />
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function AdviserTotalsBlock({ advisers }: { advisers: BizAdviserRollup[] }) {
+  return (
+    <section className="rounded-lg border-2 border-slate-400 bg-white shadow-sm print-keep">
+      <h2 className="border-b-2 border-slate-400 bg-slate-200 px-3 py-2 text-sm font-bold uppercase tracking-wide text-slate-800">
+        Per-adviser scope totals
+      </h2>
+      <div className="overflow-x-auto">
+        <table className="w-full table-fixed border-collapse text-xs">
+          <ColGroup />
+          <thead>
+            <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-left">Agent</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Paid</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">On Risk NYP</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">In Proc</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">NYS</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Cancelled</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
+              <th className="border-b border-slate-200 px-2 py-1 text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {advisers.map((a) => (
+              <Row key={a.adviser_id} label={a.adviser_name} row={a.total} kind="adviser" />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
