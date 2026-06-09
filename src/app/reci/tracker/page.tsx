@@ -17,7 +17,7 @@
  *
  * Force landscape A4 for print (the 12-column table is wide).
  */
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PrintButton, PrintHeader } from "@/components/print";
 
 type ScopeKind = "year" | "quarter" | "month" | "week";
@@ -79,6 +79,15 @@ export default function BusinessTrackerPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // We need data.allAdvisers inside the qs memo to translate the excluded
+  // list back into an include list for the API, but we don't want data
+  // changing to recompute qs (which would cascade into a refetch). Keep a
+  // ref so the memo can read the latest without depending on it.
+  const allAdvisersRef = useRef<Adviser[]>([]);
+  useEffect(() => {
+    if (data) allAdvisersRef.current = data.allAdvisers;
+  }, [data]);
+
   // Landscape print for this page only.
   useEffect(() => {
     const style = document.createElement("style");
@@ -98,14 +107,14 @@ export default function BusinessTrackerPage() {
     // Compute "selected" = all known advisers minus the excluded set. Only
     // send the param when the user has actually excluded something; empty
     // excluded list is semantically identical to "no filter" so we omit it.
-    if (excludedAdvisers.length > 0 && data) {
-      const shown = data.allAdvisers
+    if (excludedAdvisers.length > 0 && allAdvisersRef.current.length > 0) {
+      const shown = allAdvisersRef.current
         .filter((a) => !excludedAdvisers.includes(a.id))
         .map((a) => a.id);
       if (shown.length > 0) p.set("advisers", shown.join(","));
     }
     return p.toString();
-  }, [year, kind, quarter, month, week, excludedAdvisers, data]);
+  }, [year, kind, quarter, month, week, excludedAdvisers]);
 
   const load = useCallback(async (signal: AbortSignal) => {
     setLoading(true); setErr(null);
