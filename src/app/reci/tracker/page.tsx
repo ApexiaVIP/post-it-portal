@@ -318,18 +318,20 @@ function PivotedView({ data }: { data: Resp }) {
 }
 
 /**
- * ISO calendar quarter (1-4) for a given ISO week number.
- * Mirrors the logic in tracker.ts: based on the Monday of that ISO week.
+ * Quarter (1-4) for a given week number, using straight 13-week bins:
+ *   Q1 = weeks 1-13, Q2 = 14-26, Q3 = 27-39, Q4 = 40-53.
+ *
+ * We deliberately don't use the ISO-week-to-calendar-month mapping because
+ * ISO Week 1 of a year often has its Monday in late December of the previous
+ * year (e.g. 2026 Week 1 Monday = Dec 29 2025), which would push Week 1 into
+ * Q4 -- not what Pauline expects on the report. The straight-bin convention
+ * matches her existing Business Tracker.
  */
-function quarterFromWeek(year: number, week: number): number {
-  const jan4 = new Date(Date.UTC(year, 0, 4));
-  const jan4Day = jan4.getUTCDay() || 7;
-  const week1Mon = new Date(jan4);
-  week1Mon.setUTCDate(jan4.getUTCDate() - (jan4Day - 1));
-  const target = new Date(week1Mon);
-  target.setUTCDate(week1Mon.getUTCDate() + (week - 1) * 7);
-  const m = target.getUTCMonth() + 1;
-  return Math.ceil(m / 3);
+function quarterFromWeek(_year: number, week: number): number {
+  if (week <= 13) return 1;
+  if (week <= 26) return 2;
+  if (week <= 39) return 3;
+  return 4;
 }
 
 function QuarterBlock({ q, sections, advisers, sumRows }: {
