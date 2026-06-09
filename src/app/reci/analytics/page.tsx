@@ -36,6 +36,7 @@ type DealDetailRow = {
   adviser_slug: string;
   week: number;
   client: string;
+  postcode: string | null;
   status: DealStatus;
   reason: CancellationReason | null;
   notes: string | null;
@@ -722,7 +723,8 @@ export default function AnalyticsPage() {
               <table className="w-full table-fixed text-sm">
                 <colgroup>
                   <col style={{ width: "3rem" }} />            {/* Wk */}
-                  <col style={{ width: "16%" }} />             {/* Client */}
+                  <col style={{ width: "14%" }} />             {/* Client */}
+                  <col style={{ width: "6rem" }} />            {/* Postcode */}
                   <col style={{ width: "7.5rem" }} />          {/* Status */}
                   <col style={{ width: "5rem" }} />            {/* Stage */}
                   <col style={{ width: "6.5rem" }} />          {/* Reason */}
@@ -733,6 +735,7 @@ export default function AnalyticsPage() {
                   <tr>
                     <th className="px-3 py-2 text-right">Wk</th>
                     <th className="px-3 py-2 text-left">Client</th>
+                    <th className="px-3 py-2 text-left">Postcode</th>
                     <th className="px-3 py-2 text-left">Status</th>
                     <th className="px-3 py-2 text-left">Stage</th>
                     <th className="px-3 py-2 text-left">Reason</th>
@@ -745,7 +748,7 @@ export default function AnalyticsPage() {
                     <Fragment key={g.adviser_id}>
                       {/* Adviser banner — section break, clickable to open board */}
                       <tr className="bg-slate-200 print-keep">
-                        <td colSpan={7} className="px-3 py-2 text-sm font-semibold text-slate-800">
+                        <td colSpan={8} className="px-3 py-2 text-sm font-semibold text-slate-800">
                           <Link
                             href={`/reci/${g.adviser_slug}`}
                             className="hover:text-blue-700"
@@ -770,6 +773,7 @@ export default function AnalyticsPage() {
                         >
                           <td className="px-3 py-2 text-right tabular-nums text-slate-600">{d.week}</td>
                           <td className="px-3 py-2 whitespace-nowrap overflow-hidden text-ellipsis" title={d.client}>{d.client}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-600 tabular-nums">{d.postcode || ""}</td>
                           <td className="px-3 py-2 whitespace-nowrap">
                             <span
                               className="inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium leading-4 text-white"
@@ -811,7 +815,7 @@ export default function AnalyticsPage() {
                         <td className="px-3 py-2 whitespace-nowrap text-xs uppercase tracking-wide text-amber-800">
                           {g.adviser_name} subtotal
                         </td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-600" colSpan={4}>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-600" colSpan={5}>
                           {g.subtotal.count} deal{g.subtotal.count === 1 ? "" : "s"}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-amber-900">
@@ -825,7 +829,7 @@ export default function AnalyticsPage() {
                     <tr className="bg-slate-900 text-white text-sm font-bold print-keep">
                       <td className="px-3 py-3"></td>
                       <td className="px-3 py-3 whitespace-nowrap uppercase tracking-wide">Overall Total</td>
-                      <td className="px-3 py-3 whitespace-nowrap" colSpan={4}>
+                      <td className="px-3 py-3 whitespace-nowrap" colSpan={5}>
                         {dealGroups.grand.count} deals
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums whitespace-nowrap">
