@@ -80,6 +80,7 @@ export async function sendCancellationEmail(i: CancellationEmailInput): Promise<
     `One of your deals has been moved to Cancelled in the RECI portal.`,
     ``,
     `  Client:        ${i.deal.client}`,
+    `  Postcode:      ${i.deal.postcode || "—"}`,
     `  Week:          ${i.deal.week}`,
     `  Provider:      ${i.deal.provider || "—"}`,
     `  Premium:       ${i.deal.premium != null ? gbp(Number(i.deal.premium)) : "—"}`,
@@ -98,6 +99,7 @@ export async function sendCancellationEmail(i: CancellationEmailInput): Promise<
     `<p>One of your deals has been moved to <strong>Cancelled</strong> in the RECI portal.</p>` +
     `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">` +
     row("Client", i.deal.client) +
+    row("Postcode", i.deal.postcode || "—") +
     row("Week", String(i.deal.week)) +
     row("Provider", i.deal.provider || "—") +
     row("Premium", i.deal.premium != null ? gbp(Number(i.deal.premium)) : "—") +

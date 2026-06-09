@@ -73,6 +73,7 @@ export interface DealDetailRow {
   adviser_slug: string;
   week: number;
   client: string;
+  postcode: string | null;
   status: DealStatus;
   reason: CancellationReason | null;
   notes: string | null;
@@ -183,6 +184,7 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
       adviser_slug: d.adviser_slug,
       week: d.week,
       client: d.client,
+      postcode: d.postcode,
       status: d.status,
       reason: d.status === "cancelled" ? d.cancellation_reason : null,
       // For cancelled: show cancellation_notes; otherwise the deal's general notes.
