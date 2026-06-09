@@ -8,6 +8,7 @@
  *   RECI_CANCELLATION_CC    = comma-separated list (e.g. "pauline@apexiavip.co.uk,jimmy@apexiavip.co.uk")
  */
 import nodemailer from "nodemailer";
+import { sql } from "@vercel/postgres";
 import {
   CANCELLATION_REASON_LABELS,
   type CancellationReason,
@@ -32,6 +33,45 @@ function getTransporter(): nodemailer.Transporter | null {
     auth: { user, pass },
   });
   return _transporter;
+}
+
+// ---------------------------------------------------------------------------
+// Senior adviser CC chain. Pauline / Poz wants any cancellation / clawback /
+// NYS-checked email to also notify the senior advisers above the deal owner:
+//
+//   - Tan sits at the top -- CC'd on every non-Tan deal.
+//   - Hayder sits mid-level -- CC'd on deals belonging to Gurdaht, Atikur or
+//     Jack (i.e. the juniors). Not CC'd on her own deals or on Tan's.
+//   - Tan's own deals: no extra CC (only the existing management CC list).
+//
+// Names are looked up from the advisers table so we use whatever email is
+// currently on file. If a senior row is missing an email we just skip them
+// (fail-safe -- the existing management CC list still goes out).
+// ---------------------------------------------------------------------------
+async function fetchSeniorAdviserCc(ownerName: string): Promise<string[]> {
+  if (ownerName === "Tan") return [];
+  const needed = ownerName === "Hayder" ? ["Tan"] : ["Tan", "Hayder"];
+  const { rows } = await sql<{ name: string; email: string | null }>`
+    SELECT name, email FROM advisers
+  `;
+  const emailByName = new Map(rows.map((r) => [r.name, r.email]));
+  const out: string[] = [];
+  for (const n of needed) {
+    const e = emailByName.get(n);
+    if (e) out.push(e);
+  }
+  return out;
+}
+
+// Build the final CC array: managers + senior-chain, deduped, with anything
+// already in the To line removed so nobody gets the email twice.
+function buildCc(cc: string[], senior: string[], to: string[]): string[] {
+  const toSet = new Set(to);
+  const merged = new Set<string>();
+  for (const e of [...cc, ...senior]) {
+    if (e && !toSet.has(e)) merged.add(e);
+  }
+  return Array.from(merged);
 }
 
 export interface CancellationEmailInput {
@@ -70,6 +110,10 @@ export async function sendCancellationEmail(i: CancellationEmailInput): Promise<
   } else {
     return { sent: false, reason: "no recipient" };
   }
+
+  // Senior chain (Tan / Hayder) on top of the configured management CC list.
+  const seniorCc = await fetchSeniorAdviserCc(i.adviser.name);
+  const ccArr = buildCc(cc, seniorCc, to);
 
   const reasonLabel = CANCELLATION_REASON_LABELS[i.reason];
   const subject = `[RECI] Cancelled: ${i.deal.client} — ${reasonLabel}`;
@@ -114,7 +158,7 @@ export async function sendCancellationEmail(i: CancellationEmailInput): Promise<
     await transporter.sendMail({
       from: `"RECI" <${process.env.GMAIL_USER}>`,
       to: to.join(","),
-      cc: cc.length > 0 ? cc.join(",") : undefined,
+      cc: ccArr.length > 0 ? ccArr.join(",") : undefined,
       subject,
       text,
       html,
@@ -167,6 +211,9 @@ export async function sendClawbackEmail(i: ClawbackEmailInput): Promise<{ sent: 
     return { sent: false, reason: "no recipient" };
   }
 
+  const seniorCc = await fetchSeniorAdviserCc(i.adviser.name);
+  const ccArr = buildCc(cc, seniorCc, to);
+
   const subject = `[RECI] Clawback: ${i.deal.client}`;
 
   const lines = [
@@ -205,7 +252,7 @@ export async function sendClawbackEmail(i: ClawbackEmailInput): Promise<{ sent: 
     await transporter.sendMail({
       from: `"RECI" <${process.env.GMAIL_USER}>`,
       to: to.join(","),
-      cc: cc.length > 0 ? cc.join(",") : undefined,
+      cc: ccArr.length > 0 ? ccArr.join(",") : undefined,
       subject,
       text,
       html,
@@ -248,6 +295,9 @@ export async function sendNysCheckEmail(i: NysCheckEmailInput): Promise<{ sent: 
     return { sent: false, reason: "no recipient" };
   }
 
+  const seniorCc = await fetchSeniorAdviserCc(i.adviser.name);
+  const ccArr = buildCc(cc, seniorCc, to);
+
   const subject = `[RECI] Deal needs review: ${i.deal.client}`;
 
   const lines = [
@@ -286,7 +336,7 @@ export async function sendNysCheckEmail(i: NysCheckEmailInput): Promise<{ sent: 
     await transporter.sendMail({
       from: `"RECI" <${process.env.GMAIL_USER}>`,
       to: to.join(","),
-      cc: cc.length > 0 ? cc.join(",") : undefined,
+      cc: ccArr.length > 0 ? ccArr.join(",") : undefined,
       subject,
       text,
       html,
