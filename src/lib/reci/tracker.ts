@@ -389,13 +389,17 @@ export async function businessTrackerByAdviser(
   for (const d of allDeals) {
     if (!weekSet.has(d.week)) continue;
     if (wantedAdvisers && !wantedAdvisers.has(d.adviser_id)) continue;
-    let weeks = byAdviser.get(d.adviser_id);
-    if (!weeks) {
-      weeks = new Map<number, BizWeekRow>();
-      byAdviser.set(d.adviser_id, weeks);
+    // Renamed from `weeks` to `advWeekMap` so we don't shadow the outer
+    // `weeks` array. The Next.js production build was clobbering the outer
+    // binding, leaving the post-loop `weeks.slice()` operating on a Map and
+    // returning zero advisers from the no-filter code path.
+    let advWeekMap = byAdviser.get(d.adviser_id);
+    if (!advWeekMap) {
+      advWeekMap = new Map<number, BizWeekRow>();
+      byAdviser.set(d.adviser_id, advWeekMap);
     }
-    let row = weeks.get(d.week);
-    if (!row) { row = emptyBizRow(d.week); weeks.set(d.week, row); }
+    let row = advWeekMap.get(d.week);
+    if (!row) { row = emptyBizRow(d.week); advWeekMap.set(d.week, row); }
     const c = Number(d.commission ?? 0) || 0;
     addToBiz(row, d.status, c);
   }
