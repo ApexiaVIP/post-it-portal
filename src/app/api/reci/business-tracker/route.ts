@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession, isDashboardUser } from "@/lib/auth";
-import { businessTrackerByAdviser, parseScopeFromParams } from "@/lib/reci/tracker";
+import { businessTrackerByAdviser, parseScopeFromParams, businessTrackerByAdviserDebug } from "@/lib/reci/tracker";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +16,11 @@ export async function GET(req: Request) {
     .split(",")
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isFinite(n));
-  const result = await businessTrackerByAdviser(year, scope, advRaw.length > 0 ? advRaw : null);
+  const filter = advRaw.length > 0 ? advRaw : null;
+  if (searchParams.get("debug") === "1") {
+    const dbg = await businessTrackerByAdviserDebug(year, scope, filter);
+    return NextResponse.json(dbg);
+  }
+  const result = await businessTrackerByAdviser(year, scope, filter);
   return NextResponse.json(result);
 }
