@@ -11,7 +11,7 @@
  *               summary, and the date/time printed so a stack of paper
  *               printouts is identifiable.
  */
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 
 export function PrintButton({ label = "Print" }: { label?: string }) {
   return (
@@ -50,12 +50,20 @@ export interface PrintHeaderProps {
 }
 
 export function PrintHeader({ title, subtitle, meta }: PrintHeaderProps) {
-  const stamp = useMemo(() => {
-    const d = new Date();
-    return d.toLocaleString("en-GB", {
-      day: "2-digit", month: "short", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
+  // Defer the timestamp to a client-only effect. If we compute it during
+  // render the server-rendered HTML disagrees with the client-rendered HTML
+  // (different second / minute), which trips React hydration errors #425 /
+  // #418 / #423. Those cascade into the page falling back to a client
+  // re-render which aborts the in-flight data fetch. Net effect was the
+  // Business Tracker opening blank.
+  const [stamp, setStamp] = useState("");
+  useEffect(() => {
+    setStamp(
+      new Date().toLocaleString("en-GB", {
+        day: "2-digit", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      }),
+    );
   }, []);
 
   return (
