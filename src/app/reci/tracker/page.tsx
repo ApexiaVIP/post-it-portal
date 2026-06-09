@@ -69,7 +69,11 @@ export default function BusinessTrackerPage() {
   const [month, setMonth] = useState<number>(now.getMonth() + 1);
   const [quarter, setQuarter] = useState<number>(Math.ceil((now.getMonth() + 1) / 3));
   const [week, setWeek] = useState<number>(1);
-  const [selectedAdvisers, setSelectedAdvisers] = useState<number[]>([]);
+  // We track which advisers are EXCLUDED (deselected) rather than which are
+  // selected, so on first paint every pill renders as visually active without
+  // having to wait for the advisers list to arrive from the server. Empty
+  // excluded list = show every adviser, which is the default Pauline wants.
+  const [excludedAdvisers, setExcludedAdvisers] = useState<number[]>([]);
 
   const [data, setData] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(false);
@@ -91,9 +95,17 @@ export default function BusinessTrackerPage() {
     if (kind === "quarter") p.set("q",     String(quarter));
     if (kind === "month")   p.set("month", String(month));
     if (kind === "week")    p.set("week",  String(week));
-    if (selectedAdvisers.length > 0) p.set("advisers", selectedAdvisers.join(","));
+    // Compute "selected" = all known advisers minus the excluded set. Only
+    // send the param when the user has actually excluded something; empty
+    // excluded list is semantically identical to "no filter" so we omit it.
+    if (excludedAdvisers.length > 0 && data) {
+      const shown = data.allAdvisers
+        .filter((a) => !excludedAdvisers.includes(a.id))
+        .map((a) => a.id);
+      if (shown.length > 0) p.set("advisers", shown.join(","));
+    }
     return p.toString();
-  }, [year, kind, quarter, month, week, selectedAdvisers]);
+  }, [year, kind, quarter, month, week, excludedAdvisers, data]);
 
   const load = useCallback(async (signal: AbortSignal) => {
     setLoading(true); setErr(null);
@@ -124,7 +136,7 @@ export default function BusinessTrackerPage() {
   }, [kind, year, month, quarter, week]);
 
   const toggleAdviser = (id: number) =>
-    setSelectedAdvisers((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    setExcludedAdvisers((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -168,7 +180,7 @@ export default function BusinessTrackerPage() {
           <div className="mx-auto flex max-w-[1800px] flex-wrap items-center gap-2 px-4 pb-3 text-xs">
             <span className="font-medium uppercase tracking-wide text-slate-500">Advisers</span>
             {data.allAdvisers.map((a) => {
-              const active = selectedAdvisers.includes(a.id);
+              const active = !excludedAdvisers.includes(a.id);
               return (
                 <button
                   key={a.id}
@@ -184,17 +196,14 @@ export default function BusinessTrackerPage() {
                 </button>
               );
             })}
-            {selectedAdvisers.length > 0 && (
+            {excludedAdvisers.length > 0 && (
               <button
                 type="button"
-                onClick={() => setSelectedAdvisers([])}
+                onClick={() => setExcludedAdvisers([])}
                 className="text-xs text-slate-500 hover:text-slate-900 underline ml-1"
               >
-                Clear (show all)
+                Show all
               </button>
-            )}
-            {selectedAdvisers.length === 0 && (
-              <span className="text-slate-400">none selected — showing all advisers with data in scope</span>
             )}
           </div>
         )}
