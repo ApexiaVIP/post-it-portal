@@ -84,7 +84,13 @@ function gbp(v: string | number | null | undefined) {
   return n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function CaseDrawer({ row, onClose, onChange }: { row: DrawerCaseRow; onClose: () => void; onChange: () => void }) {
+export function CaseDrawer({ row, canEdit, canNotify, onClose, onChange }: {
+  row: DrawerCaseRow;
+  canEdit: boolean;
+  canNotify: boolean;
+  onClose: () => void;
+  onChange: () => void;
+}) {
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -251,11 +257,25 @@ export function CaseDrawer({ row, onClose, onChange }: { row: DrawerCaseRow; onC
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <ActionBtn label="Change status" onClick={() => setPanel("status")} />
-            <ActionBtn label={row.status === "open" ? "Notify CAM" : "Re-notify CAM"} onClick={() => setPanel("notify")} accent="amber" />
-            <ActionBtn label="Add note" onClick={() => setPanel("note")} />
-            <ActionBtn label="Log contact" onClick={() => setPanel("contact")} />
-            <ActionBtn label="Record £ off" onClick={() => setPanel("money")} accent="green" />
+            {canEdit ? (
+              <>
+                <ActionBtn label="Change status" onClick={() => setPanel("status")} />
+                {canNotify && (
+                  <ActionBtn
+                    label={row.status === "open" ? "Notify CAM" : "Re-notify CAM"}
+                    onClick={() => setPanel("notify")}
+                    accent="amber"
+                  />
+                )}
+                <ActionBtn label="Add note" onClick={() => setPanel("note")} />
+                <ActionBtn label="Log contact" onClick={() => setPanel("contact")} />
+                <ActionBtn label="Record £ off" onClick={() => setPanel("money")} accent="green" />
+              </>
+            ) : (
+              <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                Read-only view. Status updates are made by the assigned CAM or Pauline.
+              </div>
+            )}
           </div>
         </section>
 

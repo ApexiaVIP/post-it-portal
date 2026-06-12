@@ -13,7 +13,7 @@
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
-import { getSession, isClawbackUser } from "@/lib/auth";
+import { getSession, isClawbackUser, canNotifyCam } from "@/lib/auth";
 import { sendClawbackNotifyEmail } from "@/lib/reci/email";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,9 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   const session = await getSession();
-  if (!isClawbackUser(session.username)) {
+  // Only Pauline / Jimmy notify a CAM. Sellers receive the email; they
+  // don't fire it.
+  if (!isClawbackUser(session.username) || !canNotifyCam(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const id = Number(params.id);

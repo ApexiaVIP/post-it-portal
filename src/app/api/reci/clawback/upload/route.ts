@@ -6,7 +6,7 @@
  * jimmy / pauline / poz.
  */
 import { NextResponse } from "next/server";
-import { getSession, isClawbackUser } from "@/lib/auth";
+import { getSession, isClawbackUser, canUploadEbah } from "@/lib/auth";
 import { ingestEbahFile } from "@/lib/reci/clawback-ingest";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export const maxDuration = 300;
 
 export async function POST(req: Request) {
   const session = await getSession();
-  if (!isClawbackUser(session.username)) {
+  if (!isClawbackUser(session.username) || !canUploadEbah(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

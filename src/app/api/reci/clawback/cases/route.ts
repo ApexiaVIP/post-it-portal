@@ -25,7 +25,7 @@
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
-import { getSession, isClawbackUser } from "@/lib/auth";
+import { getSession, isClawbackUser, clawbackAdviserScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +40,12 @@ const SORTS: Record<string, string> = {
 export async function GET(req: Request) {
   const session = await getSession();
   if (!isClawbackUser(session.username)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  // Seller scope: silently inject c.adviser_id = $scope so the rest of the
+  // filter logic works on the restricted set. Admins / viewers see all.
+  const scope = await clawbackAdviserScope(session.username);
+  if (scope === -1) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const { searchParams } = new URL(req.url);
@@ -67,8 +73,14 @@ export async function GET(req: Request) {
     where.push(clause.replace("$$", `$${params.length}`));
   }
   if (status)        add("c.status = $$",          status);
-  if (bucket)        add("c.agent_bucket = $$",    bucket);
-  if (adviserId)     add("c.adviser_id = $$",      Number(adviserId));
+  // Scoped sellers can't widen out of their own bucket: ignore any bucket
+  // or adviser_id query they pass and pin to their adviser_id.
+  if (typeof scope === "number") {
+    add("c.adviser_id = $$", scope);
+  } else {
+    if (bucket)      add("c.agent_bucket = $$",    bucket);
+    if (adviserId)   add("c.adviser_id = $$",      Number(adviserId));
+  }
   if (warning)       add("c.ebah_warning = $$",    warning);
   if (cbDueFrom)     add("c.clawback_date >= $$",  cbDueFrom);
   if (cbDueTo)       add("c.clawback_date <= $$",  cbDueTo);
@@ -152,13 +164,16 @@ export async function GET(req: Request) {
   );
 
   // Distinct warnings + bucket breakdown for the filter dropdown and tiles.
+  // Scope these too so sellers only see their own warnings / a single bucket.
+  const scopeFilter = typeof scope === "number" ? `WHERE adviser_id = ${scope}` : "";
+  const scopeFilterC = typeof scope === "number" ? `WHERE c.adviser_id = ${scope}` : "";
   const [warningsQ, bucketsQ] = await Promise.all([
     sql.query(
       `SELECT DISTINCT ebah_warning AS warning,
               COUNT(*)::int AS cases,
               COALESCE(SUM(clawback_due), 0)::float AS clawback_due
        FROM clawback_cases
-       WHERE ebah_warning IS NOT NULL
+       ${scopeFilter ? scopeFilter + " AND" : "WHERE"} ebah_warning IS NOT NULL
        GROUP BY ebah_warning
        ORDER BY clawback_due DESC NULLS LAST, ebah_warning ASC`,
       [],
@@ -173,14 +188,17 @@ export async function GET(req: Request) {
           COALESCE(SUM(c.net_at_risk), 0)::float     AS net_at_risk
        FROM clawback_cases c
        LEFT JOIN advisers a ON a.id = c.adviser_id
+       ${scopeFilterC}
        GROUP BY c.agent_bucket, a.name, c.adviser_id
        ORDER BY clawback_due DESC NULLS LAST`,
       [],
     ),
   ]);
 
-  // Pull recent uploads (last 10) so the dashboard can show last-ingested state.
-  const uploads = await sql.query(
+  // Pull recent uploads (last 10) so the dashboard can show last-ingested
+  // state. Sellers / viewers don't need to see this -- it's an internal
+  // audit log of who uploaded what.
+  const uploads = typeof scope === "number" ? { rows: [] } : await sql.query(
     `SELECT id, filename, uploaded_by,
             uploaded_at AT TIME ZONE 'Europe/London' AS uploaded_at,
             report_date::text AS report_date,

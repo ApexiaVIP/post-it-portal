@@ -105,7 +105,9 @@ export default function AppNav() {
             </Link>
           );
         })}
-        {showAdminLinks && canClawback && (() => {
+        {/* Clawback link is independent of admin role: sellers + Guy
+            (canClawback=true but role!=='admin') also see it. */}
+        {canClawback && (() => {
           const active = isActive(pathname, CLAWBACK_LINK.href);
           return (
             <Link

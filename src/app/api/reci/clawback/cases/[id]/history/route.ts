@@ -8,7 +8,7 @@
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
-import { getSession, isClawbackUser } from "@/lib/auth";
+import { getSession, isClawbackUser, clawbackAdviserScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,9 +20,25 @@ export async function GET(
   if (!isClawbackUser(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  const scope = await clawbackAdviserScope(session.username);
+  if (scope === -1) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
   const id = Number(params.id);
   if (!Number.isFinite(id) || id <= 0) {
     return NextResponse.json({ error: "bad id" }, { status: 400 });
+  }
+  // Sellers can only see history of their own cases.
+  if (typeof scope === "number") {
+    const c = await sql<{ adviser_id: number | null }>`
+      SELECT adviser_id FROM clawback_cases WHERE id = ${id}
+    `;
+    if (c.rowCount === 0) {
+      return NextResponse.json({ error: "case not found" }, { status: 404 });
+    }
+    if (c.rows[0].adviser_id !== scope) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
   }
   const r = await sql`
     SELECT id, event_type, field, old_value, new_value,

@@ -18,6 +18,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PrintButton, PrintHeader } from "@/components/print";
 import { CaseDrawer, type DrawerCaseRow } from "./case-drawer";
 
+interface MeResp {
+  username: string;
+  role: string;
+  canClawback: boolean;
+  isClawbackAdmin: boolean;
+  isClawbackSeller: boolean;
+  isClawbackViewer: boolean;
+  canEditClawback: boolean;
+  canUploadEbah: boolean;
+  canNotifyCam: boolean;
+  clawbackAdviserId: number | null;
+  clawbackAdviserName: string | null;
+}
+
 type Bucket = "adviser" | "xstaff" | "legacy" | "needs_review";
 type Status = "open" | "saved" | "resold" | "dead" | "reinstated" | "closed";
 
@@ -151,6 +165,15 @@ export default function ClawbackPage() {
   // Open drawer (clicked row)
   const [openCase, setOpenCase] = useState<CaseRow | null>(null);
 
+  // Capabilities from /api/me. Drive what's editable / uploadable / notifiable.
+  const [me, setMe] = useState<MeResp | null>(null);
+  useEffect(() => {
+    fetch("/api/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: MeResp | null) => { if (j) setMe(j); })
+      .catch(() => { /* ignore */ });
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -236,7 +259,11 @@ export default function ClawbackPage() {
       <div className="flex items-baseline justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Clawback Dashboard</h1>
-          <div className="text-sm text-slate-600">Post-completion CB tracking (L&amp;G EBAH today; more providers coming)</div>
+          <div className="text-sm text-slate-600">
+            {me?.clawbackAdviserName
+              ? <>Your cases: <strong className="text-slate-900">{me.clawbackAdviserName}</strong> &middot; only post-completion CB assigned to you</>
+              : <>Post-completion CB tracking (L&amp;G EBAH today; more providers coming)</>}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <a
@@ -249,7 +276,8 @@ export default function ClawbackPage() {
         </div>
       </div>
 
-      {/* Upload widget */}
+      {/* Upload widget — admin only (Pauline + Jimmy). */}
+      {me?.canUploadEbah !== false && (
       <section
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
@@ -290,6 +318,7 @@ export default function ClawbackPage() {
           </div>
         )}
       </section>
+      )}
 
       {/* Summary tiles */}
       <section className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -299,8 +328,10 @@ export default function ClawbackPage() {
         <Tile label="Net at risk £" value={summary ? gbp(summary.total_net_at_risk) : "—"} accent="amber" />
       </section>
 
-      {/* Bucket breakdown */}
-      {bucketTiles.length > 0 && (
+      {/* Bucket breakdown -- only meaningful for admins / Guy seeing every
+          bucket. Sellers only have one bucket (themselves) so the section
+          would be a single tile of clutter. */}
+      {!me?.isClawbackSeller && bucketTiles.length > 0 && (
         <section className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
           {bucketTiles.map((b) => (
             <button
@@ -336,16 +367,18 @@ export default function ClawbackPage() {
               <option key={k} value={k}>{v}</option>
             ))}
           </select>
-          <select
-            value={bucketFilter}
-            onChange={(e) => setBucketFilter(e.target.value)}
-            className="rounded border border-slate-300 px-2 py-1 text-sm"
-          >
-            <option value="">All agent buckets</option>
-            {Object.entries(BUCKET_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
+          {!me?.isClawbackSeller && (
+            <select
+              value={bucketFilter}
+              onChange={(e) => setBucketFilter(e.target.value)}
+              className="rounded border border-slate-300 px-2 py-1 text-sm"
+            >
+              <option value="">All agent buckets</option>
+              {Object.entries(BUCKET_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
+            </select>
+          )}
           <select
             value={warningFilter}
             onChange={(e) => setWarningFilter(e.target.value)}
@@ -574,6 +607,8 @@ export default function ClawbackPage() {
       {openCase && (
         <CaseDrawer
           row={openCase as DrawerCaseRow}
+          canEdit={me?.canEditClawback ?? false}
+          canNotify={me?.canNotifyCam ?? false}
           onClose={() => setOpenCase(null)}
           onChange={() => { void load(); }}
         />
