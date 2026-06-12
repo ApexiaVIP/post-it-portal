@@ -18,7 +18,7 @@
  */
 import { NextResponse } from "next/server";
 import { db } from "@vercel/postgres";
-import { getSession, isClawbackUser } from "@/lib/auth";
+import { getSession, isClawbackUser, canEditClawback, clawbackAdviserScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,11 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   const session = await getSession();
-  if (!isClawbackUser(session.username)) {
+  if (!isClawbackUser(session.username) || !canEditClawback(session.username)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  const scope = await clawbackAdviserScope(session.username);
+  if (scope === -1) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const id = Number(params.id);
@@ -55,13 +59,17 @@ export async function POST(
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const existsR = await client.query<{ id: number }>(
-      `SELECT id FROM clawback_cases WHERE id = $1`,
+    const existsR = await client.query<{ id: number; adviser_id: number | null }>(
+      `SELECT id, adviser_id FROM clawback_cases WHERE id = $1`,
       [id],
     );
     if (existsR.rowCount === 0) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "case not found" }, { status: 404 });
+    }
+    if (typeof scope === "number" && existsR.rows[0].adviser_id !== scope) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
     if (k === "note") {

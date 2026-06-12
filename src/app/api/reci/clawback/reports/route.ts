@@ -18,7 +18,7 @@
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
-import { getSession, isClawbackUser } from "@/lib/auth";
+import { getSession, isClawbackUser, clawbackAdviserScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +47,10 @@ export async function GET(req: Request) {
   if (!isClawbackUser(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  const adviserScope = await clawbackAdviserScope(session.username);
+  if (adviserScope === -1) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
   const { searchParams } = new URL(req.url);
   const scope = (searchParams.get("scope") || "month") as Scope;
   if (!["week","month","quarter","half","year"].includes(scope)) {
@@ -60,28 +64,51 @@ export async function GET(req: Request) {
   // Pull every case for the chosen year (by clawback_date) plus those without
   // a clawback_date (legacy / unscheduled). Aggregating in JS keeps the SQL
   // simple; volume is well under 10k rows even at end-of-year.
-  const rowsR = await sql<{
-    adviser_id: number | null;
-    adviser_name: string | null;
-    agent_bucket: string;
-    clawback_date: string | null;
-    clawback_due: string | null;
-    saved_amount: string | null;
-    resold_amount: string | null;
-  }>`
-    SELECT
-      c.adviser_id,
-      a.name AS adviser_name,
-      c.agent_bucket,
-      c.clawback_date::text AS clawback_date,
-      c.clawback_due::text AS clawback_due,
-      c.saved_amount::text AS saved_amount,
-      c.resold_amount::text AS resold_amount
-    FROM clawback_cases c
-    LEFT JOIN advisers a ON a.id = c.adviser_id
-    WHERE c.clawback_date IS NULL
-       OR EXTRACT(YEAR FROM c.clawback_date) = ${year}
-  `;
+  const rowsR = typeof adviserScope === "number"
+    ? await sql<{
+        adviser_id: number | null;
+        adviser_name: string | null;
+        agent_bucket: string;
+        clawback_date: string | null;
+        clawback_due: string | null;
+        saved_amount: string | null;
+        resold_amount: string | null;
+      }>`
+        SELECT
+          c.adviser_id,
+          a.name AS adviser_name,
+          c.agent_bucket,
+          c.clawback_date::text AS clawback_date,
+          c.clawback_due::text AS clawback_due,
+          c.saved_amount::text AS saved_amount,
+          c.resold_amount::text AS resold_amount
+        FROM clawback_cases c
+        LEFT JOIN advisers a ON a.id = c.adviser_id
+        WHERE c.adviser_id = ${adviserScope}
+          AND (c.clawback_date IS NULL OR EXTRACT(YEAR FROM c.clawback_date) = ${year})
+      `
+    : await sql<{
+        adviser_id: number | null;
+        adviser_name: string | null;
+        agent_bucket: string;
+        clawback_date: string | null;
+        clawback_due: string | null;
+        saved_amount: string | null;
+        resold_amount: string | null;
+      }>`
+        SELECT
+          c.adviser_id,
+          a.name AS adviser_name,
+          c.agent_bucket,
+          c.clawback_date::text AS clawback_date,
+          c.clawback_due::text AS clawback_due,
+          c.saved_amount::text AS saved_amount,
+          c.resold_amount::text AS resold_amount
+        FROM clawback_cases c
+        LEFT JOIN advisers a ON a.id = c.adviser_id
+        WHERE c.clawback_date IS NULL
+           OR EXTRACT(YEAR FROM c.clawback_date) = ${year}
+      `;
 
   // Group by (period, bucket).
   const byPeriod = new Map<string, { period: PeriodKey; buckets: Map<string, BucketRow> }>();
