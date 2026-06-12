@@ -154,7 +154,9 @@ export function parseEbahXlsx(buf: Buffer | ArrayBuffer): ParseResult {
       master_agent_no: stripLeadingApostrophe(toStr(r[COL.master_agent_no])),
       agent_no:        stripLeadingApostrophe(toStr(r[COL.agent_no])),
       raw: {
-        servicing_agent: toStr(r[COL.servicing_agent]),
+        // Poz confirmed we don't need Servicing Agent -- Sales Agent is the
+        // only one that matters for clawback ownership. Field still exists
+        // on the EBAH schema (COL.servicing_agent) but we stop carrying it.
         frn:             toStr(r[COL.frn]),
         reqs_to_save:    toStr(r[COL.reqs_to_save]),
         last_full_paid:  parseDateCell(r[COL.last_full_paid]),

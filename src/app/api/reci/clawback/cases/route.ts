@@ -5,11 +5,23 @@
  * Auth-gated to jimmy / pauline / poz.
  *
  * Query params (all optional):
- *   status        one of open|saved|resold|dead|reinstated|closed
- *   bucket        one of adviser|xstaff|legacy|needs_review
- *   adviser_id    integer (only meaningful when bucket=adviser)
- *   q             free-text match on client_name / postcode / policy_number
- *   limit         default 1000
+ *   status            one of open|saved|resold|dead|reinstated|closed
+ *   bucket            one of adviser|xstaff|legacy|needs_review
+ *   adviser_id        integer (only meaningful when bucket=adviser)
+ *   warning           exact match against ebah_warning
+ *   cb_due_from       ISO date (yyyy-mm-dd) >=
+ *   cb_due_to         ISO date (yyyy-mm-dd) <=
+ *   cb_min            number, clawback_due >=
+ *   cb_max            number, clawback_due <=
+ *   master_agent_no   substring match
+ *   agent_no          substring match
+ *   surname           substring match against client_last_name (Poz wanted
+ *                     a surname-specific filter on top of the free-text q)
+ *   q                 free-text against client_name / postcode / policy /
+ *                     master_agent_no / agent_no
+ *   sort              one of cb_desc | cb_due_asc | cb_due_desc | client_asc
+ *                     (default cb_desc -- highest exposure first, Poz priority)
+ *   limit             default 1000
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
@@ -17,17 +29,35 @@ import { getSession, isClawbackUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
+const SORTS: Record<string, string> = {
+  cb_desc:     "c.clawback_due DESC NULLS LAST, c.id ASC",
+  cb_asc:      "c.clawback_due ASC NULLS LAST, c.id ASC",
+  cb_due_asc:  "c.clawback_date ASC NULLS LAST, c.clawback_due DESC NULLS LAST",
+  cb_due_desc: "c.clawback_date DESC NULLS LAST, c.clawback_due DESC NULLS LAST",
+  client_asc:  "c.client_last_name ASC NULLS LAST, c.client_first_name ASC NULLS LAST",
+};
+
 export async function GET(req: Request) {
   const session = await getSession();
   if (!isClawbackUser(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const { searchParams } = new URL(req.url);
-  const status     = searchParams.get("status");
-  const bucket     = searchParams.get("bucket");
-  const adviserId  = searchParams.get("adviser_id");
-  const q          = searchParams.get("q");
-  const limit      = Math.min(Number(searchParams.get("limit") || 1000), 5000);
+  const status         = searchParams.get("status");
+  const bucket         = searchParams.get("bucket");
+  const adviserId      = searchParams.get("adviser_id");
+  const warning        = searchParams.get("warning");
+  const cbDueFrom      = searchParams.get("cb_due_from");
+  const cbDueTo        = searchParams.get("cb_due_to");
+  const cbMin          = searchParams.get("cb_min");
+  const cbMax          = searchParams.get("cb_max");
+  const masterAgentNo  = searchParams.get("master_agent_no");
+  const agentNo        = searchParams.get("agent_no");
+  const surname        = searchParams.get("surname");
+  const q              = searchParams.get("q");
+  const sortKey        = searchParams.get("sort") || "cb_desc";
+  const orderBy        = SORTS[sortKey] || SORTS.cb_desc;
+  const limit          = Math.min(Number(searchParams.get("limit") || 1000), 5000);
 
   // Build a parameterised WHERE clause from the optional filters.
   const where: string[] = [];
@@ -36,9 +66,26 @@ export async function GET(req: Request) {
     params.push(value);
     where.push(clause.replace("$$", `$${params.length}`));
   }
-  if (status)    add("c.status = $$",       status);
-  if (bucket)    add("c.agent_bucket = $$", bucket);
-  if (adviserId) add("c.adviser_id = $$",   Number(adviserId));
+  if (status)        add("c.status = $$",          status);
+  if (bucket)        add("c.agent_bucket = $$",    bucket);
+  if (adviserId)     add("c.adviser_id = $$",      Number(adviserId));
+  if (warning)       add("c.ebah_warning = $$",    warning);
+  if (cbDueFrom)     add("c.clawback_date >= $$",  cbDueFrom);
+  if (cbDueTo)       add("c.clawback_date <= $$",  cbDueTo);
+  if (cbMin)         add("c.clawback_due >= $$",   Number(cbMin));
+  if (cbMax)         add("c.clawback_due <= $$",   Number(cbMax));
+  if (masterAgentNo) {
+    params.push(`%${masterAgentNo}%`);
+    where.push(`c.master_agent_no ILIKE $${params.length}`);
+  }
+  if (agentNo) {
+    params.push(`%${agentNo}%`);
+    where.push(`c.agent_no ILIKE $${params.length}`);
+  }
+  if (surname) {
+    params.push(`%${surname}%`);
+    where.push(`(c.client_last_name ILIKE $${params.length} OR c.client_name ILIKE $${params.length})`);
+  }
   if (q) {
     params.push(`%${q}%`);
     const p = params.length;
@@ -59,6 +106,7 @@ export async function GET(req: Request) {
         c.client_name,
         c.client_first_name,
         c.client_last_name,
+        c.client_dob::text AS client_dob,
         c.postcode,
         c.policy_type,
         c.net_premium,
@@ -85,7 +133,7 @@ export async function GET(req: Request) {
      FROM clawback_cases c
      LEFT JOIN advisers a ON a.id = c.adviser_id
      ${whereSql}
-     ORDER BY c.clawback_due DESC NULLS LAST, c.id ASC
+     ORDER BY ${orderBy}
      LIMIT ${limitParam}`,
     params,
   );
@@ -103,22 +151,33 @@ export async function GET(req: Request) {
     params.slice(0, params.length - 1), // drop the trailing limit param
   );
 
-  // Group tiles by bucket so we can render Tan / Hayder / Xstaff / Legacy
-  // exposure side by side without a second round-trip.
-  const buckets = await sql.query(
-    `SELECT
-        c.agent_bucket,
-        a.name AS adviser_name,
-        c.adviser_id,
-        COUNT(*)::int                        AS cases,
-        COALESCE(SUM(c.clawback_due), 0)::float    AS clawback_due,
-        COALESCE(SUM(c.net_at_risk), 0)::float     AS net_at_risk
-     FROM clawback_cases c
-     LEFT JOIN advisers a ON a.id = c.adviser_id
-     GROUP BY c.agent_bucket, a.name, c.adviser_id
-     ORDER BY clawback_due DESC NULLS LAST`,
-    [],
-  );
+  // Distinct warnings + bucket breakdown for the filter dropdown and tiles.
+  const [warningsQ, bucketsQ] = await Promise.all([
+    sql.query(
+      `SELECT DISTINCT ebah_warning AS warning,
+              COUNT(*)::int AS cases,
+              COALESCE(SUM(clawback_due), 0)::float AS clawback_due
+       FROM clawback_cases
+       WHERE ebah_warning IS NOT NULL
+       GROUP BY ebah_warning
+       ORDER BY clawback_due DESC NULLS LAST, ebah_warning ASC`,
+      [],
+    ),
+    sql.query(
+      `SELECT
+          c.agent_bucket,
+          a.name AS adviser_name,
+          c.adviser_id,
+          COUNT(*)::int                        AS cases,
+          COALESCE(SUM(c.clawback_due), 0)::float    AS clawback_due,
+          COALESCE(SUM(c.net_at_risk), 0)::float     AS net_at_risk
+       FROM clawback_cases c
+       LEFT JOIN advisers a ON a.id = c.adviser_id
+       GROUP BY c.agent_bucket, a.name, c.adviser_id
+       ORDER BY clawback_due DESC NULLS LAST`,
+      [],
+    ),
+  ]);
 
   // Pull recent uploads (last 10) so the dashboard can show last-ingested state.
   const uploads = await sql.query(
@@ -136,7 +195,8 @@ export async function GET(req: Request) {
   return NextResponse.json({
     cases: casesQ.rows,
     summary: tilesQ.rows[0] ?? null,
-    buckets: buckets.rows,
+    buckets: bucketsQ.rows,
+    warnings: warningsQ.rows,
     recentUploads: uploads.rows,
   });
 }
