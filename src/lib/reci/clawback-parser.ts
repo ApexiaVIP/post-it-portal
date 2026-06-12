@@ -98,10 +98,24 @@ export function parseEbahXlsx(buf: Buffer | ArrayBuffer): ParseResult {
   const rows: EbahRow[] = [];
   const errors: { rowIndex: number; reason: string }[] = [];
 
-  // Data starts at row index 3 (0=title, 1=blank, 2=headers, 3+=data)
+  // Data starts at row index 3 (0=title, 1=blank, 2=headers, 3+=data).
+  //
+  // The file finishes with a footer row that looks like a policy row at a
+  // glance but is L&G's grand total:
+  //   Agent No   = "Total Policies"
+  //   Policy No  = <count of policies in the file>
+  //   PremOS     = "Total Clawback Due"
+  //   CB Due     = <the grand total>
+  // Recognise it explicitly so a future L&G layout change can't sneak it
+  // into the case table.
   for (let i = 3; i < grid.length; i++) {
     const r = grid[i];
     if (!r) continue;
+    const agentNoCell = toStr(r[COL.agent_no]);
+    const premOsCell  = toStr(r[COL.premium_os]);
+    if (agentNoCell === "Total Policies" || premOsCell === "Total Clawback Due") {
+      continue; // footer row
+    }
     const policyRaw = stripLeadingApostrophe(toStr(r[COL.policy_number]));
     if (!policyRaw) continue; // blank row
     const clientName = toStr(r[COL.client_name]);
