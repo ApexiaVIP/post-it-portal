@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { getSession, roleFor } from "@/lib/auth";
+import { getSession, roleFor, isClawbackUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Returns the current user's username and role ("admin" | "data-entry"), so
- * the client can adapt the UI (e.g. hide admin nav links from data-entry
- * users). Returns 401 if not signed in or 403 if signed in with no role.
+ * Returns the current user's username, role, and granular feature flags.
+ * `canClawback` is true for Poz / Jimmy only -- nav uses this to show
+ * the Clawback link to them and hide it from everyone else (incl. other
+ * admin users like Pauline if she logs in as a different alias).
  */
 export async function GET() {
   const session = await getSession();
@@ -17,5 +18,9 @@ export async function GET() {
   if (role === "none") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
-  return NextResponse.json({ username: session.username, role });
+  return NextResponse.json({
+    username: session.username,
+    role,
+    canClawback: isClawbackUser(session.username),
+  });
 }

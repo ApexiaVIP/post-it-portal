@@ -22,18 +22,23 @@ const ADMIN_LINKS = [
   { href: "/dashboard",       label: "Call-Centre Dashboard" },
 ];
 
+// Shown only when /api/me reports canClawback (Poz + Jimmy).
+const CLAWBACK_LINK = { href: "/reci/clawback", label: "Clawback" };
+
 function isActive(pathname: string, href: string): boolean {
   if (href === "/reci/analytics") return pathname === "/reci/analytics";
   if (href === "/reci/tracker")   return pathname === "/reci/tracker";
   if (href === "/reci/weekly")    return pathname === "/reci/weekly";
+  if (href === "/reci/clawback")  return pathname === "/reci/clawback" || pathname.startsWith("/reci/clawback/");
   if (href === "/reci") {
     // Any /reci/* board page (but not the standalone analytics / tracker /
-    // weekly pages) counts as Boards.
+    // weekly / clawback pages) counts as Boards.
     if (pathname === "/reci") return true;
     if (!pathname.startsWith("/reci/")) return false;
     return pathname !== "/reci/analytics"
         && pathname !== "/reci/tracker"
-        && pathname !== "/reci/weekly";
+        && pathname !== "/reci/weekly"
+        && !pathname.startsWith("/reci/clawback");
   }
   return pathname === href || pathname.startsWith(href + "/");
 }
@@ -41,6 +46,7 @@ function isActive(pathname: string, href: string): boolean {
 export default function AppNav() {
   const pathname = usePathname();
   const [role, setRole] = useState<Role>("unknown");
+  const [canClawback, setCanClawback] = useState(false);
 
   useEffect(() => {
     // Don't bother fetching on the login page.
@@ -48,8 +54,10 @@ export default function AppNav() {
     let alive = true;
     fetch("/api/me", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { role?: Role } | null) => {
-        if (alive && j?.role) setRole(j.role);
+      .then((j: { role?: Role; canClawback?: boolean } | null) => {
+        if (!alive || !j) return;
+        if (j.role) setRole(j.role);
+        if (j.canClawback) setCanClawback(true);
       })
       .catch(() => { /* ignore */ });
     return () => { alive = false; };
@@ -97,6 +105,22 @@ export default function AppNav() {
             </Link>
           );
         })}
+        {showAdminLinks && canClawback && (() => {
+          const active = isActive(pathname, CLAWBACK_LINK.href);
+          return (
+            <Link
+              href={CLAWBACK_LINK.href}
+              aria-current={active ? "page" : undefined}
+              className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-amber-600 text-white"
+                  : "text-amber-700 hover:bg-amber-50"
+              }`}
+            >
+              {CLAWBACK_LINK.label}
+            </Link>
+          );
+        })()}
         <button
           type="button"
           onClick={signOut}
