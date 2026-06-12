@@ -26,6 +26,7 @@ interface CaseRow {
   policy_number: string;
   provider: string;
   client_name: string;
+  client_dob: string | null;
   postcode: string | null;
   policy_type: string | null;
   net_premium: string | null;
@@ -48,6 +49,21 @@ interface CaseRow {
   agent_bucket: Bucket;
   updated_at: string;
 }
+
+interface WarningRow {
+  warning: string;
+  cases: number;
+  clawback_due: number;
+}
+
+type Sort = "cb_desc" | "cb_asc" | "cb_due_asc" | "cb_due_desc" | "client_asc";
+const SORT_LABELS: Record<Sort, string> = {
+  cb_desc:     "CB value (highest first)",
+  cb_asc:      "CB value (lowest first)",
+  cb_due_asc:  "CB date (soonest first)",
+  cb_due_desc: "CB date (latest first)",
+  client_asc:  "Client surname A-Z",
+};
 
 interface Summary {
   total_cases: number;
@@ -113,7 +129,18 @@ export default function ClawbackPage() {
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [bucketFilter, setBucketFilter] = useState<string>("");
+  const [warningFilter, setWarningFilter] = useState<string>("");
+  const [cbDueFrom, setCbDueFrom] = useState<string>("");
+  const [cbDueTo, setCbDueTo] = useState<string>("");
+  const [cbMin, setCbMin] = useState<string>("");
+  const [cbMax, setCbMax] = useState<string>("");
+  const [masterAgentNo, setMasterAgentNo] = useState<string>("");
+  const [agentNo, setAgentNo] = useState<string>("");
+  const [surname, setSurname] = useState<string>("");
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<Sort>("cb_desc");
+  const [moreOpen, setMoreOpen] = useState<boolean>(false);
+  const [warnings, setWarnings] = useState<WarningRow[]>([]);
 
   // Upload state
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -129,22 +156,32 @@ export default function ClawbackPage() {
     setError(null);
     try {
       const p = new URLSearchParams();
-      if (statusFilter) p.set("status", statusFilter);
-      if (bucketFilter) p.set("bucket", bucketFilter);
-      if (search.trim()) p.set("q", search.trim());
+      if (statusFilter)         p.set("status",          statusFilter);
+      if (bucketFilter)         p.set("bucket",          bucketFilter);
+      if (warningFilter)        p.set("warning",         warningFilter);
+      if (cbDueFrom)            p.set("cb_due_from",     cbDueFrom);
+      if (cbDueTo)              p.set("cb_due_to",       cbDueTo);
+      if (cbMin)                p.set("cb_min",          cbMin);
+      if (cbMax)                p.set("cb_max",          cbMax);
+      if (masterAgentNo.trim()) p.set("master_agent_no", masterAgentNo.trim());
+      if (agentNo.trim())       p.set("agent_no",        agentNo.trim());
+      if (surname.trim())       p.set("surname",         surname.trim());
+      if (search.trim())        p.set("q",               search.trim());
+      if (sort !== "cb_desc")   p.set("sort",            sort);
       const r = await fetch(`/api/reci/clawback/cases?${p.toString()}`, { cache: "no-store" });
       if (!r.ok) throw new Error(`fetch failed (${r.status})`);
       const j = await r.json();
       setCases(j.cases || []);
       setSummary(j.summary || null);
       setBuckets(j.buckets || []);
+      setWarnings(j.warnings || []);
       setRecentUploads(j.recentUploads || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, bucketFilter, search]);
+  }, [statusFilter, bucketFilter, warningFilter, cbDueFrom, cbDueTo, cbMin, cbMax, masterAgentNo, agentNo, surname, search, sort]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -280,43 +317,151 @@ export default function ClawbackPage() {
       )}
 
       {/* Filters */}
-      <section className="mt-4 flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-white p-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Filters</span>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded border border-slate-300 px-2 py-1 text-sm"
-        >
-          <option value="">All statuses</option>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-        <select
-          value={bucketFilter}
-          onChange={(e) => setBucketFilter(e.target.value)}
-          className="rounded border border-slate-300 px-2 py-1 text-sm"
-        >
-          <option value="">All agent buckets</option>
-          {Object.entries(BUCKET_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-        <input
-          type="search"
-          placeholder="Search client name / postcode / policy no..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="min-w-[280px] flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
-        />
-        {(statusFilter || bucketFilter || search) && (
+      <section className="mt-4 rounded border border-slate-200 bg-white p-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Filters</span>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="rounded border border-slate-300 px-2 py-1 text-sm"
+          >
+            <option value="">All statuses</option>
+            {Object.entries(STATUS_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+          <select
+            value={bucketFilter}
+            onChange={(e) => setBucketFilter(e.target.value)}
+            className="rounded border border-slate-300 px-2 py-1 text-sm"
+          >
+            <option value="">All agent buckets</option>
+            {Object.entries(BUCKET_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+          <select
+            value={warningFilter}
+            onChange={(e) => setWarningFilter(e.target.value)}
+            className="rounded border border-slate-300 px-2 py-1 text-sm"
+            title="L&G warning category"
+          >
+            <option value="">All warnings</option>
+            {warnings.map((w) => (
+              <option key={w.warning} value={w.warning}>
+                {w.warning} ({w.cases})
+              </option>
+            ))}
+          </select>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as Sort)}
+            className="rounded border border-slate-300 px-2 py-1 text-sm"
+            title="Sort order"
+          >
+            {(Object.keys(SORT_LABELS) as Sort[]).map((k) => (
+              <option key={k} value={k}>{SORT_LABELS[k]}</option>
+            ))}
+          </select>
+          <input
+            type="search"
+            placeholder="Search name / postcode / policy / agent no..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="min-w-[280px] flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+          />
           <button
             type="button"
-            onClick={() => { setStatusFilter(""); setBucketFilter(""); setSearch(""); }}
-            className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+            onClick={() => setMoreOpen((v) => !v)}
+            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            title="More filters"
           >
-            Clear
+            {moreOpen ? "Hide more" : "More filters"}
           </button>
+          {(statusFilter || bucketFilter || warningFilter || cbDueFrom || cbDueTo || cbMin || cbMax || masterAgentNo || agentNo || surname || search || sort !== "cb_desc") && (
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter(""); setBucketFilter(""); setWarningFilter("");
+                setCbDueFrom(""); setCbDueTo(""); setCbMin(""); setCbMax("");
+                setMasterAgentNo(""); setAgentNo(""); setSurname("");
+                setSearch(""); setSort("cb_desc");
+              }}
+              className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
+        {moreOpen && (
+          <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2 md:grid-cols-4">
+            <FilterField label="Surname">
+              <input
+                type="text"
+                value={surname}
+                onChange={(e) => setSurname(e.target.value)}
+                placeholder="e.g. McMinn"
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+              />
+            </FilterField>
+            <FilterField label="Master Agent No">
+              <input
+                type="text"
+                value={masterAgentNo}
+                onChange={(e) => setMasterAgentNo(e.target.value)}
+                placeholder="e.g. 8674533"
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm font-mono"
+              />
+            </FilterField>
+            <FilterField label="Seller / Agent No">
+              <input
+                type="text"
+                value={agentNo}
+                onChange={(e) => setAgentNo(e.target.value)}
+                placeholder="e.g. 8938722"
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm font-mono"
+              />
+            </FilterField>
+            <div />
+            <FilterField label="CB date from">
+              <input
+                type="date"
+                value={cbDueFrom}
+                onChange={(e) => setCbDueFrom(e.target.value)}
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+              />
+            </FilterField>
+            <FilterField label="CB date to">
+              <input
+                type="date"
+                value={cbDueTo}
+                onChange={(e) => setCbDueTo(e.target.value)}
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+              />
+            </FilterField>
+            <FilterField label="CB £ min">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={cbMin}
+                onChange={(e) => setCbMin(e.target.value)}
+                placeholder="0"
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+              />
+            </FilterField>
+            <FilterField label="CB £ max">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={cbMax}
+                onChange={(e) => setCbMax(e.target.value)}
+                placeholder="no cap"
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+              />
+            </FilterField>
+          </div>
         )}
       </section>
 
@@ -441,6 +586,15 @@ function Tile({ label, value, accent }: { label: string; value: string; accent?:
       <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
       <div className="text-xl font-semibold">{value}</div>
     </div>
+  );
+}
+
+function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-0.5">
+      <span className="text-xs uppercase tracking-wide text-slate-500">{label}</span>
+      {children}
+    </label>
   );
 }
 

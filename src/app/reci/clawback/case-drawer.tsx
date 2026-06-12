@@ -23,6 +23,7 @@ export interface DrawerCaseRow {
   policy_number: string;
   provider: string;
   client_name: string;
+  client_dob: string | null;
   postcode: string | null;
   policy_type: string | null;
   net_premium: string | null;
@@ -223,6 +224,7 @@ export function CaseDrawer({ row, onClose, onChange }: { row: DrawerCaseRow; onC
         </div>
 
         <section className="mt-4 grid grid-cols-2 gap-3 px-5 text-sm">
+          <FieldRow label="DOB" value={row.client_dob || "—"} />
           <FieldRow label="Sales agent" value={row.ebah_agent_name} />
           <FieldRow label="Bucket" value={row.agent_bucket === "adviser" && row.adviser_name ? row.adviser_name : row.agent_bucket} />
           <FieldRow label="Master Agent" value={row.master_agent_no || "—"} mono />
