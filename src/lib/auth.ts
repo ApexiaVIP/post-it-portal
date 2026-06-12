@@ -97,6 +97,9 @@ function parseList(raw: string | undefined): string[] {
 
 const DASHBOARD_USERNAMES  = parseList(process.env.DASHBOARD_USERNAMES  ?? "jimmy,pauline,poz");
 const DATA_ENTRY_USERNAMES = parseList(process.env.DATA_ENTRY_USERNAMES ?? "hayder,tan");
+// Clawback dashboard is scoped to Poz + Jimmy only (per Pauline's brief).
+// Pauline logs in as both "pauline" and "poz" -- include both aliases.
+const CLAWBACK_USERNAMES   = parseList(process.env.CLAWBACK_USERNAMES   ?? "jimmy,pauline,poz");
 
 export type Role = "admin" | "data-entry" | "none";
 
@@ -111,6 +114,12 @@ export function roleFor(username: string | null | undefined): Role {
 // Full-access (admin) users. Used by APIs that should remain admin-only.
 export function isDashboardUser(username: string | null | undefined): username is string {
   return roleFor(username) === "admin";
+}
+
+// Clawback dashboard access. Visible only to Poz and Jimmy.
+export function isClawbackUser(username: string | null | undefined): username is string {
+  if (!username) return false;
+  return CLAWBACK_USERNAMES.includes(username.toLowerCase());
 }
 
 // Any authenticated user with a role (admin OR data-entry). Used by /api/data
