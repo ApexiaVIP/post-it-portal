@@ -23,6 +23,8 @@ const cases = await sql`
   SELECT COUNT(*)::int AS n,
          COALESCE(SUM(clawback_due), 0)::float AS total_cb,
          COUNT(*) FILTER (WHERE clawback_due > 0)::int AS cb_rows,
+         COUNT(*) FILTER (WHERE master_agent_no IS NOT NULL)::int AS with_master,
+         COUNT(*) FILTER (WHERE agent_no IS NOT NULL)::int AS with_agent,
          COUNT(*) FILTER (WHERE agent_bucket = 'adviser')::int AS bucket_adviser,
          COUNT(*) FILTER (WHERE agent_bucket = 'xstaff')::int AS bucket_xstaff,
          COUNT(*) FILTER (WHERE agent_bucket = 'legacy')::int AS bucket_legacy,
@@ -45,16 +47,16 @@ for (const b of buckets.rows) {
   console.log(`  ${(b.adviser_name || b.agent_bucket).padEnd(15)} ${b.agent_bucket.padEnd(14)} cases=${String(b.cases).padStart(4)} cb=£${b.clawback_due.toFixed(2)}`);
 }
 
-const top = await sql`
-  SELECT policy_number, client_name, ebah_warning, ebah_agent_name,
-         clawback_due, status, agent_bucket
+const sample = await sql`
+  SELECT policy_number, master_agent_no, agent_no, client_name, ebah_warning,
+         ebah_agent_name, clawback_due, agent_bucket
   FROM clawback_cases
-  ORDER BY clawback_due DESC
-  LIMIT 5
+  ORDER BY clawback_due DESC NULLS LAST
+  LIMIT 3
 `;
-console.log("\nTop 5 CB exposure rows:");
-for (const r of top.rows) {
-  console.log(`  £${Number(r.clawback_due).toFixed(2).padStart(10)}  ${r.client_name} (${r.ebah_warning}) [${r.agent_bucket}] ${r.ebah_agent_name}`);
+console.log("\nTop 3 cases with master/agent ids:");
+for (const r of sample.rows) {
+  console.log(`  master=${r.master_agent_no || '(none)'.padEnd(7)}  agent=${r.agent_no || '(none)'.padEnd(7)}  £${Number(r.clawback_due).toFixed(2).padStart(10)}  ${r.client_name} (${r.ebah_warning})`);
 }
 
 const agentMap = await sql`
