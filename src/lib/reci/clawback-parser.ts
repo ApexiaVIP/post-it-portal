@@ -44,6 +44,8 @@ export interface EbahRow {
   policy_start_date: string | null;
   off_risk_date: string | null;
   ebah_agent_name: string;
+  master_agent_no: string | null;
+  agent_no: string | null;
   raw: Record<string, unknown>;
 }
 
@@ -135,9 +137,9 @@ export function parseEbahXlsx(buf: Buffer | ArrayBuffer): ParseResult {
       policy_start_date: parseDateCell(r[COL.policy_start_date]),
       off_risk_date: parseDateCell(r[COL.off_risk_date]),
       ebah_agent_name: canonicaliseAgent(agentRaw ?? ""),
+      master_agent_no: stripLeadingApostrophe(toStr(r[COL.master_agent_no])),
+      agent_no:        stripLeadingApostrophe(toStr(r[COL.agent_no])),
       raw: {
-        master_agent_no: toStr(r[COL.master_agent_no]),
-        agent_no:        toStr(r[COL.agent_no]),
         servicing_agent: toStr(r[COL.servicing_agent]),
         frn:             toStr(r[COL.frn]),
         reqs_to_save:    toStr(r[COL.reqs_to_save]),

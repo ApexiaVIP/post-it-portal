@@ -33,6 +33,8 @@ interface CaseRow {
   policy_start_date: string | null;
   off_risk_date: string | null;
   ebah_agent_name: string;
+  master_agent_no: string | null;
+  agent_no: string | null;
   ebah_warning: string | null;
   status: Status;
   status_note: string | null;
@@ -328,6 +330,8 @@ export default function ClawbackPage() {
               <Th>Client</Th>
               <Th>Postcode</Th>
               <Th>Policy No</Th>
+              <Th>Master Agent</Th>
+              <Th>Agent No</Th>
               <Th>Provider</Th>
               <Th>Type</Th>
               <Th>Warning</Th>
@@ -341,14 +345,16 @@ export default function ClawbackPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={12}>Loading...</td></tr>
+              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={14}>Loading...</td></tr>
             ) : cases.length === 0 ? (
-              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={12}>No cases match.</td></tr>
+              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={14}>No cases match.</td></tr>
             ) : cases.map((c) => (
               <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
                 <Td>{c.client_name}</Td>
                 <Td>{c.postcode || "—"}</Td>
                 <Td><code className="text-xs">{c.policy_number}</code></Td>
+                <Td><code className="text-xs">{c.master_agent_no || "—"}</code></Td>
+                <Td><code className="text-xs">{c.agent_no || "—"}</code></Td>
                 <Td className="uppercase">{c.provider}</Td>
                 <Td className="max-w-[220px] truncate" title={c.policy_type || ""}>{c.policy_type || "—"}</Td>
                 <Td><WarningPill warning={c.ebah_warning} /></Td>
