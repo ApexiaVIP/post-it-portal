@@ -45,6 +45,10 @@ interface CaseRow {
   policy_type: string | null;
   net_premium: string | null;
   clawback_due: string | null;
+  openwork_clawback_due: string | null;
+  openwork_cb_updated_by: string | null;
+  openwork_cb_updated_at: string | null;
+  effective_clawback_due: string | null;
   clawback_date: string | null;
   policy_start_date: string | null;
   off_risk_date: string | null;
@@ -552,7 +556,17 @@ export default function ClawbackPage() {
                 <Td className="max-w-[220px] truncate" title={c.policy_type || ""}>{c.policy_type || "—"}</Td>
                 <Td><WarningPill warning={c.ebah_warning} /></Td>
                 <Td right>{gbp(c.net_premium)}</Td>
-                <Td right className="font-medium">{gbp(c.clawback_due)}</Td>
+                <Td right className="font-medium">
+                  {gbp(c.effective_clawback_due ?? c.clawback_due)}
+                  {c.openwork_clawback_due !== null && (
+                    <span
+                      className="ml-1 inline-block rounded bg-blue-100 px-1 py-0.5 text-[10px] font-semibold uppercase text-blue-800"
+                      title={`Openwork override (provider amount: ${gbp(c.clawback_due)})`}
+                    >
+                      OW
+                    </span>
+                  )}
+                </Td>
                 <Td>{c.clawback_date || "—"}</Td>
                 <Td className="max-w-[200px] truncate" title={c.ebah_agent_name}>
                   {c.adviser_name ? <strong>{c.adviser_name}</strong> : c.ebah_agent_name}
@@ -609,6 +623,7 @@ export default function ClawbackPage() {
           row={openCase as DrawerCaseRow}
           canEdit={me?.canEditClawback ?? false}
           canNotify={me?.canNotifyCam ?? false}
+          canEditOpenworkCb={me?.isClawbackAdmin ?? false}
           onClose={() => setOpenCase(null)}
           onChange={() => { void load(); }}
         />

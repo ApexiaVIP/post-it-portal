@@ -28,6 +28,10 @@ export interface DrawerCaseRow {
   policy_type: string | null;
   net_premium: string | null;
   clawback_due: string | null;
+  openwork_clawback_due: string | null;
+  openwork_cb_updated_by: string | null;
+  openwork_cb_updated_at: string | null;
+  effective_clawback_due: string | null;
   clawback_date: string | null;
   policy_start_date: string | null;
   off_risk_date: string | null;
@@ -84,10 +88,11 @@ function gbp(v: string | number | null | undefined) {
   return n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function CaseDrawer({ row, canEdit, canNotify, onClose, onChange }: {
+export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose, onChange }: {
   row: DrawerCaseRow;
   canEdit: boolean;
   canNotify: boolean;
+  canEditOpenworkCb: boolean;
   onClose: () => void;
   onChange: () => void;
 }) {
@@ -97,7 +102,7 @@ export function CaseDrawer({ row, canEdit, canNotify, onClose, onChange }: {
   const [toast, setToast] = useState<string | null>(null);
 
   // Open form (only one at a time)
-  type Panel = null | "status" | "note" | "contact" | "money" | "notify";
+  type Panel = null | "status" | "note" | "contact" | "money" | "notify" | "openwork";
   const [panel, setPanel] = useState<Panel>(null);
 
   const loadHistory = useCallback(async () => {
@@ -192,6 +197,30 @@ export function CaseDrawer({ row, canEdit, canNotify, onClose, onChange }: {
     }
   }
 
+  async function saveOpenworkCb(amount: number | null, note: string) {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/reci/clawback/cases/${row.id}/openwork-cb`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amount, note: note || undefined }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        flash(`Failed: ${j.error || r.statusText}`);
+      } else {
+        flash(amount === null ? "Openwork CB cleared." : `Openwork CB set to ${amount.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}.`);
+        await loadHistory();
+        onChange();
+      }
+    } catch (e) {
+      flash(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+      setPanel(null);
+    }
+  }
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-slate-900/40" onClick={onClose} />
@@ -223,11 +252,43 @@ export function CaseDrawer({ row, canEdit, canNotify, onClose, onChange }: {
         )}
 
         <div className="grid grid-cols-2 gap-3 px-5 pt-4">
-          <Stat label="CB due £" value={gbp(row.clawback_due)} accent="amber" />
+          <Stat
+            label={row.openwork_clawback_due !== null ? "CB due £ (Openwork)" : "CB due £"}
+            value={gbp(row.effective_clawback_due ?? row.clawback_due)}
+            accent="amber"
+            subline={row.openwork_clawback_due !== null
+              ? <>Provider: {gbp(row.clawback_due)}</>
+              : null}
+          />
           <Stat label="Net at risk £" value={gbp(row.net_at_risk)} accent={Number(row.net_at_risk || 0) > 0 ? "amber" : "green"} />
           <Stat label="Saved £" value={gbp(row.saved_amount)} accent="green" />
           <Stat label="Resold £" value={gbp(row.resold_amount)} accent="blue" />
         </div>
+
+        {canEditOpenworkCb && (
+          <div className="mt-3 px-5">
+            <div className="flex items-center justify-between rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm">
+              <div>
+                <span className="font-medium text-blue-900">Openwork CB:</span>{" "}
+                {row.openwork_clawback_due !== null
+                  ? <strong>{gbp(row.openwork_clawback_due)}</strong>
+                  : <span className="text-slate-500">not set (using provider {gbp(row.clawback_due)})</span>}
+                {row.openwork_cb_updated_at && (
+                  <span className="ml-2 text-xs text-slate-500">
+                    last set by {row.openwork_cb_updated_by} on {new Date(row.openwork_cb_updated_at).toLocaleDateString("en-GB")}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setPanel("openwork")}
+                className="rounded border border-blue-300 bg-white px-3 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100"
+              >
+                {row.openwork_clawback_due !== null ? "Edit" : "Set"}
+              </button>
+            </div>
+          </div>
+        )}
 
         <section className="mt-4 grid grid-cols-2 gap-3 px-5 text-sm">
           <FieldRow label="DOB" value={row.client_dob || "—"} />
@@ -320,6 +381,15 @@ export function CaseDrawer({ row, canEdit, canNotify, onClose, onChange }: {
             onSubmit={notify}
           />
         )}
+        {panel === "openwork" && (
+          <OpenworkForm
+            busy={busy}
+            currentAmount={row.openwork_clawback_due}
+            providerAmount={row.clawback_due}
+            onCancel={() => setPanel(null)}
+            onSubmit={saveOpenworkCb}
+          />
+        )}
 
         <section className="mt-6 border-t border-slate-200 px-5 py-4">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">History</h3>
@@ -338,7 +408,7 @@ export function CaseDrawer({ row, canEdit, canNotify, onClose, onChange }: {
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: "green" | "amber" | "blue" }) {
+function Stat({ label, value, accent, subline }: { label: string; value: string; accent?: "green" | "amber" | "blue"; subline?: React.ReactNode }) {
   const cls =
     accent === "green" ? "border-emerald-200 bg-emerald-50" :
     accent === "amber" ? "border-amber-200 bg-amber-50" :
@@ -348,6 +418,7 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
     <div className={`rounded border p-3 ${cls}`}>
       <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
       <div className="text-base font-semibold">{value}</div>
+      {subline && <div className="mt-0.5 text-xs text-slate-500">{subline}</div>}
     </div>
   );
 }
@@ -533,6 +604,65 @@ function MoneyForm({ busy, onCancel, onSubmit }: { busy: boolean; onCancel: () =
         />
       </label>
       <FormActions busy={busy} onCancel={onCancel} submitLabel="Record" disabled={!valid} />
+    </form>
+  );
+}
+
+function OpenworkForm({ busy, currentAmount, providerAmount, onCancel, onSubmit }: {
+  busy: boolean;
+  currentAmount: string | null;
+  providerAmount: string | null;
+  onCancel: () => void;
+  onSubmit: (amount: number | null, note: string) => void;
+}) {
+  const [amount, setAmount] = useState(currentAmount ?? "");
+  const [note, setNote] = useState("");
+  const trimmed = amount.trim();
+  const next = trimmed === "" ? null : Number(trimmed);
+  const valid = trimmed === "" || (Number.isFinite(next) && (next as number) >= 0);
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); if (valid) onSubmit(next, note); }}
+      className="mx-5 mt-3 rounded border border-blue-200 bg-blue-50 p-3 text-sm"
+    >
+      <div className="grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Openwork CB £</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="Leave blank to clear"
+            className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          />
+        </label>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Provider (L&amp;G)</span>
+          <div className="rounded border border-slate-200 bg-white px-2 py-1.5 text-slate-600">
+            {providerAmount === null
+              ? "—"
+              : Number(providerAmount).toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2 })}
+          </div>
+        </div>
+      </div>
+      <label className="mt-2 flex flex-col gap-1">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Reconciliation note (optional)</span>
+        <textarea
+          rows={2}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Why is the Openwork figure different? (Old OW reduced rate, New OW correction, etc.)"
+          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+        />
+      </label>
+      <FormActions
+        busy={busy}
+        onCancel={onCancel}
+        submitLabel={trimmed === "" ? "Clear override" : "Save Openwork CB"}
+        disabled={!valid}
+      />
     </form>
   );
 }
