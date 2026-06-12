@@ -239,6 +239,12 @@ export default function ClawbackPage() {
           <div className="text-sm text-slate-600">Post-completion CB tracking (L&amp;G EBAH today; more providers coming)</div>
         </div>
         <div className="flex items-center gap-2">
+          <a
+            href="/reci/clawback/reports"
+            className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            Reports
+          </a>
           <PrintButton />
         </div>
       </div>
