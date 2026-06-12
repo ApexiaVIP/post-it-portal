@@ -10,7 +10,10 @@ import { getSession, isClawbackUser } from "@/lib/auth";
 import { ingestEbahFile } from "@/lib/reci/clawback-ingest";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // Vercel default would kill a slow ingest
+// Vercel Pro plan ceiling. The batched ingest handles ~700 rows in
+// well under 10s, but raising the ceiling protects us against a
+// future provider format with 5k+ rows.
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   const session = await getSession();
