@@ -81,6 +81,126 @@ const STATUS_CLS: Record<Status, string> = {
   closed:     "bg-slate-200 text-slate-600",
 };
 
+/**
+ * Per-warning workflow guidance, pulled straight from Pauline's brief.
+ * Each entry tells the seller what the warning means and what action
+ * Pauline expects them to take. The quick-action buttons open the
+ * matching form panel (and pre-set a status when sensible).
+ *
+ * Key strings match the EBAH "Warning" column verbatim. Anything not in
+ * this map renders a generic "log contact / add note" hint so we always
+ * give the seller somewhere to start.
+ */
+type Suggestion = {
+  panel: "status" | "note" | "contact" | "money";
+  label: string;
+  // For status panel: prefilled status to mark.
+  prefillStatus?: Status;
+  // For money panel: which £ tab to prefill.
+  prefillMoneyKind?: MoneyKind;
+  accent?: "amber" | "green" | "blue";
+};
+interface WarningGuide {
+  title: string;
+  description: string;
+  suggestions: Suggestion[];
+}
+const WARNING_GUIDES: Record<string, WarningGuide> = {
+  "Bounced DD": {
+    title: "Bounced DD",
+    description:
+      "L&G will continue attempting to collect premiums until the account is brought up to date. Contact the client and record the outcome. Pauline confirms whether the clawback was ultimately saved via OLPC.",
+    suggestions: [
+      { panel: "contact", label: "Log call to client" },
+      { panel: "note",    label: "Add note" },
+    ],
+  },
+  "Cancelled DD": {
+    title: "DD Cancelled",
+    description:
+      "The direct debit mandate must be reinstated to save this clawback. Once the client has confirmed the DD is back on, mark the case as Saved.",
+    suggestions: [
+      { panel: "contact", label: "Log call to client" },
+      { panel: "status",  label: "Mark as Saved (mandate reinstated)", prefillStatus: "saved", accent: "green" },
+    ],
+  },
+  "Cancelled from outset": {
+    title: "CFO (Cancelled From Outset)",
+    description:
+      "Critical. The policy cancelled within the first 30 days after going live. Take immediate action to attempt to re-sell and save the impending clawback. If a replacement sale lands, record the resold amount.",
+    suggestions: [
+      { panel: "contact", label: "Log call to client" },
+      { panel: "money",   label: "Record £ saved",  prefillMoneyKind: "saved",  accent: "green" },
+      { panel: "money",   label: "Record £ resold", prefillMoneyKind: "resold", accent: "blue" },
+    ],
+  },
+  "Lapse": {
+    title: "Lapsed",
+    description:
+      "Either the client cancelled after the cooling-off period or premium arrears resulted in lapse. Depending on circumstance the policy may be reinstated or replaced through a new sale. Record the saved amount if reinstated, or the resold amount if replaced.",
+    suggestions: [
+      { panel: "contact", label: "Log call to client" },
+      { panel: "money",   label: "Record £ saved (reinstated)", prefillMoneyKind: "saved",  accent: "green" },
+      { panel: "money",   label: "Record £ resold (new sale)", prefillMoneyKind: "resold", accent: "blue" },
+    ],
+  },
+  "Increasing cover review": {
+    title: "Increasing cover review",
+    description:
+      "L&G is reviewing an increase in cover. No CB action is required unless the review results in a cancellation or DD issue. Log a note if you've spoken to the client.",
+    suggestions: [
+      { panel: "note", label: "Add note" },
+    ],
+  },
+  "5 yearly review": {
+    title: "5-yearly review",
+    description:
+      "Routine review notification. No CB action required unless flagged by Pauline.",
+    suggestions: [
+      { panel: "note", label: "Add note" },
+    ],
+  },
+  "Death claim in progress": {
+    title: "Death claim in progress",
+    description:
+      "Sensitive case. Do not contact the client. Pauline will manage this with L&G.",
+    suggestions: [
+      { panel: "note", label: "Add note for Pauline" },
+    ],
+  },
+  "Death claim accepted": {
+    title: "Death claim accepted",
+    description: "Claim has been accepted by L&G. No CB action.",
+    suggestions: [
+      { panel: "status", label: "Close case", prefillStatus: "closed" },
+    ],
+  },
+  "Death claim declined": {
+    title: "Death claim declined",
+    description: "Claim has been declined by L&G. Pauline will advise on next steps.",
+    suggestions: [
+      { panel: "note", label: "Add note for Pauline" },
+    ],
+  },
+  "DD representation": {
+    title: "DD representation",
+    description:
+      "L&G is re-attempting the direct debit. No immediate action required unless the re-attempt also fails.",
+    suggestions: [
+      { panel: "note", label: "Add note" },
+    ],
+  },
+};
+const GENERIC_GUIDE: WarningGuide = {
+  title: "Workflow",
+  description:
+    "Pauline hasn't set specific guidance for this warning yet. Contact the client where appropriate and log the outcome.",
+  suggestions: [
+    { panel: "contact", label: "Log contact" },
+    { panel: "note",    label: "Add note" },
+  ],
+};
+
 function gbp(v: string | number | null | undefined) {
   if (v === null || v === undefined || v === "") return "—";
   const n = typeof v === "string" ? Number(v) : v;
@@ -101,9 +221,24 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Open form (only one at a time)
+  // Open form (only one at a time). Prefill state lets the warning-guide
+  // buttons launch a panel with a sensible starting point (e.g. status =
+  // 'saved' for "Mark mandate reinstated").
   type Panel = null | "status" | "note" | "contact" | "money" | "notify" | "openwork";
   const [panel, setPanel] = useState<Panel>(null);
+  const [statusPrefill, setStatusPrefill] = useState<Status | null>(null);
+  const [moneyPrefill, setMoneyPrefill] = useState<MoneyKind | null>(null);
+
+  function openPanel(p: Panel) {
+    setStatusPrefill(null);
+    setMoneyPrefill(null);
+    setPanel(p);
+  }
+  function applySuggestion(s: { panel: Panel; prefillStatus?: Status; prefillMoneyKind?: MoneyKind }) {
+    setStatusPrefill(s.prefillStatus ?? null);
+    setMoneyPrefill(s.prefillMoneyKind ?? null);
+    setPanel(s.panel);
+  }
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -304,6 +439,37 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
           <FieldRow label="Updated" value={new Date(row.updated_at).toLocaleString("en-GB")} />
         </section>
 
+        {canEdit && row.ebah_warning && (() => {
+          const guide = WARNING_GUIDES[row.ebah_warning] || GENERIC_GUIDE;
+          return (
+            <section className="mx-5 mt-4 rounded border border-amber-200 bg-amber-50 p-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                Suggested next step — {guide.title}
+              </div>
+              <div className="mt-1 text-sm text-slate-700">{guide.description}</div>
+              {guide.suggestions.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {guide.suggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => applySuggestion(s)}
+                      className={`rounded border px-3 py-1 text-xs font-medium ${
+                        s.accent === "green" ? "border-emerald-400 bg-emerald-50 text-emerald-800 hover:bg-emerald-100" :
+                        s.accent === "blue"  ? "border-blue-400 bg-blue-50 text-blue-800 hover:bg-blue-100" :
+                        s.accent === "amber" ? "border-amber-400 bg-white text-amber-800 hover:bg-amber-100" :
+                        "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })()}
+
         <section className="mt-5 px-5">
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm text-slate-600">
@@ -320,17 +486,17 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
           <div className="mt-3 flex flex-wrap gap-2">
             {canEdit ? (
               <>
-                <ActionBtn label="Change status" onClick={() => setPanel("status")} />
+                <ActionBtn label="Change status" onClick={() => openPanel("status")} />
                 {canNotify && (
                   <ActionBtn
                     label={row.status === "open" ? "Notify CAM" : "Re-notify CAM"}
-                    onClick={() => setPanel("notify")}
+                    onClick={() => openPanel("notify")}
                     accent="amber"
                   />
                 )}
-                <ActionBtn label="Add note" onClick={() => setPanel("note")} />
-                <ActionBtn label="Log contact" onClick={() => setPanel("contact")} />
-                <ActionBtn label="Record £ off" onClick={() => setPanel("money")} accent="green" />
+                <ActionBtn label="Add note" onClick={() => openPanel("note")} />
+                <ActionBtn label="Log contact" onClick={() => openPanel("contact")} />
+                <ActionBtn label="Record £ off" onClick={() => openPanel("money")} accent="green" />
               </>
             ) : (
               <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
@@ -343,6 +509,7 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
         {panel === "status" && (
           <StatusForm
             current={row.status}
+            prefill={statusPrefill}
             busy={busy}
             onCancel={() => setPanel(null)}
             onSubmit={patchStatus}
@@ -366,6 +533,7 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
         )}
         {panel === "money" && (
           <MoneyForm
+            prefillKind={moneyPrefill}
             busy={busy}
             onCancel={() => setPanel(null)}
             onSubmit={(amount, money_kind, note) => postEvent({ kind: "money_off", amount, money_kind, note })}
@@ -448,8 +616,8 @@ function ActionBtn({ label, onClick, accent }: { label: string; onClick: () => v
   );
 }
 
-function StatusForm({ current, busy, onCancel, onSubmit }: { current: Status; busy: boolean; onCancel: () => void; onSubmit: (s: Status, note: string) => void }) {
-  const [newStatus, setNewStatus] = useState<Status>(current);
+function StatusForm({ current, prefill, busy, onCancel, onSubmit }: { current: Status; prefill: Status | null; busy: boolean; onCancel: () => void; onSubmit: (s: Status, note: string) => void }) {
+  const [newStatus, setNewStatus] = useState<Status>(prefill ?? current);
   const [note, setNote] = useState("");
   const needsNote = newStatus !== current && newStatus !== "open";
   return (
@@ -556,9 +724,9 @@ function ContactForm({ busy, onCancel, onSubmit }: { busy: boolean; onCancel: ()
   );
 }
 
-function MoneyForm({ busy, onCancel, onSubmit }: { busy: boolean; onCancel: () => void; onSubmit: (amount: number, money_kind: MoneyKind, note: string) => void }) {
+function MoneyForm({ prefillKind, busy, onCancel, onSubmit }: { prefillKind: MoneyKind | null; busy: boolean; onCancel: () => void; onSubmit: (amount: number, money_kind: MoneyKind, note: string) => void }) {
   const [amount, setAmount] = useState("");
-  const [moneyKind, setMoneyKind] = useState<MoneyKind>("saved");
+  const [moneyKind, setMoneyKind] = useState<MoneyKind>(prefillKind ?? "saved");
   const [note, setNote] = useState("");
   const n = Number(amount);
   const valid = Number.isFinite(n) && n > 0;
