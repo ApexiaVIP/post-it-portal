@@ -132,7 +132,8 @@ export async function ingestEbahFile(
           policy_start_date::text       AS policy_start_date,
           off_risk_date::text           AS off_risk_date,
           client_name, postcode, address, policy_type,
-          ebah_agent_name, adviser_id, agent_bucket
+          ebah_agent_name, adviser_id, agent_bucket,
+          master_agent_no, agent_no
        FROM clawback_cases WHERE policy_number = ANY($1)`,
       [policyNumbers],
     );
@@ -176,6 +177,8 @@ export async function ingestEbahFile(
       check("ebah_agent_name",     existing.ebah_agent_name,               r.ebah_agent_name);
       check("adviser_id",          existing.adviser_id,                    mapping.adviser_id);
       check("agent_bucket",        existing.agent_bucket,                  mapping.bucket);
+      check("master_agent_no",     existing.master_agent_no,               r.master_agent_no);
+      check("agent_no",            existing.agent_no,                      r.agent_no);
 
       if (diffs.length === 0) {
         unchanged++;
@@ -208,15 +211,19 @@ export async function ingestEbahFile(
            ebah_agent_name = $14,
            adviser_id = $15,
            agent_bucket = $16,
-           last_seen_upload_id = $17,
+           master_agent_no = $17,
+           agent_no = $18,
+           last_seen_upload_id = $19,
            updated_at = now()
-         WHERE id = $18`,
+         WHERE id = $20`,
         [
           r.warning, r.clawback_due, r.clawback_date, r.net_premium,
           r.premium_outstanding, r.policy_start_date, r.off_risk_date,
           r.client_name, r.client_first_name, r.client_last_name,
           r.postcode, r.address, r.policy_type, r.ebah_agent_name,
-          u.mapping.adviser_id, u.mapping.bucket, uploadId, u.id,
+          u.mapping.adviser_id, u.mapping.bucket,
+          r.master_agent_no, r.agent_no,
+          uploadId, u.id,
         ],
       );
     }
@@ -310,6 +317,8 @@ interface ExistingCaseRow {
   ebah_agent_name: string;
   adviser_id: number | null;
   agent_bucket: string;
+  master_agent_no: string | null;
+  agent_no: string | null;
 }
 
 function normNum(v: string | number | null | undefined): string | null {
@@ -327,8 +336,8 @@ async function batchInsertCases(
   reportWeek: number | null,
 ): Promise<{ id: number; policy_number: string }[]> {
   const results: { id: number; policy_number: string }[] = [];
-  // 23 columns per row.
-  const COLS = 23;
+  // 25 columns per row (the two trailing ones are master_agent_no, agent_no).
+  const COLS = 25;
   for (let i = 0; i < ops.length; i += INSERT_BATCH) {
     const chunk = ops.slice(i, i + INSERT_BATCH);
     const placeholders: string[] = [];
@@ -363,6 +372,8 @@ async function batchInsertCases(
         uploadId,           // first_seen + last_seen
         reportWeek,
         reportYear,
+        r.master_agent_no,
+        r.agent_no,
       );
     }
     const q = `
@@ -372,7 +383,8 @@ async function batchInsertCases(
         policy_type, net_premium, premium_outstanding, policy_start_date,
         off_risk_date, clawback_due, clawback_date, ebah_agent_name,
         adviser_id, agent_bucket, ebah_warning,
-        first_seen_upload_id, notification_week, notification_year
+        first_seen_upload_id, notification_week, notification_year,
+        master_agent_no, agent_no
       )
       VALUES ${placeholders.join(",")}
       ON CONFLICT (policy_number) DO NOTHING

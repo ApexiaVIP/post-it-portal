@@ -42,7 +42,10 @@ export async function GET(req: Request) {
   if (q) {
     params.push(`%${q}%`);
     const p = params.length;
-    where.push(`(c.client_name ILIKE $${p} OR c.postcode ILIKE $${p} OR c.policy_number ILIKE $${p})`);
+    where.push(
+      `(c.client_name ILIKE $${p} OR c.postcode ILIKE $${p} OR c.policy_number ILIKE $${p} ` +
+      ` OR c.master_agent_no ILIKE $${p} OR c.agent_no ILIKE $${p})`,
+    );
   }
   const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
   params.push(limit);
@@ -65,6 +68,8 @@ export async function GET(req: Request) {
         c.policy_start_date::text AS policy_start_date,
         c.off_risk_date::text AS off_risk_date,
         c.ebah_agent_name,
+        c.master_agent_no,
+        c.agent_no,
         c.ebah_warning,
         c.status,
         c.status_note,
