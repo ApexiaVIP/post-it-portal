@@ -16,6 +16,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PrintButton, PrintHeader } from "@/components/print";
+import { CaseDrawer, type DrawerCaseRow } from "./case-drawer";
 
 type Bucket = "adviser" | "xstaff" | "legacy" | "needs_review";
 type Status = "open" | "saved" | "resold" | "dead" | "reinstated" | "closed";
@@ -119,6 +120,9 @@ export default function ClawbackPage() {
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<string | null>(null);
+
+  // Open drawer (clicked row)
+  const [openCase, setOpenCase] = useState<CaseRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -349,7 +353,12 @@ export default function ClawbackPage() {
             ) : cases.length === 0 ? (
               <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={14}>No cases match.</td></tr>
             ) : cases.map((c) => (
-              <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
+              <tr
+                key={c.id}
+                onClick={() => setOpenCase(c)}
+                className="cursor-pointer border-t border-slate-100 hover:bg-amber-50"
+                title="Click to open case detail"
+              >
                 <Td>{c.client_name}</Td>
                 <Td>{c.postcode || "—"}</Td>
                 <Td><code className="text-xs">{c.policy_number}</code></Td>
@@ -409,6 +418,14 @@ export default function ClawbackPage() {
             </table>
           </div>
         </section>
+      )}
+
+      {openCase && (
+        <CaseDrawer
+          row={openCase as DrawerCaseRow}
+          onClose={() => setOpenCase(null)}
+          onChange={() => { void load(); }}
+        />
       )}
     </main>
   );

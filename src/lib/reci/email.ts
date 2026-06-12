@@ -354,3 +354,263 @@ function escapeHtml(s: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
+// ---------------------------------------------------------------------------
+// POST-COMPLETION CLAWBACK EMAILS
+// ---------------------------------------------------------------------------
+//
+// Two flows from Pauline's brief:
+//
+//   1. "New notification" -- when Poz hits Notify on a clawback case, the
+//      relevant CAM gets the email so they can act. Routing per bucket:
+//        - adviser  -> To = the CAM; CC = Guy + management
+//        - xstaff   -> To = Tan + Hayder; CC = Guy + management
+//        - legacy / needs_review -> To = Guy + management (no CAM to chase)
+//
+//   2. "Resolved" -- when a case lands in saved / resold / dead / etc. on
+//      the dashboard, an email goes back to Guy with Poz / Jimmy on CC.
+//
+// Both deliberately omit the £ figures (per Pauline's existing rule on
+// the cancellation / clawback / NYS emails) -- the dashboard is where
+// money detail lives. Guy still gets the policy + client identifiers
+// so he can look the case up himself.
+//
+// Env:
+//   RECI_CLAWBACK_GUY_EMAIL    = single address for Guy
+//   RECI_CANCELLATION_CC       = reused for management CC (Pauline / Jimmy)
+// ---------------------------------------------------------------------------
+
+const RESOLVED_STATUS_LABELS: Record<string, string> = {
+  saved:      "Saved",
+  resold:     "Resold",
+  dead:       "Dead in water",
+  reinstated: "Reinstated",
+  closed:     "Closed",
+  open:       "Open",
+};
+
+function managementCc(): string[] {
+  return (process.env.RECI_CANCELLATION_CC || "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function guyEmail(): string | null {
+  const v = (process.env.RECI_CLAWBACK_GUY_EMAIL || "").trim();
+  return v.length > 0 ? v : null;
+}
+
+// Resolve the CAM email + name for a clawback case based on its bucket /
+// adviser_id. For xstaff returns Tan + Hayder. For adviser returns just
+// that adviser. For legacy / needs_review returns no CAM.
+async function resolveCamRecipients(adviserId: number | null, bucket: string): Promise<{ to: string[]; label: string }> {
+  if (bucket === "adviser" && adviserId !== null) {
+    const r = await sql<{ name: string; email: string | null }>`
+      SELECT name, email FROM advisers WHERE id = ${adviserId}
+    `;
+    const a = r.rows[0];
+    if (!a || !a.email) return { to: [], label: a?.name || "CAM" };
+    return { to: [a.email], label: a.name };
+  }
+  if (bucket === "xstaff") {
+    const r = await sql<{ name: string; email: string | null }>`
+      SELECT name, email FROM advisers WHERE name = ANY(ARRAY['Tan','Hayder'])
+    `;
+    const emails = r.rows.map((x) => x.email).filter((e): e is string => !!e);
+    return { to: emails, label: "Tan + Hayder (Xstaff)" };
+  }
+  return { to: [], label: bucket };
+}
+
+export interface ClawbackNotifyInput {
+  caseId: number;
+  clientName: string;
+  policyNumber: string;
+  postcode: string | null;
+  provider: string;
+  policyType: string | null;
+  ebahWarning: string | null;
+  clawbackDate: string | null;
+  ebahAgentName: string;
+  adviserId: number | null;
+  agentBucket: string;
+  pozNote: string | null;
+  actor: string;
+}
+
+export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{ sent: boolean; reason?: string }> {
+  const transporter = getTransporter();
+  if (!transporter) return { sent: false, reason: "no SMTP credentials" };
+
+  const cam = await resolveCamRecipients(i.adviserId, i.agentBucket);
+  const cc = managementCc();
+  const guy = guyEmail();
+  if (guy) cc.push(guy);
+
+  // If the bucket has no CAM (legacy / needs_review) fall back to sending
+  // straight to Guy + management so the case isn't silently lost.
+  let to: string[];
+  if (cam.to.length > 0) {
+    to = cam.to;
+  } else {
+    to = [...cc];
+    if (to.length === 0) return { sent: false, reason: "no recipient" };
+  }
+  const finalCc = buildCc(cc, [], to);
+
+  const subject = `[RECI Clawback] New notification: ${i.clientName} (${i.policyNumber})`;
+
+  const greeting = cam.to.length > 0
+    ? `Hi ${escapeHtml(i.agentBucket === "xstaff" ? "Tan + Hayder" : cam.label)},`
+    : `Hi team,`;
+
+  const reason = i.ebahWarning || "Clawback notification";
+
+  const lines = [
+    cam.to.length > 0
+      ? `Hi ${i.agentBucket === "xstaff" ? "Tan + Hayder" : cam.label},`
+      : `Hi team,`,
+    ``,
+    `A post-completion clawback case needs your attention.`,
+    ``,
+    `  Client:        ${i.clientName}`,
+    `  Postcode:      ${i.postcode || "—"}`,
+    `  Policy No:     ${i.policyNumber}`,
+    `  Provider:      ${i.provider.toUpperCase()}`,
+    `  Product:       ${i.policyType || "—"}`,
+    `  Status:        ${reason}`,
+    `  CB Date:       ${i.clawbackDate || "—"}`,
+    `  Sales agent:   ${i.ebahAgentName}`,
+    ``,
+    i.pozNote ? `Notes from Pauline:` : ``,
+    i.pozNote ? `  ${i.pozNote}` : ``,
+    i.pozNote ? `` : ``,
+    `Please contact the client to attempt to save / reinstate the policy and update the Clawback Dashboard with what was done.`,
+    ``,
+    `— RECI portal`,
+  ].filter((line, idx, arr) => !(line === "" && arr[idx - 1] === ""));
+  const text = lines.join("\n");
+
+  const html =
+    `<p>${greeting}</p>` +
+    `<p>A post-completion clawback case needs your attention.</p>` +
+    `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">` +
+    row("Client", i.clientName) +
+    row("Postcode", i.postcode || "—") +
+    row("Policy No", i.policyNumber) +
+    row("Provider", i.provider.toUpperCase()) +
+    row("Product", i.policyType || "—") +
+    row("Status", reason) +
+    row("CB Date", i.clawbackDate || "—") +
+    row("Sales agent", i.ebahAgentName) +
+    `</table>` +
+    (i.pozNote
+      ? `<p style="margin-top:12px"><strong>Notes from Pauline:</strong><br>${escapeHtml(i.pozNote).replace(/\n/g, "<br>")}</p>`
+      : "") +
+    `<p>Please contact the client to attempt to save / reinstate the policy and update the Clawback Dashboard with what was done.</p>` +
+    `<p style="color:#888;font-size:12px">— RECI portal</p>`;
+
+  try {
+    await transporter.sendMail({
+      from: `"RECI Clawback" <${process.env.GMAIL_USER}>`,
+      to: to.join(","),
+      cc: finalCc.length > 0 ? finalCc.join(",") : undefined,
+      subject,
+      text,
+      html,
+    });
+    return { sent: true };
+  } catch (e) {
+    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export interface ClawbackResolvedInput {
+  caseId: number;
+  clientName: string;
+  policyNumber: string;
+  postcode: string | null;
+  newStatus: string;
+  oldStatus: string;
+  note: string | null;
+  actor: string;
+  ebahAgentName: string;
+  adviserId: number | null;
+  agentBucket: string;
+}
+
+export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promise<{ sent: boolean; reason?: string }> {
+  const transporter = getTransporter();
+  if (!transporter) return { sent: false, reason: "no SMTP credentials" };
+
+  const guy = guyEmail();
+  const cc = managementCc();
+  // CAM hears about their own case being resolved too.
+  const cam = await resolveCamRecipients(i.adviserId, i.agentBucket);
+  for (const e of cam.to) if (!cc.includes(e)) cc.push(e);
+
+  const to: string[] = [];
+  if (guy) to.push(guy);
+  if (to.length === 0) {
+    // Fall back to management list when Guy isn't configured -- still gets
+    // the resolution recorded somewhere.
+    to.push(...cc);
+    if (to.length === 0) return { sent: false, reason: "no recipient" };
+  }
+  const finalCc = buildCc(cc, [], to);
+
+  const statusLabel = RESOLVED_STATUS_LABELS[i.newStatus] || i.newStatus;
+  const subject = `[RECI Clawback] ${statusLabel}: ${i.clientName} (${i.policyNumber})`;
+
+  const lines = [
+    `Hi Guy,`,
+    ``,
+    `A clawback case has been resolved on the dashboard.`,
+    ``,
+    `  Client:        ${i.clientName}`,
+    `  Postcode:      ${i.postcode || "—"}`,
+    `  Policy No:     ${i.policyNumber}`,
+    `  Sales agent:   ${i.ebahAgentName}`,
+    `  Status moved:  ${RESOLVED_STATUS_LABELS[i.oldStatus] || i.oldStatus} -> ${statusLabel}`,
+    `  Updated by:    ${i.actor}`,
+    ``,
+    i.note ? `Notes:` : ``,
+    i.note ? `  ${i.note}` : ``,
+    i.note ? `` : ``,
+    `Full detail is on the Clawback Dashboard.`,
+    ``,
+    `— RECI portal`,
+  ].filter((line, idx, arr) => !(line === "" && arr[idx - 1] === ""));
+  const text = lines.join("\n");
+
+  const html =
+    `<p>Hi Guy,</p>` +
+    `<p>A clawback case has been resolved on the dashboard.</p>` +
+    `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">` +
+    row("Client", i.clientName) +
+    row("Postcode", i.postcode || "—") +
+    row("Policy No", i.policyNumber) +
+    row("Sales agent", i.ebahAgentName) +
+    row("Status moved",
+      `${RESOLVED_STATUS_LABELS[i.oldStatus] || i.oldStatus} &rarr; ${statusLabel}`) +
+    row("Updated by", i.actor) +
+    `</table>` +
+    (i.note
+      ? `<p style="margin-top:12px"><strong>Notes:</strong><br>${escapeHtml(i.note).replace(/\n/g, "<br>")}</p>`
+      : "") +
+    `<p>Full detail is on the Clawback Dashboard.</p>` +
+    `<p style="color:#888;font-size:12px">— RECI portal</p>`;
+
+  try {
+    await transporter.sendMail({
+      from: `"RECI Clawback" <${process.env.GMAIL_USER}>`,
+      to: to.join(","),
+      cc: finalCc.length > 0 ? finalCc.join(",") : undefined,
+      subject,
+      text,
+      html,
+    });
+    return { sent: true };
+  } catch (e) {
+    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
