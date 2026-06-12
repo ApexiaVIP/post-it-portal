@@ -55,10 +55,19 @@ export async function ingestEbahFile(
   uploadedBy: string,
 ): Promise<IngestSummary> {
   const parsed = parseEbahXlsx(buf);
-  const rows = parsed.rows;
-  if (rows.length === 0) {
+  if (parsed.rows.length === 0) {
     throw new Error("EBAH file contained no parseable rows");
   }
+  // EBAH sometimes lists the same policy twice with two different warning
+  // states (e.g. Bounced DD + Death claim for the same client). Pauline's
+  // rule: keep the LAST occurrence we see in the file. We dedupe here so
+  // the rest of the pipeline (diff detection, history, batched inserts)
+  // sees one row per policy and the audit log stays clean.
+  const rows: EbahRow[] = (() => {
+    const lastByPolicy = new Map<string, EbahRow>();
+    for (const r of parsed.rows) lastByPolicy.set(r.policy_number, r);
+    return Array.from(lastByPolicy.values());
+  })();
 
   const client = await db.connect();
   try {
