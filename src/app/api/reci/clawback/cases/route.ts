@@ -60,6 +60,7 @@ export async function GET(req: Request) {
   const masterAgentNo  = searchParams.get("master_agent_no");
   const agentNo        = searchParams.get("agent_no");
   const surname        = searchParams.get("surname");
+  const source         = searchParams.get("source");
   const q              = searchParams.get("q");
   const sortKey        = searchParams.get("sort") || "cb_desc";
   const orderBy        = SORTS[sortKey] || SORTS.cb_desc;
@@ -98,6 +99,13 @@ export async function GET(req: Request) {
     params.push(`%${surname}%`);
     where.push(`(c.client_last_name ILIKE $${params.length} OR c.client_name ILIKE $${params.length})`);
   }
+  if (source) {
+    if (source === "unset") {
+      where.push("c.source IS NULL");
+    } else {
+      add("c.source = $$", source);
+    }
+  }
   if (q) {
     params.push(`%${q}%`);
     const p = params.length;
@@ -134,6 +142,9 @@ export async function GET(req: Request) {
         c.ebah_agent_name,
         c.master_agent_no,
         c.agent_no,
+        c.source,
+        c.source_updated_by,
+        c.source_updated_at,
         c.ebah_warning,
         c.status,
         c.status_note,
