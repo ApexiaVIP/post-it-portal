@@ -271,6 +271,12 @@ export default function ClawbackPage() {
         </div>
         <div className="flex items-center gap-2">
           <a
+            href="/reci/clawback/forecast"
+            className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            Forecast
+          </a>
+          <a
             href="/reci/clawback/reports"
             className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
           >
