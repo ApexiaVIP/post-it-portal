@@ -32,6 +32,9 @@ export interface DrawerCaseRow {
   openwork_cb_updated_by: string | null;
   openwork_cb_updated_at: string | null;
   effective_clawback_due: string | null;
+  source: "old_ow" | "new_ow" | "other" | null;
+  source_updated_by: string | null;
+  source_updated_at: string | null;
   clawback_date: string | null;
   policy_start_date: string | null;
   off_risk_date: string | null;
@@ -332,6 +335,29 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
     }
   }
 
+  async function saveSource(next: "old_ow" | "new_ow" | "other" | null) {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/reci/clawback/cases/${row.id}/source`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ source: next }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        flash(`Failed: ${j.error || r.statusText}`);
+      } else {
+        flash(next === null ? "Source cleared." : `Source set to ${next === "old_ow" ? "Old OW" : next === "new_ow" ? "New OW" : "Other"}.`);
+        await loadHistory();
+        onChange();
+      }
+    } catch (e) {
+      flash(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveOpenworkCb(amount: number | null, note: string) {
     setBusy(true);
     try {
@@ -400,6 +426,39 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
           <Stat label="Resold £" value={gbp(row.resold_amount)} accent="blue" />
         </div>
 
+        {canEditOpenworkCb && (
+          <div className="mt-3 px-5">
+            <div className="flex items-center justify-between gap-3 rounded border border-purple-200 bg-purple-50 px-3 py-2 text-sm">
+              <div>
+                <span className="font-medium text-purple-900">Source:</span>{" "}
+                {row.source === null
+                  ? <span className="text-slate-500">not yet flagged (Old OW / New OW / Other)</span>
+                  : <strong>{row.source === "old_ow" ? "Old OW" : row.source === "new_ow" ? "New OW" : "Other"}</strong>}
+                {row.source_updated_at && (
+                  <span className="ml-2 text-xs text-slate-500">
+                    set by {row.source_updated_by} on {new Date(row.source_updated_at).toLocaleDateString("en-GB")}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <SourceBtn label="Old OW" active={row.source === "old_ow"} onClick={() => saveSource("old_ow")} disabled={busy} />
+                <SourceBtn label="New OW" active={row.source === "new_ow"} onClick={() => saveSource("new_ow")} disabled={busy} />
+                <SourceBtn label="Other"  active={row.source === "other"}  onClick={() => saveSource("other")}  disabled={busy} />
+                {row.source !== null && (
+                  <button
+                    type="button"
+                    onClick={() => saveSource(null)}
+                    disabled={busy}
+                    className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+                    title="Clear flag"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         {canEditOpenworkCb && (
           <div className="mt-3 px-5">
             <div className="flex items-center justify-between rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm">
@@ -597,6 +656,23 @@ function FieldRow({ label, value, mono }: { label: string; value: string; mono?:
       <span className="text-xs uppercase tracking-wide text-slate-500">{label}</span>
       <span className={mono ? "font-mono text-xs" : ""}>{value}</span>
     </div>
+  );
+}
+
+function SourceBtn({ label, active, onClick, disabled }: { label: string; active: boolean; onClick: () => void; disabled: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded border px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+        active
+          ? "border-purple-600 bg-purple-600 text-white"
+          : "border-purple-300 bg-white text-purple-800 hover:bg-purple-50"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

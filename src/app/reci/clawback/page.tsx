@@ -55,6 +55,9 @@ interface CaseRow {
   ebah_agent_name: string;
   master_agent_no: string | null;
   agent_no: string | null;
+  source: "old_ow" | "new_ow" | "other" | null;
+  source_updated_by: string | null;
+  source_updated_at: string | null;
   ebah_warning: string | null;
   status: Status;
   status_note: string | null;
@@ -81,6 +84,12 @@ const SORT_LABELS: Record<Sort, string> = {
   cb_due_asc:  "CB date (soonest first)",
   cb_due_desc: "CB date (latest first)",
   client_asc:  "Client surname A-Z",
+};
+
+const SOURCE_LABELS: Record<"old_ow" | "new_ow" | "other", string> = {
+  old_ow: "Old OW",
+  new_ow: "New OW",
+  other:  "Other",
 };
 
 interface Summary {
@@ -155,6 +164,7 @@ export default function ClawbackPage() {
   const [masterAgentNo, setMasterAgentNo] = useState<string>("");
   const [agentNo, setAgentNo] = useState<string>("");
   const [surname, setSurname] = useState<string>("");
+  const [sourceFilter, setSourceFilter] = useState<string>("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<Sort>("cb_desc");
   const [moreOpen, setMoreOpen] = useState<boolean>(false);
@@ -193,6 +203,7 @@ export default function ClawbackPage() {
       if (masterAgentNo.trim()) p.set("master_agent_no", masterAgentNo.trim());
       if (agentNo.trim())       p.set("agent_no",        agentNo.trim());
       if (surname.trim())       p.set("surname",         surname.trim());
+      if (sourceFilter)         p.set("source",          sourceFilter);
       if (search.trim())        p.set("q",               search.trim());
       if (sort !== "cb_desc")   p.set("sort",            sort);
       const r = await fetch(`/api/reci/clawback/cases?${p.toString()}`, { cache: "no-store" });
@@ -208,7 +219,7 @@ export default function ClawbackPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, bucketFilter, warningFilter, cbDueFrom, cbDueTo, cbMin, cbMax, masterAgentNo, agentNo, surname, search, sort]);
+  }, [statusFilter, bucketFilter, warningFilter, cbDueFrom, cbDueTo, cbMin, cbMax, masterAgentNo, agentNo, surname, sourceFilter, search, sort]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -403,6 +414,18 @@ export default function ClawbackPage() {
             ))}
           </select>
           <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className="rounded border border-slate-300 px-2 py-1 text-sm"
+            title="Old / New Openwork source"
+          >
+            <option value="">All sources</option>
+            <option value="old_ow">Old OW</option>
+            <option value="new_ow">New OW</option>
+            <option value="other">Other</option>
+            <option value="unset">Not yet flagged</option>
+          </select>
+          <select
             value={sort}
             onChange={(e) => setSort(e.target.value as Sort)}
             className="rounded border border-slate-300 px-2 py-1 text-sm"
@@ -427,14 +450,14 @@ export default function ClawbackPage() {
           >
             {moreOpen ? "Hide more" : "More filters"}
           </button>
-          {(statusFilter || bucketFilter || warningFilter || cbDueFrom || cbDueTo || cbMin || cbMax || masterAgentNo || agentNo || surname || search || sort !== "cb_desc") && (
+          {(statusFilter || bucketFilter || warningFilter || cbDueFrom || cbDueTo || cbMin || cbMax || masterAgentNo || agentNo || surname || sourceFilter || search || sort !== "cb_desc") && (
             <button
               type="button"
               onClick={() => {
                 setStatusFilter(""); setBucketFilter(""); setWarningFilter("");
                 setCbDueFrom(""); setCbDueTo(""); setCbMin(""); setCbMax("");
                 setMasterAgentNo(""); setAgentNo(""); setSurname("");
-                setSearch(""); setSort("cb_desc");
+                setSourceFilter(""); setSearch(""); setSort("cb_desc");
               }}
               className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
             >
@@ -538,14 +561,15 @@ export default function ClawbackPage() {
               <Th>CB Date</Th>
               <Th>Agent</Th>
               <Th>Bucket</Th>
+              <Th>Source</Th>
               <Th>Status</Th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={14}>Loading...</td></tr>
+              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={15}>Loading...</td></tr>
             ) : cases.length === 0 ? (
-              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={14}>No cases match.</td></tr>
+              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={15}>No cases match.</td></tr>
             ) : cases.map((c) => (
               <tr
                 key={c.id}
@@ -578,6 +602,7 @@ export default function ClawbackPage() {
                   {c.adviser_name ? <strong>{c.adviser_name}</strong> : c.ebah_agent_name}
                 </Td>
                 <Td><BucketPill bucket={c.agent_bucket} /></Td>
+                <Td><SourcePill source={c.source} /></Td>
                 <Td><StatusPill status={c.status} /></Td>
               </tr>
             ))}
@@ -677,6 +702,16 @@ function StatusPill({ status }: { status: Status }) {
     closed:     "bg-slate-200 text-slate-600",
   };
   return <span className={`inline-block rounded px-2 py-0.5 text-xs ${cls[status]}`}>{STATUS_LABELS[status]}</span>;
+}
+
+function SourcePill({ source }: { source: "old_ow" | "new_ow" | "other" | null }) {
+  if (!source) return <span className="text-slate-400">—</span>;
+  const cls: Record<"old_ow" | "new_ow" | "other", string> = {
+    old_ow: "bg-purple-50 text-purple-800 ring-1 ring-purple-200",
+    new_ow: "bg-cyan-50 text-cyan-800 ring-1 ring-cyan-200",
+    other:  "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
+  };
+  return <span className={`inline-block whitespace-nowrap rounded px-2 py-0.5 text-xs ${cls[source]}`}>{SOURCE_LABELS[source]}</span>;
 }
 
 function BucketPill({ bucket }: { bucket: Bucket }) {
