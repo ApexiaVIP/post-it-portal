@@ -31,25 +31,34 @@ const DEFAULT_HOST = "smtp.purelymail.com";
 const DEFAULT_PORT = 465;
 const LEGACY_HOST  = "smtp.gmail.com";
 
-let _transporter: nodemailer.Transporter | null = null;
-
+// IMPORTANT: do NOT cache the transporter at module scope. We tried that
+// against Gmail and it was fine, but Purelymail (and most strict SMTP
+// providers) close idle connections aggressively. The serverless lambda
+// can stay warm across multiple invocations, so a cached transporter from
+// minutes ago will be holding a dead socket -- second send appears to
+// succeed but silently never reaches the wire.
+//
+// Recreating per call costs ~microseconds at our volume (a few emails per
+// day) and rules out the entire class of "first send works, later sends
+// silently fail" bugs.
 function getTransporter(): nodemailer.Transporter | null {
-  if (_transporter) return _transporter;
   const user = process.env.SMTP_USER  || process.env.GMAIL_USER;
   const pass = process.env.SMTP_PASSWORD || process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) return null;
-  // If only the legacy Gmail vars are present, point at Gmail; otherwise
-  // default to Purelymail. Either way an explicit SMTP_HOST wins.
   const host = process.env.SMTP_HOST
             || (process.env.SMTP_USER ? DEFAULT_HOST : LEGACY_HOST);
   const port = Number(process.env.SMTP_PORT) || DEFAULT_PORT;
-  _transporter = nodemailer.createTransport({
+  return nodemailer.createTransport({
     host,
     port,
     secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS
     auth: { user, pass },
+    // Reasonable timeouts so a hanging SMTP server can't wedge the
+    // serverless function.
+    connectionTimeout: 10_000,
+    socketTimeout:     10_000,
+    greetingTimeout:    5_000,
   });
-  return _transporter;
 }
 
 // Single source of truth for the From header. SMTP_USER beats GMAIL_USER
@@ -59,6 +68,65 @@ function fromHeader(label: string): string {
   const addr = process.env.SMTP_USER || process.env.GMAIL_USER || "";
   const name = process.env.SMTP_FROM_NAME || label;
   return `"${name}" <${addr}>`;
+}
+
+// Dispatch helper: opens a fresh transporter per call (Purelymail closes
+// idle connections), sends the message, and ALWAYS console.errors both
+// the envelope and the outcome so Vercel reliably logs every send. Vercel
+// has been seen to drop async console.log lines from serverless functions
+// when the response has already been sent, so success and failure both
+// go through console.error.
+async function dispatchMail(opts: {
+  label: string;            // "cancellation" | "clawback" | "nys-check" | ...
+  fromName: string;         // display name for the From header
+  to: string[];
+  cc: string[];
+  subject: string;
+  text: string;
+  html: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const transporter = getTransporter();
+  if (!transporter) {
+    console.error(`[reci-email:${opts.label}] no SMTP creds; aborting`);
+    return { sent: false, reason: "no SMTP credentials" };
+  }
+  if (opts.to.length === 0) {
+    console.error(`[reci-email:${opts.label}] no recipients; aborting`);
+    return { sent: false, reason: "no recipient" };
+  }
+  const envelope = {
+    label:   opts.label,
+    from:    fromHeader(opts.fromName),
+    to:      opts.to.join(","),
+    cc:      opts.cc.length > 0 ? opts.cc.join(",") : "(none)",
+    subject: opts.subject,
+  };
+  console.error(`[reci-email:${opts.label}] sending`, envelope);
+  try {
+    const info = await transporter.sendMail({
+      from: envelope.from,
+      to:   envelope.to,
+      cc:   opts.cc.length > 0 ? opts.cc.join(",") : undefined,
+      subject: opts.subject,
+      text: opts.text,
+      html: opts.html,
+    });
+    // `info.response` is the SMTP server's 250 acknowledgement string.
+    // `info.accepted` / `info.rejected` are arrays of addresses.
+    console.error(`[reci-email:${opts.label}] sent`, {
+      messageId: info.messageId,
+      response:  info.response,
+      accepted:  info.accepted,
+      rejected:  info.rejected,
+      envelopeFrom: info.envelope?.from,
+      envelopeTo:   info.envelope?.to,
+    });
+    return { sent: true };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    console.error(`[reci-email:${opts.label}] FAILED`, { reason, envelope });
+    return { sent: false, reason };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -113,11 +181,6 @@ function gbp(n: number) {
 }
 
 export async function sendCancellationEmail(i: CancellationEmailInput): Promise<{ sent: boolean; reason?: string }> {
-  const transporter = getTransporter();
-  if (!transporter) {
-    return { sent: false, reason: "no SMTP credentials" };
-  }
-
   const ccList = (process.env.RECI_CANCELLATION_CC || "")
     .split(",")
     .map((s) => s.trim())
@@ -180,19 +243,12 @@ export async function sendCancellationEmail(i: CancellationEmailInput): Promise<
     `<p>Please call the client back to try to save / win back this deal.</p>` +
     `<p style="color:#888;font-size:12px">— RECI portal</p>`;
 
-  try {
-    await transporter.sendMail({
-      from: fromHeader("RECI"),
-      to: to.join(","),
-      cc: ccArr.length > 0 ? ccArr.join(",") : undefined,
-      subject,
-      text,
-      html,
-    });
-    return { sent: true };
-  } catch (e) {
-    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
-  }
+  return dispatchMail({
+    label: "cancellation",
+    fromName: "RECI",
+    to, cc: ccArr,
+    subject, text, html,
+  });
 }
 
 function row(label: string, value: string) {
@@ -218,9 +274,6 @@ export interface ClawbackEmailInput {
 }
 
 export async function sendClawbackEmail(i: ClawbackEmailInput): Promise<{ sent: boolean; reason?: string }> {
-  const transporter = getTransporter();
-  if (!transporter) return { sent: false, reason: "no SMTP credentials" };
-
   const ccList = (process.env.RECI_CANCELLATION_CC || "")
     .split(",")
     .map((s) => s.trim())
@@ -274,19 +327,12 @@ export async function sendClawbackEmail(i: ClawbackEmailInput): Promise<{ sent: 
     `<p>Please follow up with the client where appropriate.</p>` +
     `<p style="color:#888;font-size:12px">— RECI portal</p>`;
 
-  try {
-    await transporter.sendMail({
-      from: fromHeader("RECI"),
-      to: to.join(","),
-      cc: ccArr.length > 0 ? ccArr.join(",") : undefined,
-      subject,
-      text,
-      html,
-    });
-    return { sent: true };
-  } catch (e) {
-    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
-  }
+  return dispatchMail({
+    label: "clawback",
+    fromName: "RECI",
+    to, cc: ccArr,
+    subject, text, html,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -302,9 +348,6 @@ export interface NysCheckEmailInput {
 }
 
 export async function sendNysCheckEmail(i: NysCheckEmailInput): Promise<{ sent: boolean; reason?: string }> {
-  const transporter = getTransporter();
-  if (!transporter) return { sent: false, reason: "no SMTP credentials" };
-
   const ccList = (process.env.RECI_CANCELLATION_CC || "")
     .split(",")
     .map((s) => s.trim())
@@ -358,19 +401,12 @@ export async function sendNysCheckEmail(i: NysCheckEmailInput): Promise<{ sent: 
     `<p>Please address the notes above. Once Pauline is happy she'll move the deal into In Processing or On Risk NYP, which will release the Checked status.</p>` +
     `<p style="color:#888;font-size:12px">— RECI portal</p>`;
 
-  try {
-    await transporter.sendMail({
-      from: fromHeader("RECI"),
-      to: to.join(","),
-      cc: ccArr.length > 0 ? ccArr.join(",") : undefined,
-      subject,
-      text,
-      html,
-    });
-    return { sent: true };
-  } catch (e) {
-    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
-  }
+  return dispatchMail({
+    label: "nys-check",
+    fromName: "RECI",
+    to, cc: ccArr,
+    subject, text, html,
+  });
 }
 
 function escapeHtml(s: string) {
@@ -464,9 +500,6 @@ export interface ClawbackNotifyInput {
 }
 
 export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{ sent: boolean; reason?: string }> {
-  const transporter = getTransporter();
-  if (!transporter) return { sent: false, reason: "no SMTP credentials" };
-
   const cam = await resolveCamRecipients(i.adviserId, i.agentBucket);
   const cc = managementCc();
   const guy = guyEmail();
@@ -535,19 +568,12 @@ export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{
     `<p>Please contact the client to attempt to save / reinstate the policy and update the Clawback Dashboard with what was done.</p>` +
     `<p style="color:#888;font-size:12px">— RECI portal</p>`;
 
-  try {
-    await transporter.sendMail({
-      from: fromHeader("RECI Clawback"),
-      to: to.join(","),
-      cc: finalCc.length > 0 ? finalCc.join(",") : undefined,
-      subject,
-      text,
-      html,
-    });
-    return { sent: true };
-  } catch (e) {
-    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
-  }
+  return dispatchMail({
+    label: "clawback-notify",
+    fromName: "RECI Clawback",
+    to, cc: finalCc,
+    subject, text, html,
+  });
 }
 
 export interface ClawbackResolvedInput {
@@ -565,9 +591,6 @@ export interface ClawbackResolvedInput {
 }
 
 export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promise<{ sent: boolean; reason?: string }> {
-  const transporter = getTransporter();
-  if (!transporter) return { sent: false, reason: "no SMTP credentials" };
-
   const guy = guyEmail();
   const cc = managementCc();
   // CAM hears about their own case being resolved too.
@@ -626,17 +649,10 @@ export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promi
     `<p>Full detail is on the Clawback Dashboard.</p>` +
     `<p style="color:#888;font-size:12px">— RECI portal</p>`;
 
-  try {
-    await transporter.sendMail({
-      from: fromHeader("RECI Clawback"),
-      to: to.join(","),
-      cc: finalCc.length > 0 ? finalCc.join(",") : undefined,
-      subject,
-      text,
-      html,
-    });
-    return { sent: true };
-  } catch (e) {
-    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
-  }
+  return dispatchMail({
+    label: "clawback-resolved",
+    fromName: "RECI Clawback",
+    to, cc: finalCc,
+    subject, text, html,
+  });
 }
