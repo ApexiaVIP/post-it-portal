@@ -1,11 +1,22 @@
 /**
- * Cancellation email — sent when a deal is moved into the Cancelled column.
- * Uses the same Gmail App Password the automation uses (GMAIL_USER / GMAIL_APP_PASSWORD).
+ * Outbound RECI emails (cancellation / clawback / NYS-checked / forecast /
+ * notify / resolved).
  *
- * Env:
- *   GMAIL_USER              = automation@... or jamesacton007@gmail.com
- *   GMAIL_APP_PASSWORD      = 16-char Gmail app password (no spaces)
- *   RECI_CANCELLATION_CC    = comma-separated list (e.g. "pauline@apexiavip.co.uk,jimmy@apexiavip.co.uk")
+ * Provider migration June 2026: moved from personal Gmail (jamesacton007@
+ * gmail.com via smtp.gmail.com) to data@topquote.uk on Purelymail.
+ *
+ * Env (set in Vercel):
+ *   SMTP_USER              = data@topquote.uk
+ *   SMTP_PASSWORD          = Purelymail account password
+ *   SMTP_HOST              = smtp.purelymail.com  (default if unset)
+ *   SMTP_PORT              = 465                  (default if unset)
+ *   SMTP_FROM_NAME         = "Top Quote RECI"     (default if unset)
+ *   RECI_CANCELLATION_CC   = comma-separated list (e.g. "pauline@...,jimmy@...")
+ *
+ * Legacy fallback: if SMTP_USER / SMTP_PASSWORD aren't set, falls back to
+ * GMAIL_USER / GMAIL_APP_PASSWORD on smtp.gmail.com so a deploy doesn't
+ * break if the Vercel env update lags the code change. Remove this fallback
+ * once the Purelymail vars are verified live in production.
  */
 import nodemailer from "nodemailer";
 import { sql } from "@vercel/postgres";
@@ -16,23 +27,38 @@ import {
   type Adviser,
 } from "./schema";
 
-const HOST = "smtp.gmail.com";
-const PORT = 465;
+const DEFAULT_HOST = "smtp.purelymail.com";
+const DEFAULT_PORT = 465;
+const LEGACY_HOST  = "smtp.gmail.com";
 
 let _transporter: nodemailer.Transporter | null = null;
 
 function getTransporter(): nodemailer.Transporter | null {
   if (_transporter) return _transporter;
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
+  const user = process.env.SMTP_USER  || process.env.GMAIL_USER;
+  const pass = process.env.SMTP_PASSWORD || process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) return null;
+  // If only the legacy Gmail vars are present, point at Gmail; otherwise
+  // default to Purelymail. Either way an explicit SMTP_HOST wins.
+  const host = process.env.SMTP_HOST
+            || (process.env.SMTP_USER ? DEFAULT_HOST : LEGACY_HOST);
+  const port = Number(process.env.SMTP_PORT) || DEFAULT_PORT;
   _transporter = nodemailer.createTransport({
-    host: HOST,
-    port: PORT,
-    secure: true,
+    host,
+    port,
+    secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS
     auth: { user, pass },
   });
   return _transporter;
+}
+
+// Single source of truth for the From header. SMTP_USER beats GMAIL_USER
+// so the new sender appears as soon as Vercel has the new env vars,
+// regardless of which transport ended up being used.
+function fromHeader(label: string): string {
+  const addr = process.env.SMTP_USER || process.env.GMAIL_USER || "";
+  const name = process.env.SMTP_FROM_NAME || label;
+  return `"${name}" <${addr}>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +182,7 @@ export async function sendCancellationEmail(i: CancellationEmailInput): Promise<
 
   try {
     await transporter.sendMail({
-      from: `"RECI" <${process.env.GMAIL_USER}>`,
+      from: fromHeader("RECI"),
       to: to.join(","),
       cc: ccArr.length > 0 ? ccArr.join(",") : undefined,
       subject,
@@ -250,7 +276,7 @@ export async function sendClawbackEmail(i: ClawbackEmailInput): Promise<{ sent: 
 
   try {
     await transporter.sendMail({
-      from: `"RECI" <${process.env.GMAIL_USER}>`,
+      from: fromHeader("RECI"),
       to: to.join(","),
       cc: ccArr.length > 0 ? ccArr.join(",") : undefined,
       subject,
@@ -334,7 +360,7 @@ export async function sendNysCheckEmail(i: NysCheckEmailInput): Promise<{ sent: 
 
   try {
     await transporter.sendMail({
-      from: `"RECI" <${process.env.GMAIL_USER}>`,
+      from: fromHeader("RECI"),
       to: to.join(","),
       cc: ccArr.length > 0 ? ccArr.join(",") : undefined,
       subject,
@@ -511,7 +537,7 @@ export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{
 
   try {
     await transporter.sendMail({
-      from: `"RECI Clawback" <${process.env.GMAIL_USER}>`,
+      from: fromHeader("RECI Clawback"),
       to: to.join(","),
       cc: finalCc.length > 0 ? finalCc.join(",") : undefined,
       subject,
@@ -602,7 +628,7 @@ export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promi
 
   try {
     await transporter.sendMail({
-      from: `"RECI Clawback" <${process.env.GMAIL_USER}>`,
+      from: fromHeader("RECI Clawback"),
       to: to.join(","),
       cc: finalCc.length > 0 ? finalCc.join(",") : undefined,
       subject,
