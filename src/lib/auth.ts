@@ -132,14 +132,19 @@ export function isDashboardUser(username: string | null | undefined): username i
   return roleFor(username) === "admin";
 }
 
-// Anyone who can reach /reci/clawback at all -- admins, sellers, viewers.
-// Per-case scoping is enforced separately by clawbackScope() + the API
-// route handlers.
+// Anyone who can reach /reci/clawback at all.
+//
+// Per Poz (June 2026 catch-up): scope is intentionally tight -- Jimmy,
+// Pauline / Poz, and Guy ONLY. Sellers (Tan, Hayder, Gurdaht, Atikur,
+// Jack) DO NOT see the dashboard, even though the seller-scoping
+// infrastructure is built and ready below. To re-open access to
+// sellers later, add `|| RECI_SELLER_USERNAMES.includes(u)` back to
+// this OR chain -- all the per-case scoping, edit gates and UI hiding
+// remains in place.
 export function isClawbackUser(username: string | null | undefined): username is string {
   if (!username) return false;
   const u = username.toLowerCase();
   return CLAWBACK_USERNAMES.includes(u)
-      || RECI_SELLER_USERNAMES.includes(u)
       || CLAWBACK_VIEWER_USERNAMES.includes(u);
 }
 
