@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PrintButton, PrintHeader } from "@/components/print";
 import { CaseDrawer, type DrawerCaseRow } from "./case-drawer";
+import { NewCaseModal } from "./new-case-modal";
 
 interface MeResp {
   username: string;
@@ -179,6 +180,9 @@ export default function ClawbackPage() {
   // Open drawer (clicked row)
   const [openCase, setOpenCase] = useState<CaseRow | null>(null);
 
+  // Manual New Case modal (admin only).
+  const [newCaseOpen, setNewCaseOpen] = useState(false);
+
   // Capabilities from /api/me. Drive what's editable / uploadable / notifiable.
   const [me, setMe] = useState<MeResp | null>(null);
   useEffect(() => {
@@ -281,6 +285,15 @@ export default function ClawbackPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {me?.isClawbackAdmin && (
+            <button
+              type="button"
+              onClick={() => setNewCaseOpen(true)}
+              className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+            >
+              + New case
+            </button>
+          )}
           <a
             href="/reci/clawback/forecast"
             className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
@@ -657,6 +670,13 @@ export default function ClawbackPage() {
           canEditOpenworkCb={me?.isClawbackAdmin ?? false}
           onClose={() => setOpenCase(null)}
           onChange={() => { void load(); }}
+        />
+      )}
+
+      {newCaseOpen && (
+        <NewCaseModal
+          onClose={() => setNewCaseOpen(false)}
+          onSaved={() => { void load(); }}
         />
       )}
     </main>

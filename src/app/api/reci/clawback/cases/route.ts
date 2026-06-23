@@ -24,8 +24,8 @@
  *   limit             default 1000
  */
 import { NextResponse } from "next/server";
-import { sql } from "@vercel/postgres";
-import { getSession, isClawbackUser, clawbackAdviserScope } from "@/lib/auth";
+import { sql, db } from "@vercel/postgres";
+import { getSession, isClawbackUser, isClawbackAdmin, clawbackAdviserScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -239,4 +239,202 @@ export async function GET(req: Request) {
     warnings: warningsQ.rows,
     recentUploads: uploads.rows,
   });
+}
+
+/**
+ * POST /api/reci/clawback/cases
+ *
+ * Manually add a single clawback case to the dashboard. Used by Poz when a
+ * notification arrives via a path that isn't yet wired into an automatic
+ * ingest (Aviva email, LV email, Royal London spreadsheet, etc.). Admin
+ * only -- sellers / viewers can't create cases.
+ *
+ * Body (JSON):
+ *   policy_number*       string (must be unique)
+ *   provider*            string (lowercase: 'l&g' | 'aviva' | 'lv' | ...)
+ *   client_first_name*   string
+ *   client_last_name*    string
+ *   client_dob           ISO date or null
+ *   client_email         string or null
+ *   client_phone         string or null
+ *   postcode             string or null
+ *   address              string or null
+ *   policy_type          string or null
+ *   net_premium          number or null
+ *   premium_outstanding  number or null
+ *   policy_start_date    ISO date or null
+ *   off_risk_date        ISO date or null
+ *   clawback_due*        number (default 0)
+ *   clawback_date        ISO date or null
+ *   ebah_warning*        string (the Status / Warning category)
+ *   adviser_id           number | null  (null => xstaff or legacy)
+ *   agent_bucket*        'adviser' | 'xstaff' | 'legacy'
+ *   ebah_agent_name*     string (sales agent name; required for all buckets
+ *                                so the case carries a human-readable owner)
+ *   master_agent_no      string or null
+ *   agent_no             string or null
+ *   source               'old_ow' | 'new_ow' | 'other' | null
+ *   initial_note         string or null (logged to history if set)
+ *
+ * Returns: { ok: true, id }   on success
+ *          { error: '...' }   on validation / conflict failure
+ */
+export async function POST(req: Request) {
+  const session = await getSession();
+  if (!isClawbackUser(session.username) || !isClawbackAdmin(session.username)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "expected JSON body" }, { status: 400 });
+  }
+  type Input = Partial<{
+    policy_number: string; provider: string;
+    client_first_name: string; client_last_name: string;
+    client_dob: string; client_email: string; client_phone: string;
+    postcode: string; address: string; policy_type: string;
+    net_premium: number; premium_outstanding: number;
+    policy_start_date: string; off_risk_date: string;
+    clawback_due: number; clawback_date: string;
+    ebah_warning: string;
+    adviser_id: number | null; agent_bucket: string; ebah_agent_name: string;
+    master_agent_no: string; agent_no: string;
+    source: string;
+    initial_note: string;
+  }>;
+  const b = body as Input;
+
+  // ---- Validation -------------------------------------------------------
+  function str(v: unknown): string | null {
+    if (typeof v !== "string") return null;
+    const t = v.trim();
+    return t.length === 0 ? null : t;
+  }
+  function num(v: unknown): number | null {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  function date(v: unknown): string | null {
+    const s = str(v);
+    if (!s) return null;
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  }
+
+  const policyNumber = str(b.policy_number);
+  const provider     = (str(b.provider) || "l&g").toLowerCase();
+  const firstName    = str(b.client_first_name);
+  const lastName     = str(b.client_last_name);
+  const warning      = str(b.ebah_warning);
+  const agentBucket  = str(b.agent_bucket);
+  const agentName    = str(b.ebah_agent_name);
+  const adviserId    = b.adviser_id === null || b.adviser_id === undefined ? null : Number(b.adviser_id);
+
+  const errors: string[] = [];
+  if (!policyNumber)    errors.push("policy_number is required");
+  if (!provider)        errors.push("provider is required");
+  if (!firstName)       errors.push("client_first_name is required");
+  if (!lastName)        errors.push("client_last_name is required");
+  if (!warning)         errors.push("ebah_warning is required");
+  if (!agentName)       errors.push("ebah_agent_name is required");
+  if (!agentBucket || !["adviser","xstaff","legacy"].includes(agentBucket)) {
+    errors.push("agent_bucket must be adviser | xstaff | legacy");
+  }
+  if (agentBucket === "adviser" && (adviserId === null || !Number.isFinite(adviserId))) {
+    errors.push("adviser_id is required when agent_bucket is 'adviser'");
+  }
+  const source = str(b.source);
+  if (source && !["old_ow","new_ow","other"].includes(source)) {
+    errors.push("source must be old_ow | new_ow | other | null");
+  }
+  if (errors.length > 0) {
+    return NextResponse.json({ error: errors.join("; ") }, { status: 400 });
+  }
+
+  // Cross-check the adviser_id exists if provided.
+  if (agentBucket === "adviser" && adviserId !== null) {
+    const a = await sql<{ id: number }>`SELECT id FROM advisers WHERE id = ${adviserId} LIMIT 1`;
+    if (a.rowCount === 0) {
+      return NextResponse.json({ error: "adviser_id not found" }, { status: 400 });
+    }
+  }
+
+  const clientName = `${firstName} ${lastName}`.trim();
+  const clawbackDue = num(b.clawback_due) ?? 0;
+
+  // ---- Insert ----------------------------------------------------------
+  // Wrap insert + history in a transaction so a failure after the insert
+  // doesn't leave a case without an opening history row.
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Check for an existing case on the same policy number first so we can
+    // return a clean 409 rather than a generic UNIQUE violation.
+    const dup = await client.query<{ id: number }>(
+      `SELECT id FROM clawback_cases WHERE policy_number = $1 LIMIT 1`,
+      [policyNumber],
+    );
+    if ((dup.rowCount ?? 0) > 0) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({
+        error: `Policy ${policyNumber} already exists on the dashboard`,
+        existingId: dup.rows[0].id,
+      }, { status: 409 });
+    }
+
+    const ins = await client.query<{ id: number }>(
+      `INSERT INTO clawback_cases (
+        policy_number, provider, client_name, client_first_name, client_last_name,
+        client_dob, client_email, client_phone, postcode, address,
+        policy_type, net_premium, premium_outstanding, policy_start_date,
+        off_risk_date, clawback_due, clawback_date, ebah_agent_name,
+        adviser_id, agent_bucket, ebah_warning,
+        master_agent_no, agent_no, source
+      ) VALUES (
+        $1, $2, $3, $4, $5,
+        $6, $7, $8, $9, $10,
+        $11, $12, $13, $14,
+        $15, $16, $17, $18,
+        $19, $20, $21,
+        $22, $23, $24
+      )
+      RETURNING id`,
+      [
+        policyNumber, provider, clientName, firstName, lastName,
+        date(b.client_dob), str(b.client_email), str(b.client_phone),
+        str(b.postcode), str(b.address),
+        str(b.policy_type), num(b.net_premium), num(b.premium_outstanding),
+        date(b.policy_start_date), date(b.off_risk_date),
+        clawbackDue, date(b.clawback_date), agentName,
+        agentBucket === "adviser" ? adviserId : null, agentBucket, warning,
+        str(b.master_agent_no), str(b.agent_no),
+        source,
+      ],
+    );
+    const newId = ins.rows[0].id;
+
+    await client.query(
+      `INSERT INTO clawback_history (case_id, event_type, actor, note)
+       VALUES ($1, 'created', $2, $3)`,
+      [newId, session.username, `Created manually by ${session.username}`],
+    );
+    const openingNote = str(b.initial_note);
+    if (openingNote) {
+      await client.query(
+        `INSERT INTO clawback_history (case_id, event_type, actor, note)
+         VALUES ($1, 'note', $2, $3)`,
+        [newId, session.username, openingNote],
+      );
+    }
+
+    await client.query("COMMIT");
+    return NextResponse.json({ ok: true, id: newId });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+  } finally {
+    client.release();
+  }
 }
