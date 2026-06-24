@@ -70,6 +70,17 @@ function fromHeader(label: string): string {
   return `"${name}" <${addr}>`;
 }
 
+// Deep-link from any notification or resolved email back into the
+// Clawback Dashboard. The search box on the dashboard pre-fills from
+// ?q= so passing the policy number drops the recipient straight onto
+// the specific case (they can click the row to open the drawer).
+//
+// PUBLIC_DASHBOARD_URL is settable in Vercel for preview environments.
+function clawbackCaseUrl(policyNumber: string): string {
+  const base = (process.env.PUBLIC_DASHBOARD_URL || "https://post-it-portal.vercel.app").replace(/\/$/, "");
+  return `${base}/reci/clawback?q=${encodeURIComponent(policyNumber)}`;
+}
+
 // Dispatch helper: opens a fresh transporter per call (Purelymail closes
 // idle connections), sends the message, and ALWAYS console.errors both
 // the envelope and the outcome so Vercel reliably logs every send. Vercel
@@ -545,10 +556,13 @@ export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{
     i.pozNote ? `` : ``,
     `Please contact the client to attempt to save / reinstate the policy and update the Clawback Dashboard with what was done.`,
     ``,
+    `Open the case: ${clawbackCaseUrl(i.policyNumber)}`,
+    ``,
     `— RECI portal`,
   ].filter((line, idx, arr) => !(line === "" && arr[idx - 1] === ""));
   const text = lines.join("\n");
 
+  const caseUrl = clawbackCaseUrl(i.policyNumber);
   const html =
     `<p>${greeting}</p>` +
     `<p>A post-completion clawback case needs your attention.</p>` +
@@ -566,6 +580,7 @@ export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{
       ? `<p style="margin-top:12px"><strong>Notes from Pauline:</strong><br>${escapeHtml(i.pozNote).replace(/\n/g, "<br>")}</p>`
       : "") +
     `<p>Please contact the client to attempt to save / reinstate the policy and update the Clawback Dashboard with what was done.</p>` +
+    `<p style="margin:18px 0"><a href="${caseUrl}" style="display:inline-block;background:#b45309;color:#fff;padding:8px 14px;text-decoration:none;border-radius:4px;font-weight:600">Open this case in the Clawback Dashboard</a></p>` +
     `<p style="color:#888;font-size:12px">— RECI portal</p>`;
 
   return dispatchMail({
@@ -627,10 +642,13 @@ export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promi
     i.note ? `` : ``,
     `Full detail is on the Clawback Dashboard.`,
     ``,
+    `Open the case: ${clawbackCaseUrl(i.policyNumber)}`,
+    ``,
     `— RECI portal`,
   ].filter((line, idx, arr) => !(line === "" && arr[idx - 1] === ""));
   const text = lines.join("\n");
 
+  const caseUrl = clawbackCaseUrl(i.policyNumber);
   const html =
     `<p>Hi Guy,</p>` +
     `<p>A clawback case has been resolved on the dashboard.</p>` +
@@ -647,6 +665,7 @@ export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promi
       ? `<p style="margin-top:12px"><strong>Notes:</strong><br>${escapeHtml(i.note).replace(/\n/g, "<br>")}</p>`
       : "") +
     `<p>Full detail is on the Clawback Dashboard.</p>` +
+    `<p style="margin:18px 0"><a href="${caseUrl}" style="display:inline-block;background:#0f172a;color:#fff;padding:8px 14px;text-decoration:none;border-radius:4px;font-weight:600">Open this case in the Clawback Dashboard</a></p>` +
     `<p style="color:#888;font-size:12px">— RECI portal</p>`;
 
   return dispatchMail({
