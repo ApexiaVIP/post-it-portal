@@ -245,10 +245,17 @@ export default function ClawbackPage() {
         setUploadResult(`Upload failed: ${j.error || r.statusText}`);
       } else {
         const s = j.summary;
+        // Auto-notify metrics come back when at least one new case had
+        // clawback_due > 0 (zero-pound cases are deliberately not
+        // notified). Surface them so Pauline knows what fired.
+        const notifyTail = s.autoNotifyAttempted > 0
+          ? ` Notify emails: ${s.autoNotifySent}/${s.autoNotifyAttempted}` +
+            (s.autoNotifyFailed > 0 ? ` (${s.autoNotifyFailed} failed -- see logs)` : "")
+          : "";
         setUploadResult(
           `Ingested ${s.rowsTotal} rows from ${f.name} (report date ${s.reportDate || "n/a"}): ` +
           `${s.rowsInserted} new, ${s.rowsUpdated} updated, ${s.rowsUnchanged} unchanged, ` +
-          `${s.rowsUnmatched} unmatched agents.`,
+          `${s.rowsUnmatched} unmatched agents.${notifyTail}`,
         );
         await load();
       }
@@ -294,6 +301,12 @@ export default function ClawbackPage() {
               + New case
             </button>
           )}
+          <a
+            href="/reci/clawback/activity"
+            className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            Activity
+          </a>
           <a
             href="/reci/clawback/forecast"
             className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"

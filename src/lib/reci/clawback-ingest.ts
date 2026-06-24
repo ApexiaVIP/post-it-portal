@@ -34,6 +34,7 @@ import {
   bucketAgentString,
   type EbahRow,
 } from "./clawback-parser";
+import { sendClawbackNotifyEmail } from "./email";
 
 const INSERT_BATCH = 250;
 const HISTORY_BATCH = 500;
@@ -47,6 +48,10 @@ export interface IngestSummary {
   rowsUnchanged: number;
   rowsUnmatched: number;        // agents bucketed into needs_review
   parseErrors: { rowIndex: number; reason: string }[];
+  // Auto-notify metrics (filled in after COMMIT).
+  autoNotifyAttempted: number;
+  autoNotifySent: number;
+  autoNotifyFailed: number;
 }
 
 export async function ingestEbahFile(
@@ -285,6 +290,19 @@ export async function ingestEbahFile(
 
     await client.query("COMMIT");
 
+    // ---------- 12. Auto-Notify newly-created CB-bearing cases ----------
+    // Per Pauline (June 2026): when an EBAH ingest finds a brand-new case
+    // we send the Notify email IMMEDIATELY to the responsible CAM (or
+    // Tan + Hayder for Xstaff). This is the same email path as the manual
+    // Notify button but fired automatically -- saves Pauline a click per
+    // case. Cases with clawback_due == 0 are skipped (routine reviews,
+    // accepted death claims, etc) so the adviser inbox isn't flooded with
+    // zero-pound informational rows.
+    //
+    // Runs OUTSIDE the transaction. Failures don't roll back the ingest --
+    // the case is still inserted and Pauline can manually re-Notify later.
+    const notifyMetrics = await autoNotifyNewCases(inserted, toInsert);
+
     return {
       uploadId,
       reportDate: parsed.reportDate,
@@ -294,6 +312,9 @@ export async function ingestEbahFile(
       rowsUnchanged: unchanged,
       rowsUnmatched: unmatched,
       parseErrors: parsed.errors,
+      autoNotifyAttempted: notifyMetrics.attempted,
+      autoNotifySent:      notifyMetrics.sent,
+      autoNotifyFailed:    notifyMetrics.failed,
     };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
@@ -446,6 +467,80 @@ function isoWeek(yyyymmdd: string): number {
   date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
   return Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+/**
+ * Fire the Notify email for every newly-inserted case where clawback_due > 0.
+ *
+ * Runs OUTSIDE the upload's transaction so:
+ *   - SMTP latency doesn't keep the transaction (and its row locks) open
+ *   - A bounce on case N+1 doesn't roll back the COMMITted inserts for 1..N
+ *
+ * Per-case failures are logged via console.error and counted in the metrics
+ * but don't propagate. Pauline can always re-Notify by hand from the drawer.
+ */
+async function autoNotifyNewCases(
+  inserted: { id: number; policy_number: string }[],
+  toInsert: { row: EbahRow; mapping: { bucket: Bucket; adviser_id: number | null } }[],
+): Promise<{ attempted: number; sent: number; failed: number }> {
+  // policy_number -> { row, mapping } lookup
+  const byPolicy = new Map<string, { row: EbahRow; mapping: { bucket: Bucket; adviser_id: number | null } }>();
+  for (const o of toInsert) byPolicy.set(o.row.policy_number, o);
+
+  let attempted = 0, sent = 0, failed = 0;
+
+  for (const ins of inserted) {
+    const o = byPolicy.get(ins.policy_number);
+    if (!o) continue;
+    const r = o.row;
+    const cb = Number(r.clawback_due ?? 0) || 0;
+    if (cb <= 0) continue; // skip zero-pound cases (routine reviews, etc)
+
+    attempted++;
+    try {
+      const result = await sendClawbackNotifyEmail({
+        caseId:        ins.id,
+        clientName:    r.client_name,
+        policyNumber:  r.policy_number,
+        postcode:      r.postcode,
+        provider:      "l&g",
+        policyType:    r.policy_type,
+        ebahWarning:   r.warning,
+        clawbackDate:  r.clawback_date,
+        ebahAgentName: r.ebah_agent_name,
+        adviserId:     o.mapping.adviser_id,
+        agentBucket:   o.mapping.bucket,
+        // Auto-notify carries no Pauline-typed note. She can manually
+        // re-Notify with a note from the drawer if she needs to add
+        // context.
+        pozNote:       null,
+        actor:         "ebah-upload",
+      });
+      if (result.sent) {
+        sent++;
+        // Stamp notified_at + history row so the timeline shows the
+        // auto-send and the case won't be re-notified on the next ingest.
+        await sql`
+          UPDATE clawback_cases
+          SET notified_at = COALESCE(notified_at, now()), updated_at = now()
+          WHERE id = ${ins.id}
+        `;
+        await sql`
+          INSERT INTO clawback_history (case_id, event_type, note, actor)
+          VALUES (${ins.id}, 'email_sent', 'Auto-notification fired on EBAH ingest', 'ebah-upload')
+        `;
+      } else {
+        failed++;
+        console.error(`[clawback-ingest] auto-notify failed for case ${ins.id}:`, result.reason);
+      }
+    } catch (e) {
+      failed++;
+      console.error(`[clawback-ingest] auto-notify exception for case ${ins.id}:`, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  console.error(`[clawback-ingest] auto-notify summary: attempted=${attempted} sent=${sent} failed=${failed}`);
+  return { attempted, sent, failed };
 }
 
 export type { EbahRow };
