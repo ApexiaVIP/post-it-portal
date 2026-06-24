@@ -183,6 +183,9 @@ export default function ClawbackPage() {
   // Manual New Case modal (admin only).
   const [newCaseOpen, setNewCaseOpen] = useState(false);
 
+  // Backfill Notify (admin only). State only -- runner defined after load().
+  const [backfillBusy, setBackfillBusy] = useState(false);
+
   // Capabilities from /api/me. Drive what's editable / uploadable / notifiable.
   const [me, setMe] = useState<MeResp | null>(null);
   useEffect(() => {
@@ -226,6 +229,46 @@ export default function ClawbackPage() {
   }, [statusFilter, bucketFilter, warningFilter, cbDueFrom, cbDueTo, cbMin, cbMax, masterAgentNo, agentNo, surname, sourceFilter, search, sort]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Backfill Notify runner (placed here so it can close over load()).
+  const runBackfillNotify = useCallback(async () => {
+    setBackfillBusy(true);
+    try {
+      const dry = await fetch("/api/reci/clawback/notify-unnotified", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dry_run: true }),
+      });
+      const dj = await dry.json();
+      if (!dry.ok || !dj.ok) {
+        alert(`Couldn't check candidates: ${dj.error || dry.statusText}`);
+        return;
+      }
+      if (dj.candidateCount === 0) {
+        alert("Nothing to notify -- every CB > 0 case already has notified_at stamped.");
+        return;
+      }
+      const ok = window.confirm(
+        `${dj.candidateCount} case${dj.candidateCount === 1 ? "" : "s"} ready to Notify. ` +
+        `Recipients will be the CAM (or Tan + Hayder for Xstaff) with Guy and management on CC. ` +
+        `Continue?`,
+      );
+      if (!ok) return;
+      const r = await fetch("/api/reci/clawback/notify-unnotified", { method: "POST" });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        alert(`Notify failed: ${j.error || r.statusText}`);
+        return;
+      }
+      const failTail = j.failed > 0 ? ` (${j.failed} failed -- see runtime logs)` : "";
+      alert(`Notify backfill done. Sent ${j.sent}/${j.attempted}.${failTail}`);
+      await load();
+    } catch (e) {
+      alert(`Notify failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBackfillBusy(false);
+    }
+  }, [load]);
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -299,6 +342,17 @@ export default function ClawbackPage() {
               className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
             >
               + New case
+            </button>
+          )}
+          {me?.isClawbackAdmin && (
+            <button
+              type="button"
+              onClick={() => void runBackfillNotify()}
+              disabled={backfillBusy}
+              className="rounded border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+              title="Fire the Notify email on every case with CB > 0 that hasn't been notified yet"
+            >
+              {backfillBusy ? "Working…" : "Notify backfill"}
             </button>
           )}
           <a
