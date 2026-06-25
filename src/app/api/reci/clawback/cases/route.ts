@@ -27,6 +27,7 @@ import { NextResponse } from "next/server";
 import { sql, db } from "@vercel/postgres";
 import { getSession, isClawbackUser, isClawbackAdmin, clawbackAdviserScope } from "@/lib/auth";
 import { sendClawbackNotifyEmail } from "@/lib/reci/email";
+import { sourceForMasterCode } from "@/lib/reci/clawback-source";
 
 export const dynamic = "force-dynamic";
 
@@ -345,9 +346,16 @@ export async function POST(req: Request) {
   if (agentBucket === "adviser" && (adviserId === null || !Number.isFinite(adviserId))) {
     errors.push("adviser_id is required when agent_bucket is 'adviser'");
   }
-  const source = str(b.source);
+  // Manual source override from the form (Pauline can flag old_ow / new_ow /
+  // other directly). If not provided, fall back to the auto mapping from
+  // master_agent_no (5930268 -> new_ow, etc).
+  let source = str(b.source);
   if (source && !["old_ow","new_ow","other"].includes(source)) {
     errors.push("source must be old_ow | new_ow | other | null");
+  }
+  if (!source) {
+    const masterCode = str(b.master_agent_no);
+    source = sourceForMasterCode(masterCode);
   }
   if (errors.length > 0) {
     return NextResponse.json({ error: errors.join("; ") }, { status: 400 });
@@ -457,6 +465,7 @@ export async function POST(req: Request) {
           ebahAgentName:  agentName!,
           adviserId:      agentBucket === "adviser" ? adviserId : null,
           agentBucket:    agentBucket!,
+          source,         // null or auto-mapped from master_agent_no above
           pozNote:        str(b.initial_note),
           actor:          session.username!,
         });

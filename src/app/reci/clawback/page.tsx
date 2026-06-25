@@ -19,6 +19,7 @@ import { PrintButton, PrintHeader } from "@/components/print";
 import { CaseDrawer, type DrawerCaseRow } from "./case-drawer";
 import { NewCaseModal } from "./new-case-modal";
 import { fmtDate } from "./format";
+import { isUrgentNewOw } from "@/lib/reci/clawback-source";
 
 interface MeResp {
   username: string;
@@ -663,12 +664,16 @@ export default function ClawbackPage() {
               <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={15}>Loading...</td></tr>
             ) : cases.length === 0 ? (
               <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={15}>No cases match.</td></tr>
-            ) : cases.map((c) => (
+            ) : cases.map((c) => {
+              const urgent = isUrgentNewOw(c.source, c.clawback_due, c.status);
+              return (
               <tr
                 key={c.id}
                 onClick={() => setOpenCase(c)}
-                className="cursor-pointer border-t border-slate-100 hover:bg-amber-50"
-                title="Click to open case detail"
+                className={`cursor-pointer border-t border-slate-100 ${
+                  urgent ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-amber-50"
+                }`}
+                title={urgent ? "URGENT New OW case -- click to open" : "Click to open case detail"}
               >
                 <Td>{c.client_name}</Td>
                 <Td>{c.postcode || "—"}</Td>
@@ -695,10 +700,19 @@ export default function ClawbackPage() {
                   {c.adviser_name ? <strong>{c.adviser_name}</strong> : c.ebah_agent_name}
                 </Td>
                 <Td><BucketPill bucket={c.agent_bucket} /></Td>
-                <Td><SourcePill source={c.source} /></Td>
+                <Td>
+                  {urgent ? (
+                    <span className="inline-block whitespace-nowrap rounded bg-red-600 px-2 py-0.5 text-xs font-bold uppercase text-white shadow-sm">
+                      URGENT · New OW
+                    </span>
+                  ) : (
+                    <SourcePill source={c.source} />
+                  )}
+                </Td>
                 <Td><StatusPill status={c.status} /></Td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </section>

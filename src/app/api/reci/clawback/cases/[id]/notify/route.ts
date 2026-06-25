@@ -47,6 +47,7 @@ export async function POST(
     clawback_date: string | null;
     notified_at: string | null;
     ebah_report_date: string | null;
+    source: string | null;
   }>`
     SELECT c.id, c.client_name,
            c.client_dob::text AS client_dob,
@@ -55,6 +56,7 @@ export async function POST(
            c.clawback_due::text AS clawback_due,
            c.clawback_date::text AS clawback_date,
            c.notified_at::text AS notified_at,
+           c.source,
            -- Pull the EBAH report date from the upload that LAST touched
            -- this case so the email shows the most recent L&G snapshot.
            up.report_date::text AS ebah_report_date
@@ -81,6 +83,7 @@ export async function POST(
     ebahAgentName: c.ebah_agent_name,
     adviserId: c.adviser_id,
     agentBucket: c.agent_bucket,
+    source: c.source,
     pozNote: note,
     actor: session.username,
   });

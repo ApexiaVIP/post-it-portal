@@ -52,6 +52,7 @@ export async function POST(req: Request) {
     ebah_agent_name: string;
     adviser_id: number | null;
     agent_bucket: string;
+    source: string | null;
     clawback_due: string;
   }>`
     SELECT c.id, c.client_name,
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
            c.clawback_date::text AS clawback_date,
            up.report_date::text AS ebah_report_date,
            c.ebah_agent_name, c.adviser_id, c.agent_bucket,
+           c.source,
            c.clawback_due::text AS clawback_due
     FROM clawback_cases c
     LEFT JOIN clawback_uploads up ON up.id = c.last_seen_upload_id
@@ -102,6 +104,7 @@ export async function POST(req: Request) {
         ebahAgentName:  c.ebah_agent_name,
         adviserId:      c.adviser_id,
         agentBucket:    c.agent_bucket,
+        source:         c.source,
         pozNote:        null,
         actor:         session.username!,
       });
