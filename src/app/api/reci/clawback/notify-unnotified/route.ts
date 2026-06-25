@@ -41,26 +41,32 @@ export async function POST(req: Request) {
   const candidates = await sql<{
     id: number;
     client_name: string;
+    client_dob: string | null;
     policy_number: string;
     postcode: string | null;
     provider: string;
     policy_type: string | null;
     ebah_warning: string | null;
     clawback_date: string | null;
+    ebah_report_date: string | null;
     ebah_agent_name: string;
     adviser_id: number | null;
     agent_bucket: string;
     clawback_due: string;
   }>`
-    SELECT id, client_name, policy_number, postcode, provider, policy_type,
-           ebah_warning,
-           clawback_date::text AS clawback_date,
-           ebah_agent_name, adviser_id, agent_bucket,
-           clawback_due::text AS clawback_due
-    FROM clawback_cases
-    WHERE clawback_due > 0
-      AND notified_at IS NULL
-    ORDER BY clawback_due DESC NULLS LAST, id ASC
+    SELECT c.id, c.client_name,
+           c.client_dob::text AS client_dob,
+           c.policy_number, c.postcode, c.provider, c.policy_type,
+           c.ebah_warning,
+           c.clawback_date::text AS clawback_date,
+           up.report_date::text AS ebah_report_date,
+           c.ebah_agent_name, c.adviser_id, c.agent_bucket,
+           c.clawback_due::text AS clawback_due
+    FROM clawback_cases c
+    LEFT JOIN clawback_uploads up ON up.id = c.last_seen_upload_id
+    WHERE c.clawback_due > 0
+      AND c.notified_at IS NULL
+    ORDER BY c.clawback_due DESC NULLS LAST, c.id ASC
   `;
 
   if (dryRun) {
@@ -83,18 +89,20 @@ export async function POST(req: Request) {
     attempted++;
     try {
       const result = await sendClawbackNotifyEmail({
-        caseId:        c.id,
-        clientName:    c.client_name,
-        policyNumber:  c.policy_number,
-        postcode:      c.postcode,
-        provider:      c.provider,
-        policyType:    c.policy_type,
-        ebahWarning:   c.ebah_warning,
-        clawbackDate:  c.clawback_date,
-        ebahAgentName: c.ebah_agent_name,
-        adviserId:     c.adviser_id,
-        agentBucket:   c.agent_bucket,
-        pozNote:       null,
+        caseId:         c.id,
+        clientName:     c.client_name,
+        clientDob:      c.client_dob,
+        policyNumber:   c.policy_number,
+        postcode:       c.postcode,
+        provider:       c.provider,
+        policyType:     c.policy_type,
+        ebahWarning:    c.ebah_warning,
+        clawbackDate:   c.clawback_date,
+        ebahReportDate: c.ebah_report_date,
+        ebahAgentName:  c.ebah_agent_name,
+        adviserId:      c.adviser_id,
+        agentBucket:    c.agent_bucket,
+        pozNote:        null,
         actor:         session.username!,
       });
       if (result.sent) {

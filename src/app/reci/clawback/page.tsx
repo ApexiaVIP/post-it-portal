@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PrintButton, PrintHeader } from "@/components/print";
 import { CaseDrawer, type DrawerCaseRow } from "./case-drawer";
 import { NewCaseModal } from "./new-case-modal";
+import { fmtDate } from "./format";
 
 interface MeResp {
   username: string;
@@ -78,7 +79,7 @@ interface WarningRow {
   clawback_due: number;
 }
 
-type Sort = "cb_desc" | "cb_asc" | "cb_due_asc" | "cb_due_desc" | "client_asc";
+type Sort = "client_asc" | "cb_desc" | "cb_asc" | "cb_due_asc" | "cb_due_desc";
 const SORT_LABELS: Record<Sort, string> = {
   cb_desc:     "CB value (highest first)",
   cb_asc:      "CB value (lowest first)",
@@ -167,7 +168,7 @@ export default function ClawbackPage() {
   const [surname, setSurname] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<Sort>("cb_desc");
+  const [sort, setSort] = useState<Sort>("client_asc");
   const [moreOpen, setMoreOpen] = useState<boolean>(false);
   const [warnings, setWarnings] = useState<WarningRow[]>([]);
 
@@ -224,7 +225,7 @@ export default function ClawbackPage() {
       if (surname.trim())       p.set("surname",         surname.trim());
       if (sourceFilter)         p.set("source",          sourceFilter);
       if (search.trim())        p.set("q",               search.trim());
-      if (sort !== "cb_desc")   p.set("sort",            sort);
+      if (sort !== "client_asc")   p.set("sort",            sort);
       const r = await fetch(`/api/reci/clawback/cases?${p.toString()}`, { cache: "no-store" });
       if (!r.ok) throw new Error(`fetch failed (${r.status})`);
       const j = await r.json();
@@ -542,14 +543,14 @@ export default function ClawbackPage() {
           >
             {moreOpen ? "Hide more" : "More filters"}
           </button>
-          {(statusFilter || bucketFilter || warningFilter || cbDueFrom || cbDueTo || cbMin || cbMax || masterAgentNo || agentNo || surname || sourceFilter || search || sort !== "cb_desc") && (
+          {(statusFilter || bucketFilter || warningFilter || cbDueFrom || cbDueTo || cbMin || cbMax || masterAgentNo || agentNo || surname || sourceFilter || search || sort !== "client_asc") && (
             <button
               type="button"
               onClick={() => {
                 setStatusFilter(""); setBucketFilter(""); setWarningFilter("");
                 setCbDueFrom(""); setCbDueTo(""); setCbMin(""); setCbMax("");
                 setMasterAgentNo(""); setAgentNo(""); setSurname("");
-                setSourceFilter(""); setSearch(""); setSort("cb_desc");
+                setSourceFilter(""); setSearch(""); setSort("client_asc");
               }}
               className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
             >
@@ -689,7 +690,7 @@ export default function ClawbackPage() {
                     </span>
                   )}
                 </Td>
-                <Td>{c.clawback_date || "—"}</Td>
+                <Td>{fmtDate(c.clawback_date)}</Td>
                 <Td className="max-w-[200px] truncate" title={c.ebah_agent_name}>
                   {c.adviser_name ? <strong>{c.adviser_name}</strong> : c.ebah_agent_name}
                 </Td>

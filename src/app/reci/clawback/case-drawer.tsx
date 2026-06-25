@@ -13,6 +13,7 @@
  * told via onChange so the table + summary tiles refresh in sync.
  */
 import { useCallback, useEffect, useState } from "react";
+import { fmtDate } from "./format";
 
 type Status = "open" | "saved" | "resold" | "dead" | "reinstated" | "closed";
 type Bucket = "adviser" | "xstaff" | "legacy" | "needs_review";
@@ -140,7 +141,7 @@ const WARNING_GUIDES: Record<string, WarningGuide> = {
   "Lapse": {
     title: "Lapsed",
     description:
-      "Either the client cancelled after the cooling-off period or premium arrears resulted in lapse. Depending on circumstance the policy may be reinstated or replaced through a new sale. Record the saved amount if reinstated, or the resold amount if replaced.",
+      "A lapse generally has one of two causes: three months or more of premium arrears, OR the client cancelled the policy after the cooling-off period (mid-term, or at a time of their choosing). Some providers will allow reinstatement, others won't -- check before promising the client anything. Record the saved amount if reinstated, or the resold amount if replaced with a new sale.",
     suggestions: [
       { panel: "contact", label: "Log call to client" },
       { panel: "money",   label: "Record £ saved (reinstated)", prefillMoneyKind: "saved",  accent: "green" },
@@ -485,15 +486,15 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
         )}
 
         <section className="mt-4 grid grid-cols-2 gap-3 px-5 text-sm">
-          <FieldRow label="DOB" value={row.client_dob || "—"} />
+          <FieldRow label="DOB" value={fmtDate(row.client_dob)} />
           <FieldRow label="Sales agent" value={row.ebah_agent_name} />
           <FieldRow label="Bucket" value={row.agent_bucket === "adviser" && row.adviser_name ? row.adviser_name : row.agent_bucket} />
           <FieldRow label="Master Agent" value={row.master_agent_no || "—"} mono />
           <FieldRow label="Agent No" value={row.agent_no || "—"} mono />
           <FieldRow label="Warning" value={row.ebah_warning || "—"} />
-          <FieldRow label="CB date" value={row.clawback_date || "—"} />
-          <FieldRow label="Policy start" value={row.policy_start_date || "—"} />
-          <FieldRow label="Off-risk" value={row.off_risk_date || "—"} />
+          <FieldRow label="CB date" value={fmtDate(row.clawback_date)} />
+          <FieldRow label="Policy start" value={fmtDate(row.policy_start_date)} />
+          <FieldRow label="Off-risk" value={fmtDate(row.off_risk_date)} />
           <FieldRow label="Net premium" value={gbp(row.net_premium)} />
           <FieldRow label="Updated" value={new Date(row.updated_at).toLocaleString("en-GB")} />
         </section>

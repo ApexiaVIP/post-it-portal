@@ -21,6 +21,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { PrintButton, PrintHeader } from "@/components/print";
+import { fmtDate } from "../format";
 
 interface SellerForecast {
   key: string;
@@ -175,7 +176,7 @@ export default function ClawbackForecastPage() {
                   <tbody>
                     {data.imminentCases.map((c) => (
                       <tr key={c.id} className="border-t border-slate-100 hover:bg-amber-50">
-                        <Td>{c.clawback_date || "—"}</Td>
+                        <Td>{fmtDate(c.clawback_date)}</Td>
                         <Td>{c.adviser_name || (c.agent_bucket === "xstaff" ? "Xstaff" : c.agent_bucket)}</Td>
                         <Td>{c.client_name}</Td>
                         <Td>{c.postcode || "—"}</Td>

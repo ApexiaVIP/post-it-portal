@@ -497,17 +497,28 @@ async function resolveCamRecipients(adviserId: number | null, bucket: string): P
 export interface ClawbackNotifyInput {
   caseId: number;
   clientName: string;
+  /** Client date of birth, ISO yyyy-mm-dd. Helpful for CRM lookups. */
+  clientDob?: string | null;
   policyNumber: string;
   postcode: string | null;
   provider: string;
   policyType: string | null;
   ebahWarning: string | null;
   clawbackDate: string | null;
+  /** Date L&G generated the EBAH report. Only set on auto-Notify from ingest. */
+  ebahReportDate?: string | null;
   ebahAgentName: string;
   adviserId: number | null;
   agentBucket: string;
   pozNote: string | null;
   actor: string;
+}
+
+/** Inline ISO -> UK formatter (matches the dashboard's fmtDate). */
+function ukDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const m = iso.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 }
 
 export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{ sent: boolean; reason?: string }> {
@@ -543,12 +554,14 @@ export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{
     `A post-completion clawback case needs your attention.`,
     ``,
     `  Client:        ${i.clientName}`,
+    `  DOB:           ${ukDate(i.clientDob)}`,
     `  Postcode:      ${i.postcode || "—"}`,
     `  Policy No:     ${i.policyNumber}`,
     `  Provider:      ${i.provider.toUpperCase()}`,
     `  Product:       ${i.policyType || "—"}`,
     `  Status:        ${reason}`,
-    `  CB Date:       ${i.clawbackDate || "—"}`,
+    `  CB Date:       ${ukDate(i.clawbackDate)}`,
+    `  EBAH report:   ${ukDate(i.ebahReportDate)}`,
     `  Sales agent:   ${i.ebahAgentName}`,
     ``,
     i.pozNote ? `Notes from Pauline:` : ``,
@@ -568,12 +581,14 @@ export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{
     `<p>A post-completion clawback case needs your attention.</p>` +
     `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">` +
     row("Client", i.clientName) +
+    row("DOB", ukDate(i.clientDob)) +
     row("Postcode", i.postcode || "—") +
     row("Policy No", i.policyNumber) +
     row("Provider", i.provider.toUpperCase()) +
     row("Product", i.policyType || "—") +
     row("Status", reason) +
-    row("CB Date", i.clawbackDate || "—") +
+    row("CB Date", ukDate(i.clawbackDate)) +
+    row("EBAH report", ukDate(i.ebahReportDate)) +
     row("Sales agent", i.ebahAgentName) +
     `</table>` +
     (i.pozNote
