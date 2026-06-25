@@ -189,9 +189,18 @@ export function NewCaseModal({ onClose, onSaved }: { onClose: () => void; onSave
         return;
       }
       onSaved();
+      // The POST handler returns { ok, id, email } where email is null
+      // (no auto-Notify because CB was zero) or { sent, reason } from the
+      // Notify dispatcher. Surface the outcome so Pauline knows whether
+      // the seller email actually fired.
+      const emailTail = j.email
+        ? j.email.sent
+          ? " · Notify email sent."
+          : ` · Notify email NOT sent (${j.email.reason || "see runtime logs"}).`
+        : " · No Notify email (clawback is £0).";
       if (addAnother) {
-        setToast(`Saved case #${j.id}. Form cleared.`);
-        setTimeout(() => setToast(null), 3500);
+        setToast(`Saved case #${j.id}.${emailTail}`);
+        setTimeout(() => setToast(null), 6000);
         // Preserve provider + sales agent + warning between entries so a
         // batch of similar cases doesn't require re-selecting these each
         // time. Everything else resets.

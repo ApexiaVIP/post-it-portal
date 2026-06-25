@@ -26,6 +26,7 @@
 import { NextResponse } from "next/server";
 import { sql, db } from "@vercel/postgres";
 import { getSession, isClawbackUser, isClawbackAdmin, clawbackAdviserScope } from "@/lib/auth";
+import { sendClawbackNotifyEmail } from "@/lib/reci/email";
 
 export const dynamic = "force-dynamic";
 
@@ -430,7 +431,53 @@ export async function POST(req: Request) {
     }
 
     await client.query("COMMIT");
-    return NextResponse.json({ ok: true, id: newId });
+
+    // ---- Auto-Notify ------------------------------------------------------
+    // Same rule as the EBAH ingest auto-Notify: fire the Notify email
+    // immediately if clawback_due > 0. Routes via existing helper (CAM
+    // for adviser cases, Tan + Hayder for Xstaff, Guy + management for
+    // Legacy). Stamps notified_at + writes an email_sent history row on
+    // success. Failures are logged but don't fail the case creation --
+    // Pauline can re-Notify manually from the drawer.
+    let emailResult: { sent: boolean; reason?: string } | null = null;
+    if (clawbackDue > 0) {
+      try {
+        emailResult = await sendClawbackNotifyEmail({
+          caseId:        newId,
+          clientName,
+          policyNumber:  policyNumber!,
+          postcode:      str(b.postcode),
+          provider,
+          policyType:    str(b.policy_type),
+          ebahWarning:   warning,
+          clawbackDate:  date(b.clawback_date),
+          ebahAgentName: agentName!,
+          adviserId:     agentBucket === "adviser" ? adviserId : null,
+          agentBucket:   agentBucket!,
+          pozNote:       str(b.initial_note),
+          actor:         session.username!,
+        });
+        if (emailResult.sent) {
+          await sql`
+            UPDATE clawback_cases
+            SET notified_at = COALESCE(notified_at, now()), updated_at = now()
+            WHERE id = ${newId}
+          `;
+          await sql`
+            INSERT INTO clawback_history (case_id, event_type, note, actor)
+            VALUES (${newId}, 'email_sent', ${'Auto-notification fired on manual case create'}, ${session.username})
+          `;
+        } else {
+          console.error(`[clawback-new-case] notify failed for case ${newId}:`, emailResult.reason);
+        }
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        console.error(`[clawback-new-case] notify exception for case ${newId}:`, reason);
+        emailResult = { sent: false, reason };
+      }
+    }
+
+    return NextResponse.json({ ok: true, id: newId, email: emailResult });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
