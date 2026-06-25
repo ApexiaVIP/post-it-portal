@@ -37,20 +37,30 @@ export async function POST(
   const note = noteRaw.length > 0 ? noteRaw : null;
 
   const cur = await sql<{
-    id: number; client_name: string; policy_number: string;
+    id: number; client_name: string;
+    client_dob: string | null;
+    policy_number: string;
     postcode: string | null; provider: string; policy_type: string | null;
     ebah_warning: string | null; ebah_agent_name: string;
     adviser_id: number | null; agent_bucket: string;
     clawback_due: string | null;
     clawback_date: string | null;
     notified_at: string | null;
+    ebah_report_date: string | null;
   }>`
-    SELECT id, client_name, policy_number, postcode, provider, policy_type,
-           ebah_warning, ebah_agent_name, adviser_id, agent_bucket,
-           clawback_due::text AS clawback_due,
-           clawback_date::text AS clawback_date,
-           notified_at::text AS notified_at
-    FROM clawback_cases WHERE id = ${id}
+    SELECT c.id, c.client_name,
+           c.client_dob::text AS client_dob,
+           c.policy_number, c.postcode, c.provider, c.policy_type,
+           c.ebah_warning, c.ebah_agent_name, c.adviser_id, c.agent_bucket,
+           c.clawback_due::text AS clawback_due,
+           c.clawback_date::text AS clawback_date,
+           c.notified_at::text AS notified_at,
+           -- Pull the EBAH report date from the upload that LAST touched
+           -- this case so the email shows the most recent L&G snapshot.
+           up.report_date::text AS ebah_report_date
+    FROM clawback_cases c
+    LEFT JOIN clawback_uploads up ON up.id = c.last_seen_upload_id
+    WHERE c.id = ${id}
   `;
   if (cur.rowCount === 0) {
     return NextResponse.json({ error: "case not found" }, { status: 404 });
@@ -60,12 +70,14 @@ export async function POST(
   const result = await sendClawbackNotifyEmail({
     caseId: c.id,
     clientName: c.client_name,
+    clientDob: c.client_dob,
     policyNumber: c.policy_number,
     postcode: c.postcode,
     provider: c.provider,
     policyType: c.policy_type,
     ebahWarning: c.ebah_warning,
     clawbackDate: c.clawback_date,
+    ebahReportDate: c.ebah_report_date,
     ebahAgentName: c.ebah_agent_name,
     adviserId: c.adviser_id,
     agentBucket: c.agent_bucket,

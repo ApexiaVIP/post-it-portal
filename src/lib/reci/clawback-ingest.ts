@@ -327,7 +327,7 @@ export async function ingestEbahFile(
     //
     // Runs OUTSIDE the transaction. Failures don't roll back the ingest --
     // the case is still inserted and Pauline can manually re-Notify later.
-    const notifyMetrics = await autoNotifyNewCases(inserted, toInsert);
+    const notifyMetrics = await autoNotifyNewCases(inserted, toInsert, parsed.reportDate);
 
     return {
       uploadId,
@@ -508,6 +508,7 @@ function isoWeek(yyyymmdd: string): number {
 async function autoNotifyNewCases(
   inserted: { id: number; policy_number: string }[],
   toInsert: { row: EbahRow; mapping: { bucket: Bucket; adviser_id: number | null } }[],
+  ebahReportDate: string | null,
 ): Promise<{ attempted: number; sent: number; failed: number }> {
   // policy_number -> { row, mapping } lookup
   const byPolicy = new Map<string, { row: EbahRow; mapping: { bucket: Bucket; adviser_id: number | null } }>();
@@ -525,17 +526,19 @@ async function autoNotifyNewCases(
     attempted++;
     try {
       const result = await sendClawbackNotifyEmail({
-        caseId:        ins.id,
-        clientName:    r.client_name,
-        policyNumber:  r.policy_number,
-        postcode:      r.postcode,
-        provider:      "l&g",
-        policyType:    r.policy_type,
-        ebahWarning:   r.warning,
-        clawbackDate:  r.clawback_date,
-        ebahAgentName: r.ebah_agent_name,
-        adviserId:     o.mapping.adviser_id,
-        agentBucket:   o.mapping.bucket,
+        caseId:         ins.id,
+        clientName:     r.client_name,
+        clientDob:      r.client_dob,
+        policyNumber:   r.policy_number,
+        postcode:       r.postcode,
+        provider:       "l&g",
+        policyType:     r.policy_type,
+        ebahWarning:    r.warning,
+        clawbackDate:   r.clawback_date,
+        ebahReportDate: ebahReportDate,
+        ebahAgentName:  r.ebah_agent_name,
+        adviserId:      o.mapping.adviser_id,
+        agentBucket:    o.mapping.bucket,
         // Auto-notify carries no Pauline-typed note. She can manually
         // re-Notify with a note from the drawer if she needs to add
         // context.

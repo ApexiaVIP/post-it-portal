@@ -443,19 +443,22 @@ export async function POST(req: Request) {
     if (clawbackDue > 0) {
       try {
         emailResult = await sendClawbackNotifyEmail({
-          caseId:        newId,
+          caseId:         newId,
           clientName,
-          policyNumber:  policyNumber!,
-          postcode:      str(b.postcode),
+          clientDob:      date(b.client_dob),
+          policyNumber:   policyNumber!,
+          postcode:       str(b.postcode),
           provider,
-          policyType:    str(b.policy_type),
-          ebahWarning:   warning,
-          clawbackDate:  date(b.clawback_date),
-          ebahAgentName: agentName!,
-          adviserId:     agentBucket === "adviser" ? adviserId : null,
-          agentBucket:   agentBucket!,
-          pozNote:       str(b.initial_note),
-          actor:         session.username!,
+          policyType:     str(b.policy_type),
+          ebahWarning:    warning,
+          clawbackDate:   date(b.clawback_date),
+          // Manual entries don't come from an EBAH file, so no report date.
+          ebahReportDate: null,
+          ebahAgentName:  agentName!,
+          adviserId:      agentBucket === "adviser" ? adviserId : null,
+          agentBucket:    agentBucket!,
+          pozNote:        str(b.initial_note),
+          actor:          session.username!,
         });
         if (emailResult.sent) {
           await sql`
