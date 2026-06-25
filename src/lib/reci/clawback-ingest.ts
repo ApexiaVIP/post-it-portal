@@ -32,6 +32,7 @@ import { sql, db } from "@vercel/postgres";
 import {
   parseEbahXlsx,
   bucketAgentString,
+  bucketAgentByCode,
   type EbahRow,
 } from "./clawback-parser";
 import { sendClawbackNotifyEmail } from "./email";
@@ -78,11 +79,15 @@ export async function ingestEbahFile(
   try {
     await client.query("BEGIN");
 
-    // ---------- 1. Active adviser roster ----------
-    const advisersR = await client.query<{ id: number; name: string }>(
-      `SELECT id, name FROM advisers ORDER BY id`,
+    // ---------- 1. Active adviser roster (with seller codes) ----------
+    const advisersR = await client.query<{ id: number; name: string; seller_codes: string[] | null }>(
+      `SELECT id, name, seller_codes FROM advisers ORDER BY id`,
     );
-    const advisers = advisersR.rows;
+    const advisers = advisersR.rows.map((a) => ({
+      id: a.id,
+      name: a.name,
+      seller_codes: a.seller_codes ?? [],
+    }));
 
     // ---------- 2. Pre-load the agent map ----------
     const mapR = await client.query<{ ebah_agent_name: string; adviser_id: number | null; bucket: Bucket }>(
@@ -91,21 +96,39 @@ export async function ingestEbahFile(
     const agentMap = new Map<string, { bucket: Bucket; adviser_id: number | null }>();
     for (const r of mapR.rows) agentMap.set(r.ebah_agent_name, { bucket: r.bucket, adviser_id: r.adviser_id });
 
-    // ---------- 3. Resolve every agent string in-memory + collect new ones ----------
+    // ---------- 3. Resolve every row to a bucket ----------
+    // Two-stage match:
+    //   a) L&G "Agent No" (column 2 from EBAH) against advisers.seller_codes.
+    //      Authoritative: codes are stable, never reused. Returns adviser
+    //      bucket + id immediately when matched. Doesn't get cached in
+    //      clawback_agent_map because the canonical-name -> bucket map is
+    //      only useful for code-less fallback (legacy book).
+    //   b) Fall back to canonical-name matching against the agent map +
+    //      ADVISER_NAME_FRAGMENTS, same as before. Used for any row whose
+    //      Agent No isn't in the seller_codes list (xstaff, legacy, etc).
     const newAgentRows: { name: string; bucket: Bucket; adviser_id: number | null }[] = [];
     const seenNew = new Set<string>();
-    function resolveAgent(canonical: string) {
-      const cached = agentMap.get(canonical);
-      if (cached) return cached;
-      const bucketed = bucketAgentString(canonical, advisers);
-      agentMap.set(canonical, bucketed);
-      if (!seenNew.has(canonical)) {
-        seenNew.add(canonical);
-        newAgentRows.push({ name: canonical, bucket: bucketed.bucket, adviser_id: bucketed.adviser_id });
+    const rowMappings = new Map<number, { bucket: Bucket; adviser_id: number | null }>();
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      // (a) code match first
+      const codeHit = bucketAgentByCode(r.agent_no, advisers);
+      if (codeHit) {
+        rowMappings.set(i, codeHit);
+        continue;
       }
-      return bucketed;
+      // (b) name fallback
+      let nameBucket = agentMap.get(r.ebah_agent_name);
+      if (!nameBucket) {
+        nameBucket = bucketAgentString(r.ebah_agent_name, advisers);
+        agentMap.set(r.ebah_agent_name, nameBucket);
+        if (!seenNew.has(r.ebah_agent_name)) {
+          seenNew.add(r.ebah_agent_name);
+          newAgentRows.push({ name: r.ebah_agent_name, bucket: nameBucket.bucket, adviser_id: nameBucket.adviser_id });
+        }
+      }
+      rowMappings.set(i, nameBucket);
     }
-    for (const r of rows) resolveAgent(r.ebah_agent_name);
 
     if (newAgentRows.length > 0) {
       // One INSERT for all newly-seen agents.
@@ -163,8 +186,11 @@ export async function ingestEbahFile(
     const toUpdate: UpdateOp[] = [];
     let unchanged = 0, unmatched = 0;
 
-    for (const r of rows) {
-      const mapping = agentMap.get(r.ebah_agent_name)!;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      // rowMappings holds the result of the code-first / name-fallback
+      // resolution from step 3 above.
+      const mapping = rowMappings.get(i)!;
       if (mapping.bucket === "needs_review") unmatched++;
       const existing = existingByPolicy.get(r.policy_number);
       if (!existing) {

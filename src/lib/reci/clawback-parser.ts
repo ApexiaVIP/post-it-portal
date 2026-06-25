@@ -203,7 +203,36 @@ export const ADVISER_NAME_FRAGMENTS: Record<string, string[]> = {
   Jack:    ["J SHEPLEY", "JACK SHEPLEY"],
 };
 
-export interface AdviserLookup { id: number; name: string }
+export interface AdviserLookup {
+  id: number;
+  name: string;
+  /** L&G seller codes belonging to this adviser. May be empty. */
+  seller_codes?: string[];
+}
+
+/**
+ * Authoritative bucketing by L&G seller code (column 2 "Agent No" on the
+ * EBAH). Codes are stable -- L&G assigns one (or two, for advised vs
+ * non-advised) per seller and never reuses them. Use this BEFORE falling
+ * back to bucketAgentString().
+ *
+ * Returns null when the code isn't recognised -- caller falls back to
+ * the name-fragment matcher (or treats it as Xstaff / Legacy).
+ */
+export function bucketAgentByCode(
+  agentNo: string | null,
+  advisers: AdviserLookup[],
+): { bucket: "adviser"; adviser_id: number } | null {
+  if (!agentNo) return null;
+  const trimmed = agentNo.trim();
+  if (!trimmed) return null;
+  for (const a of advisers) {
+    if (a.seller_codes && a.seller_codes.includes(trimmed)) {
+      return { bucket: "adviser", adviser_id: a.id };
+    }
+  }
+  return null;
+}
 
 export function bucketAgentString(
   canonical: string,
