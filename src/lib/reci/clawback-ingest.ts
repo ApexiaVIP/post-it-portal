@@ -36,6 +36,7 @@ import {
   type EbahRow,
 } from "./clawback-parser";
 import { sendClawbackNotifyEmail } from "./email";
+import { sourceForMasterCode } from "./clawback-source";
 
 const INSERT_BATCH = 250;
 const HISTORY_BATCH = 500;
@@ -392,8 +393,10 @@ async function batchInsertCases(
   reportWeek: number | null,
 ): Promise<{ id: number; policy_number: string }[]> {
   const results: { id: number; policy_number: string }[] = [];
-  // 25 columns per row (the two trailing ones are master_agent_no, agent_no).
-  const COLS = 25;
+  // 26 columns per row. Trailing three are master_agent_no, agent_no,
+  // source (auto-derived from master_agent_no via sourceForMasterCode --
+  // the New OW red flag for case 5930268 etc).
+  const COLS = 26;
   for (let i = 0; i < ops.length; i += INSERT_BATCH) {
     const chunk = ops.slice(i, i + INSERT_BATCH);
     const placeholders: string[] = [];
@@ -430,6 +433,7 @@ async function batchInsertCases(
         reportYear,
         r.master_agent_no,
         r.agent_no,
+        sourceForMasterCode(r.master_agent_no),
       );
     }
     const q = `
@@ -440,7 +444,7 @@ async function batchInsertCases(
         off_risk_date, clawback_due, clawback_date, ebah_agent_name,
         adviser_id, agent_bucket, ebah_warning,
         first_seen_upload_id, notification_week, notification_year,
-        master_agent_no, agent_no
+        master_agent_no, agent_no, source
       )
       VALUES ${placeholders.join(",")}
       ON CONFLICT (policy_number) DO NOTHING
@@ -539,6 +543,7 @@ async function autoNotifyNewCases(
         ebahAgentName:  r.ebah_agent_name,
         adviserId:      o.mapping.adviser_id,
         agentBucket:    o.mapping.bucket,
+        source:         sourceForMasterCode(r.master_agent_no),
         // Auto-notify carries no Pauline-typed note. She can manually
         // re-Notify with a note from the drawer if she needs to add
         // context.

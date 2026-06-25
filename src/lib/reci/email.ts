@@ -510,6 +510,8 @@ export interface ClawbackNotifyInput {
   ebahAgentName: string;
   adviserId: number | null;
   agentBucket: string;
+  /** "new_ow" => subject gets a [NEW OW] prefix so it stands out in the inbox. */
+  source?: string | null;
   pozNote: string | null;
   actor: string;
 }
@@ -538,7 +540,8 @@ export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{
   }
   const finalCc = buildCc(cc, [], to);
 
-  const subject = `[RECI Clawback] New notification: ${i.clientName} (${i.policyNumber})`;
+  const newOwPrefix = i.source === "new_ow" ? "[NEW OW] " : "";
+  const subject = `${newOwPrefix}[RECI Clawback] New notification: ${i.clientName} (${i.policyNumber})`;
 
   const greeting = cam.to.length > 0
     ? `Hi ${escapeHtml(i.agentBucket === "xstaff" ? "Tan + Hayder" : cam.label)},`
