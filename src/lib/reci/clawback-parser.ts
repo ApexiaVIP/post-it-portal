@@ -239,8 +239,10 @@ function toNum(v: unknown): number | null {
 
 function stripLeadingApostrophe(s: string | null): string | null {
   if (s === null) return null;
-  // L&G prefixes IDs/phone numbers with a literal "'" so Excel treats them as text.
-  return s.replace(/^'/, "");
+  // L&G prefixes IDs / phone numbers with a literal "'" so Excel treats them
+  // as text, and SOMETIMES wraps them ('0123456789') with a trailing one too.
+  // Both are display artefacts -- the policy number itself is just digits.
+  return s.replace(/^'/, "").replace(/'$/, "");
 }
 
 function joinNonEmpty(parts: (string | null)[]): string | null {
