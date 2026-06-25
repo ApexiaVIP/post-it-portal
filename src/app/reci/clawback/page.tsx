@@ -195,6 +195,18 @@ export default function ClawbackPage() {
       .catch(() => { /* ignore */ });
   }, []);
 
+  // Pre-fill the search box from the URL ?q= parameter on first mount.
+  // Used by the "Open this case" deep-link in the Notify / Resolved
+  // emails so clicking through filters straight to the policy number.
+  // Stray leading / trailing apostrophes get stripped (some EBAH-derived
+  // policy numbers historically had them).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const qs = new URLSearchParams(window.location.search);
+    const q = qs.get("q");
+    if (q) setSearch(q.replace(/^'|'$/g, ""));
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
