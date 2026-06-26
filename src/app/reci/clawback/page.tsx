@@ -90,13 +90,14 @@ interface WarningRow {
   clawback_due: number;
 }
 
-type Sort = "client_asc" | "cb_desc" | "cb_asc" | "cb_due_asc" | "cb_due_desc";
+type Sort = "client_asc" | "postcode_asc" | "cb_desc" | "cb_asc" | "cb_due_asc" | "cb_due_desc";
 const SORT_LABELS: Record<Sort, string> = {
-  cb_desc:     "CB value (highest first)",
-  cb_asc:      "CB value (lowest first)",
-  cb_due_asc:  "CB date (soonest first)",
-  cb_due_desc: "CB date (latest first)",
-  client_asc:  "Client surname A-Z",
+  cb_desc:      "CB value (highest first)",
+  cb_asc:       "CB value (lowest first)",
+  cb_due_asc:   "CB date (soonest first)",
+  cb_due_desc:  "CB date (latest first)",
+  client_asc:   "Client surname A-Z",
+  postcode_asc: "Postcode (group same postcodes)",
 };
 
 const SOURCE_LABELS: Record<"old_ow" | "new_ow" | "other", string> = {
