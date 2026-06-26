@@ -212,9 +212,18 @@ function gbp(v: string | number | null | undefined) {
   return n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose, onChange }: {
+export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, canEditOpenworkCb, onClose, onChange }: {
   row: DrawerCaseRow;
   canEdit: boolean;
+  /**
+   * When true, the action panel sits behind a "Take action on this case"
+   * confirm button. Junior sellers (Gurdaht, Atikur) get this on their
+   * own cases so each save is deliberate. Resets every time the drawer
+   * is reopened.
+   */
+  needsGate?: boolean;
+  /** Display label for the owning seller (Tan, Hayder, Xstaff, etc). */
+  ownerLabel?: string;
   canNotify: boolean;
   canEditOpenworkCb: boolean;
   onClose: () => void;
@@ -224,6 +233,10 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
   const [historyLoading, setHistoryLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Verification gate: true means actions are unlocked. Resets to false
+  // every time the drawer is opened on a new case (parent unmounts +
+  // remounts the component when openCase changes).
+  const [unlocked, setUnlocked] = useState(!needsGate);
 
   // Open form (only one at a time). Prefill state lets the warning-guide
   // buttons launch a panel with a sensible starting point (e.g. status =
@@ -544,7 +557,32 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            {canEdit ? (
+            {!canEdit ? (
+              <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                {ownerLabel
+                  ? <>Read-only view. This case is assigned to <strong>{ownerLabel}</strong>. Status updates are made by the assigned CAM or Pauline.</>
+                  : <>Read-only view. Status updates are made by the assigned CAM or Pauline.</>}
+              </div>
+            ) : !unlocked ? (
+              // Junior seller verification gate: keep the action panel hidden
+              // behind one click so saves are deliberate, not accidental.
+              <div className="flex flex-col gap-2">
+                <div className="text-xs text-slate-500">
+                  You can review the case freely. When you're ready to record an
+                  action (status change, note, contact attempt, £ off, or Mark
+                  as LOST), click below to unlock the action buttons.
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setUnlocked(true)}
+                    className="rounded border border-amber-400 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100"
+                  >
+                    Take action on this case
+                  </button>
+                </div>
+              </div>
+            ) : (
               <>
                 <ActionBtn label="Change status" onClick={() => openPanel("status")} />
                 {canNotify && (
@@ -565,10 +603,6 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
                   />
                 )}
               </>
-            ) : (
-              <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                Read-only view. Status updates are made by the assigned CAM or Pauline.
-              </div>
             )}
           </div>
         </section>

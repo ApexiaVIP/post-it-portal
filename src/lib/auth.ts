@@ -102,10 +102,28 @@ const DATA_ENTRY_USERNAMES = parseList(process.env.DATA_ENTRY_USERNAMES ?? "hayd
 // Pauline / Poz) but env var kept distinct so a future admin can be added
 // without unlocking the rest of the portal.
 const CLAWBACK_USERNAMES   = parseList(process.env.CLAWBACK_USERNAMES   ?? "jimmy,pauline,poz");
-// Sellers see ONLY their own clawback cases; they can edit (status, notes,
-// money off) on theirs. Username -> adviser_id mapping is read from the
-// advisers.username column (see migration 0008).
-const RECI_SELLER_USERNAMES = parseList(process.env.RECI_SELLER_USERNAMES ?? "tan,hayder,gurdaht,atikur,jack");
+// Senior sellers (Tan, Hayder) get full read + edit access on every case
+// across the team. They cover Xstaff cases and step in on urgent ones for
+// the juniors. Same powers as admin EXCEPT they can't upload EBAH files,
+// fire the Notify backfill, or open the Manual New Case form -- those
+// stay with Pauline / Jimmy so a dropped file or fat-finger can't damage
+// the canonical state.
+const RECI_SENIOR_SELLER_USERNAMES = parseList(
+  process.env.RECI_SENIOR_SELLER_USERNAMES ?? "tan,hayder",
+);
+// Junior sellers (Gurdaht, Atikur). See every case across the team for
+// transparency + lead browsing, but only edit cases assigned to their own
+// adviser_id. UI puts each edit behind a "Take action on this case"
+// verification gate so saves are deliberate. Jack is deliberately NOT in
+// this list -- he moved to Xstaff (Pauline, June 2026); his existing
+// cases will be re-bucketed by the Jack migration separately.
+const RECI_JUNIOR_SELLER_USERNAMES = parseList(
+  process.env.RECI_JUNIOR_SELLER_USERNAMES ?? "gurdaht,atikur",
+);
+// Legacy env var kept as a fallback during the transition. If neither of
+// the new lists is populated and RECI_SELLER_USERNAMES is, everyone in it
+// is treated as a junior seller (safer default).
+const LEGACY_SELLER_USERNAMES = parseList(process.env.RECI_SELLER_USERNAMES ?? "");
 // Read-only viewers (Guy) see EVERY seller's cases on the dashboard and the
 // reports page, but cannot edit anything or upload EBAH files.
 const CLAWBACK_VIEWER_USERNAMES = parseList(process.env.CLAWBACK_VIEWER_USERNAMES ?? "guy");
@@ -122,7 +140,9 @@ export function roleFor(username: string | null | undefined): Role {
   const u = username.toLowerCase();
   if (DASHBOARD_USERNAMES.includes(u))         return "admin";
   if (DATA_ENTRY_USERNAMES.includes(u))        return "data-entry";
-  if (RECI_SELLER_USERNAMES.includes(u))       return "reci-seller";
+  if (RECI_SENIOR_SELLER_USERNAMES.includes(u)
+   || RECI_JUNIOR_SELLER_USERNAMES.includes(u)
+   || LEGACY_SELLER_USERNAMES.includes(u))     return "reci-seller";
   if (CLAWBACK_VIEWER_USERNAMES.includes(u))   return "clawback-viewer";
   return "none";
 }
@@ -134,18 +154,25 @@ export function isDashboardUser(username: string | null | undefined): username i
 
 // Anyone who can reach /reci/clawback at all.
 //
-// Per Poz (June 2026 catch-up): scope is intentionally tight -- Jimmy,
-// Pauline / Poz, and Guy ONLY. Sellers (Tan, Hayder, Gurdaht, Atikur,
-// Jack) DO NOT see the dashboard, even though the seller-scoping
-// infrastructure is built and ready below. To re-open access to
-// sellers later, add `|| RECI_SELLER_USERNAMES.includes(u)` back to
-// this OR chain -- all the per-case scoping, edit gates and UI hiding
-// remains in place.
+// Three tiers + viewer:
+//   - Admin (Pauline / Poz / Jimmy)         see all, edit all, upload EBAH,
+//                                            backfill, new case
+//   - Senior seller (Tan / Hayder)           see all, edit all (no upload /
+//                                            backfill / new case)
+//   - Junior seller (Gurdaht / Atikur)       see all, edit only OWN cases,
+//                                            via verification gate
+//   - Viewer (Guy)                           see all, edit nothing
+//
+// Per-case write permissions are enforced by getEditableAdviserId() +
+// the API route handlers, not by the read-side scope.
 export function isClawbackUser(username: string | null | undefined): username is string {
   if (!username) return false;
   const u = username.toLowerCase();
   return CLAWBACK_USERNAMES.includes(u)
-      || CLAWBACK_VIEWER_USERNAMES.includes(u);
+      || CLAWBACK_VIEWER_USERNAMES.includes(u)
+      || RECI_SENIOR_SELLER_USERNAMES.includes(u)
+      || RECI_JUNIOR_SELLER_USERNAMES.includes(u)
+      || LEGACY_SELLER_USERNAMES.includes(u);
 }
 
 // Capability checks for the Clawback Dashboard. Frontend uses these to
@@ -154,20 +181,41 @@ export function isClawbackAdmin(username: string | null | undefined): boolean {
   if (!username) return false;
   return CLAWBACK_USERNAMES.includes(username.toLowerCase());
 }
-export function isClawbackSeller(username: string | null | undefined): boolean {
+export function isSeniorSeller(username: string | null | undefined): boolean {
   if (!username) return false;
-  return RECI_SELLER_USERNAMES.includes(username.toLowerCase());
+  return RECI_SENIOR_SELLER_USERNAMES.includes(username.toLowerCase());
+}
+export function isJuniorSeller(username: string | null | undefined): boolean {
+  if (!username) return false;
+  const u = username.toLowerCase();
+  return RECI_JUNIOR_SELLER_USERNAMES.includes(u)
+      || (LEGACY_SELLER_USERNAMES.includes(u)
+          && !RECI_SENIOR_SELLER_USERNAMES.includes(u)
+          && !CLAWBACK_USERNAMES.includes(u));
+}
+// Legacy alias kept so old route handlers compile. Junior + senior are
+// both "sellers" for the purpose of "is this a non-admin / non-viewer
+// user who has clawback access via the seller route?"
+export function isClawbackSeller(username: string | null | undefined): boolean {
+  return isSeniorSeller(username) || isJuniorSeller(username);
 }
 export function isClawbackViewer(username: string | null | undefined): boolean {
   if (!username) return false;
   return CLAWBACK_VIEWER_USERNAMES.includes(username.toLowerCase());
 }
-// Admin and sellers can edit cases (admin: anyone's; sellers: their own).
-// Viewers (Guy) are read-only.
+// Any tier with edit rights at all. Used as a coarse gate by some UI;
+// per-case decisions go through getEditableAdviserId() instead.
 export function canEditClawback(username: string | null | undefined): boolean {
   return isClawbackAdmin(username) || isClawbackSeller(username);
 }
-// Only admins can upload EBAH files or fire the Notify email.
+// Admin + senior seller can edit ANY case. Junior sellers can edit only
+// their own; viewers can't edit at all. Used to short-circuit the API
+// per-case check when the user has blanket edit rights.
+export function canEditAnyCase(username: string | null | undefined): boolean {
+  return isClawbackAdmin(username) || isSeniorSeller(username);
+}
+// Only admins upload EBAH files, fire the Notify email or backfill /
+// open the manual New Case form.
 export function canUploadEbah(username: string | null | undefined): boolean {
   return isClawbackAdmin(username);
 }
@@ -175,25 +223,58 @@ export function canNotifyCam(username: string | null | undefined): boolean {
   return isClawbackAdmin(username);
 }
 
-// Returns the adviser_id the user is scoped to. Null means "no scope --
-// can see every case". Used by the cases / reports APIs to inject a
-// WHERE adviser_id = $scope clause for sellers.
+// Returns the adviser_id the user is scoped to. Null = no scope, can
+// see every case. Used by the cases / reports / forecast / activity
+// APIs to decide whether to inject a WHERE c.adviser_id = $scope.
 //
-// Admins (Jimmy/Pauline/Poz) and viewers (Guy) return null. Sellers return
-// their adviser_id from advisers.username. Anyone else returns -1, which
-// the caller MUST treat as "deny".
+// After the June 2026 tier rebuild EVERYONE with clawback access sees
+// every case for transparency / lead browsing -- the per-case write
+// gate is enforced by getEditableAdviserId() in the route handlers, not
+// by the read-side scope.
+//
+// Return -1 (sentinel) for anyone who isn't in any clawback tier --
+// caller MUST treat as 403.
 export async function clawbackAdviserScope(
   username: string | null | undefined,
 ): Promise<number | null | -1> {
   if (!username) return -1;
-  if (isClawbackAdmin(username) || isClawbackViewer(username)) return null;
-  if (!isClawbackSeller(username)) return -1;
-  // Look up the adviser_id for this seller. One round-trip; route handlers
-  // already make several SQL calls so this is negligible.
-  const u = username.toLowerCase();
-  const r = await sql<{ id: number }>`SELECT id FROM advisers WHERE username = ${u} LIMIT 1`;
-  if (r.rowCount === 0) return -1;
-  return r.rows[0].id;
+  if (isClawbackAdmin(username) || isClawbackViewer(username)
+      || isSeniorSeller(username) || isJuniorSeller(username)) {
+    return null;
+  }
+  return -1;
+}
+
+/**
+ * Per-case write permission resolver.
+ *
+ * Returns:
+ *   null       - user can edit ANY case (admin, senior seller)
+ *   number     - user can edit ONLY cases with this adviser_id (junior
+ *                seller)
+ *   undefined  - user can't edit anything (viewer, anyone else)
+ *
+ * Route handlers should:
+ *   1. Reject undefined with 403.
+ *   2. Allow null (skip per-case adviser check).
+ *   3. For a number, compare against the case's adviser_id; reject with
+ *      403 if they don't match.
+ */
+export async function getEditableAdviserId(
+  username: string | null | undefined,
+): Promise<number | null | undefined> {
+  if (!username) return undefined;
+  if (canEditAnyCase(username)) return null;
+  if (isClawbackViewer(username)) return undefined;
+  if (isJuniorSeller(username)) {
+    const u = username.toLowerCase();
+    const r = await sql<{ id: number }>`
+      SELECT id FROM advisers WHERE username = ${u} LIMIT 1
+    `;
+    if (r.rowCount === 0) return undefined;
+    return r.rows[0].id;
+  }
+  return undefined;
 }
 
 // Any authenticated user with a role (admin OR data-entry). Used by /api/data
