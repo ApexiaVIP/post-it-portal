@@ -32,6 +32,9 @@ export interface DrawerCaseRow {
   openwork_clawback_due: string | null;
   openwork_cb_updated_by: string | null;
   openwork_cb_updated_at: string | null;
+  final_clawback_due: string | null;
+  final_cb_updated_by: string | null;
+  final_cb_updated_at: string | null;
   effective_clawback_due: string | null;
   source: "old_ow" | "new_ow" | "other" | null;
   source_updated_by: string | null;
@@ -212,7 +215,7 @@ function gbp(v: string | number | null | undefined) {
   return n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, canEditOpenworkCb, onClose, onChange }: {
+export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, canEditOpenworkCb, canEditFinalCb, onClose, onChange }: {
   row: DrawerCaseRow;
   canEdit: boolean;
   /**
@@ -226,6 +229,7 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
   ownerLabel?: string;
   canNotify: boolean;
   canEditOpenworkCb: boolean;
+  canEditFinalCb: boolean;
   onClose: () => void;
   onChange: () => void;
 }) {
@@ -241,7 +245,7 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
   // Open form (only one at a time). Prefill state lets the warning-guide
   // buttons launch a panel with a sensible starting point (e.g. status =
   // 'saved' for "Mark mandate reinstated").
-  type Panel = null | "status" | "note" | "contact" | "money" | "notify" | "openwork" | "lost";
+  type Panel = null | "status" | "note" | "contact" | "money" | "notify" | "openwork" | "final" | "lost";
   const [panel, setPanel] = useState<Panel>(null);
   const [statusPrefill, setStatusPrefill] = useState<Status | null>(null);
   const [moneyPrefill, setMoneyPrefill] = useState<MoneyKind | null>(null);
@@ -396,6 +400,30 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
     }
   }
 
+  async function saveFinalCb(amount: number | null, note: string) {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/reci/clawback/cases/${row.id}/final-cb`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amount, note: note || undefined }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        flash(`Failed: ${j.error || r.statusText}`);
+      } else {
+        flash(amount === null ? "Final CB cleared." : `Final CB set to ${amount.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}.`);
+        await loadHistory();
+        onChange();
+      }
+    } catch (e) {
+      flash(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+      setPanel(null);
+    }
+  }
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-slate-900/40" onClick={onClose} />
@@ -428,12 +456,22 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
 
         <div className="grid grid-cols-2 gap-3 px-5 pt-4">
           <Stat
-            label={row.openwork_clawback_due !== null ? "CB due £ (Openwork)" : "CB due £"}
+            label={
+              row.final_clawback_due !== null
+                ? "CB due £ (Final)"
+                : row.openwork_clawback_due !== null
+                  ? "CB due £ (Openwork)"
+                  : "CB due £"
+            }
             value={gbp(row.effective_clawback_due ?? row.clawback_due)}
-            accent="amber"
-            subline={row.openwork_clawback_due !== null
-              ? <>Provider: {gbp(row.clawback_due)}</>
-              : null}
+            accent={row.final_clawback_due !== null ? "green" : "amber"}
+            subline={
+              row.final_clawback_due !== null
+                ? <>OW: {gbp(row.openwork_clawback_due ?? row.clawback_due)} · Provider: {gbp(row.clawback_due)}</>
+                : row.openwork_clawback_due !== null
+                  ? <>Provider: {gbp(row.clawback_due)}</>
+                  : null
+            }
           />
           <Stat label="Net at risk £" value={gbp(row.net_at_risk)} accent={Number(row.net_at_risk || 0) > 0 ? "amber" : "green"} />
           <Stat label="Saved £" value={gbp(row.saved_amount)} accent="green" />
@@ -474,28 +512,75 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
           </div>
         )}
         {canEditOpenworkCb && (
-          <div className="mt-3 px-5">
-            <div className="flex items-center justify-between rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm">
-              <div>
-                <span className="font-medium text-blue-900">Openwork CB:</span>{" "}
-                {row.openwork_clawback_due !== null
-                  ? <strong>{gbp(row.openwork_clawback_due)}</strong>
-                  : <span className="text-slate-500">not set (using provider {gbp(row.clawback_due)})</span>}
-                {row.openwork_cb_updated_at && (
-                  <span className="ml-2 text-xs text-slate-500">
-                    last set by {row.openwork_cb_updated_by} on {new Date(row.openwork_cb_updated_at).toLocaleDateString("en-GB")}
-                  </span>
-                )}
+          <>
+            <div className="mt-3 px-5">
+              <div className="flex items-center justify-between rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm">
+                <div>
+                  <span className="font-medium text-blue-900">Openwork CB:</span>{" "}
+                  {row.openwork_clawback_due !== null
+                    ? <strong>{gbp(row.openwork_clawback_due)}</strong>
+                    : <span className="text-slate-500">not set (using provider {gbp(row.clawback_due)})</span>}
+                  {row.openwork_cb_updated_at && (
+                    <span className="ml-2 text-xs text-slate-500">
+                      last set by {row.openwork_cb_updated_by} on {new Date(row.openwork_cb_updated_at).toLocaleDateString("en-GB")}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPanel(panel === "openwork" ? null : "openwork")}
+                  className="rounded border border-blue-300 bg-white px-3 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100"
+                >
+                  {panel === "openwork" ? "Cancel" : row.openwork_clawback_due !== null ? "Edit" : "Set"}
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setPanel("openwork")}
-                className="rounded border border-blue-300 bg-white px-3 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100"
-              >
-                {row.openwork_clawback_due !== null ? "Edit" : "Set"}
-              </button>
             </div>
-          </div>
+            {panel === "openwork" && (
+              <OpenworkForm
+                busy={busy}
+                currentAmount={row.openwork_clawback_due}
+                providerAmount={row.clawback_due}
+                onCancel={() => setPanel(null)}
+                onSubmit={saveOpenworkCb}
+              />
+            )}
+          </>
+        )}
+        {canEditFinalCb && (
+          <>
+            <div className="mt-3 px-5">
+              <div className="flex items-center justify-between rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm">
+                <div>
+                  <span className="font-medium text-emerald-900">Final CB:</span>{" "}
+                  {row.final_clawback_due !== null
+                    ? <strong>{gbp(row.final_clawback_due)}</strong>
+                    : <span className="text-slate-500">not set (using {row.openwork_clawback_due !== null ? `OW ${gbp(row.openwork_clawback_due)}` : `provider ${gbp(row.clawback_due)}`})</span>}
+                  {row.final_cb_updated_at && (
+                    <span className="ml-2 text-xs text-slate-500">
+                      last set by {row.final_cb_updated_by} on {new Date(row.final_cb_updated_at).toLocaleDateString("en-GB")}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPanel(panel === "final" ? null : "final")}
+                  className="rounded border border-emerald-400 bg-white px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+                >
+                  {panel === "final" ? "Cancel" : row.final_clawback_due !== null ? "Edit" : "Set"}
+                </button>
+              </div>
+            </div>
+            {panel === "final" && (
+              <FinalCbForm
+                busy={busy}
+                currentAmount={row.final_clawback_due}
+                openworkAmount={row.openwork_clawback_due}
+                providerAmount={row.clawback_due}
+                onCancel={() => setPanel(null)}
+                onSubmit={saveFinalCb}
+              />
+            )}
+          </>
         )}
 
         <section className="mt-4 grid grid-cols-2 gap-3 px-5 text-sm">
@@ -648,15 +733,6 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
             submitLabel={row.status === "open" ? "Send notification" : "Send re-notification"}
             onCancel={() => setPanel(null)}
             onSubmit={notify}
-          />
-        )}
-        {panel === "openwork" && (
-          <OpenworkForm
-            busy={busy}
-            currentAmount={row.openwork_clawback_due}
-            providerAmount={row.clawback_due}
-            onCancel={() => setPanel(null)}
-            onSubmit={saveOpenworkCb}
           />
         )}
         {panel === "lost" && (
@@ -957,6 +1033,72 @@ function OpenworkForm({ busy, currentAmount, providerAmount, onCancel, onSubmit 
         busy={busy}
         onCancel={onCancel}
         submitLabel={trimmed === "" ? "Clear override" : "Save Openwork CB"}
+        disabled={!valid}
+      />
+    </form>
+  );
+}
+
+function FinalCbForm({ busy, currentAmount, openworkAmount, providerAmount, onCancel, onSubmit }: {
+  busy: boolean;
+  currentAmount: string | null;
+  openworkAmount: string | null;
+  providerAmount: string | null;
+  onCancel: () => void;
+  onSubmit: (amount: number | null, note: string) => void;
+}) {
+  const [amount, setAmount] = useState(currentAmount ?? "");
+  const [note, setNote] = useState("");
+  const trimmed = amount.trim();
+  const next = trimmed === "" ? null : Number(trimmed);
+  const valid = trimmed === "" || (Number.isFinite(next) && (next as number) >= 0);
+  const gbpFmt = (v: string | null) =>
+    v === null ? "—" : Number(v).toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2 });
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); if (valid) onSubmit(next, note); }}
+      className="mx-5 mt-3 rounded border border-emerald-300 bg-emerald-50 p-3 text-sm"
+    >
+      <p className="mb-2 text-xs text-emerald-900">
+        Final clawback amount: the figure actually charged once the decision is made.
+        Overrides Openwork and Provider figures everywhere (tiles, reports, forecast).
+      </p>
+      <div className="grid grid-cols-3 gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Final CB £</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="Blank to clear"
+            className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          />
+        </label>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Openwork</span>
+          <div className="rounded border border-slate-200 bg-white px-2 py-1.5 text-slate-600">{gbpFmt(openworkAmount)}</div>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Provider (L&amp;G)</span>
+          <div className="rounded border border-slate-200 bg-white px-2 py-1.5 text-slate-600">{gbpFmt(providerAmount)}</div>
+        </div>
+      </div>
+      <label className="mt-2 flex flex-col gap-1">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Reason for the final figure (optional)</span>
+        <textarea
+          rows={2}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Why is the final amount what it is? (partial CB agreed, reinstated portion, etc.)"
+          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+        />
+      </label>
+      <FormActions
+        busy={busy}
+        onCancel={onCancel}
+        submitLabel={trimmed === "" ? "Clear final" : "Save final CB"}
         disabled={!valid}
       />
     </form>
