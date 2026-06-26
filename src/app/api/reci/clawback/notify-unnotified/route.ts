@@ -19,7 +19,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { getSession, isClawbackUser, canNotifyCam } from "@/lib/auth";
-import { sendClawbackNotifyEmail } from "@/lib/reci/email";
+import { sendClawbackNotifyDigestEmail } from "@/lib/reci/email";
 
 export const dynamic = "force-dynamic";
 // Email sends are slow. Give ourselves headroom in case Poz hits this
@@ -84,57 +84,84 @@ export async function POST(req: Request) {
     });
   }
 
-  let attempted = 0, sent = 0, failed = 0;
-  const failures: { id: number; reason: string }[] = [];
-
+  // Group candidates by (adviser_id, agent_bucket) so each routing
+  // identity receives ONE digest email containing all of its pending
+  // cases, grouped by postcode in the body. Duplicate-surname cases
+  // become easy to tell apart in the inbox.
+  const groups = new Map<string, {
+    adviserId: number | null;
+    agentBucket: string;
+    rows: typeof candidates.rows;
+  }>();
   for (const c of candidates.rows) {
-    attempted++;
+    const key = `${c.adviser_id ?? "null"}|${c.agent_bucket}`;
+    const g = groups.get(key);
+    if (g) g.rows.push(c);
+    else groups.set(key, { adviserId: c.adviser_id, agentBucket: c.agent_bucket, rows: [c] });
+  }
+
+  let attempted = 0, sent = 0, failed = 0;
+  const failures: { groupKey: string; caseIds: number[]; reason: string }[] = [];
+
+  for (const [key, g] of groups) {
+    attempted += g.rows.length;
+    const caseIds = g.rows.map((c) => c.id);
+    // Pick a report-date hint for the digest header. They should all be
+    // the same when this is run right after an upload; if mixed, take
+    // the most common one.
+    const reportDates = g.rows.map((c) => c.ebah_report_date).filter(Boolean) as string[];
+    const ebahReportDate = reportDates[0] ?? null;
     try {
-      const result = await sendClawbackNotifyEmail({
-        caseId:         c.id,
-        clientName:     c.client_name,
-        clientDob:      c.client_dob,
-        policyNumber:   c.policy_number,
-        postcode:       c.postcode,
-        provider:       c.provider,
-        policyType:     c.policy_type,
-        ebahWarning:    c.ebah_warning,
-        clawbackDate:   c.clawback_date,
-        ebahReportDate: c.ebah_report_date,
-        ebahAgentName:  c.ebah_agent_name,
-        adviserId:      c.adviser_id,
-        agentBucket:    c.agent_bucket,
-        source:         c.source,
-        pozNote:        null,
-        actor:         session.username!,
+      const result = await sendClawbackNotifyDigestEmail({
+        adviserId:   g.adviserId,
+        agentBucket: g.agentBucket,
+        ebahReportDate,
+        actor:       session.username!,
+        cases: g.rows.map((c) => ({
+          caseId:       c.id,
+          clientName:   c.client_name,
+          clientDob:    c.client_dob,
+          policyNumber: c.policy_number,
+          postcode:     c.postcode,
+          provider:     c.provider,
+          policyType:   c.policy_type,
+          ebahWarning:  c.ebah_warning,
+          clawbackDate: c.clawback_date,
+          source:       c.source,
+        })),
       });
       if (result.sent) {
-        sent++;
-        await sql`
-          UPDATE clawback_cases
-          SET notified_at = COALESCE(notified_at, now()), updated_at = now()
-          WHERE id = ${c.id}
-        `;
-        await sql`
-          INSERT INTO clawback_history (case_id, event_type, note, actor)
-          VALUES (${c.id}, 'email_sent', ${'Backfill Notify by ' + session.username}, ${session.username})
-        `;
+        sent += g.rows.length;
+        // Stamp notified_at + a history row on every case in the
+        // digest. Single round-trip via ANY($1) for efficiency.
+        await sql.query(
+          `UPDATE clawback_cases
+             SET notified_at = COALESCE(notified_at, now()), updated_at = now()
+             WHERE id = ANY($1::int[])`,
+          [caseIds],
+        );
+        await sql.query(
+          `INSERT INTO clawback_history (case_id, event_type, note, actor)
+             SELECT id, 'email_sent', $2, $3 FROM unnest($1::int[]) AS id`,
+          [caseIds, `Backfill Notify (digest) by ${session.username}`, session.username],
+        );
       } else {
-        failed++;
-        failures.push({ id: c.id, reason: result.reason || "unknown" });
-        console.error(`[notify-unnotified] failed for case ${c.id}:`, result.reason);
+        failed += g.rows.length;
+        failures.push({ groupKey: key, caseIds, reason: result.reason || "unknown" });
+        console.error(`[notify-unnotified] digest failed for ${key} (${caseIds.length} cases):`, result.reason);
       }
     } catch (e) {
-      failed++;
+      failed += g.rows.length;
       const reason = e instanceof Error ? e.message : String(e);
-      failures.push({ id: c.id, reason });
-      console.error(`[notify-unnotified] exception for case ${c.id}:`, reason);
+      failures.push({ groupKey: key, caseIds, reason });
+      console.error(`[notify-unnotified] digest exception for ${key}:`, reason);
     }
   }
 
   return NextResponse.json({
     ok: true,
     attempted, sent, failed,
-    failures: failures.slice(0, 50), // cap to avoid huge responses
+    digestsSent: sent === 0 ? 0 : groups.size - failures.length,
+    failures: failures.slice(0, 50),
   });
 }
