@@ -26,11 +26,18 @@ interface MeResp {
   role: string;
   canClawback: boolean;
   isClawbackAdmin: boolean;
+  isSeniorSeller: boolean;
+  isJuniorSeller: boolean;
   isClawbackSeller: boolean;
   isClawbackViewer: boolean;
   canEditClawback: boolean;
+  canEditAnyCase: boolean;
   canUploadEbah: boolean;
   canNotifyCam: boolean;
+  /** Junior seller -> their own adviser_id. Null for admin/senior/viewer. */
+  editableAdviserId: number | null;
+  editableAdviserName: string | null;
+  /** Legacy aliases. Same value as editableAdviser*. */
   clawbackAdviserId: number | null;
   clawbackAdviserName: string | null;
 }
@@ -343,8 +350,12 @@ export default function ClawbackPage() {
         <div>
           <h1 className="text-xl font-semibold">Clawback Dashboard</h1>
           <div className="text-sm text-slate-600">
-            {me?.clawbackAdviserName
-              ? <>Your cases: <strong className="text-slate-900">{me.clawbackAdviserName}</strong> &middot; only post-completion CB assigned to you</>
+            {me?.isJuniorSeller && me?.editableAdviserName
+              ? <>Welcome <strong className="text-slate-900">{me.editableAdviserName}</strong> &middot; view every case across the team; edit your own only.</>
+              : me?.isSeniorSeller
+              ? <>Welcome {me.username} &middot; you can view and edit every case across the team.</>
+              : me?.isClawbackViewer
+              ? <>Read-only view of every case across the team.</>
               : <>Post-completion CB tracking (L&amp;G EBAH today; more providers coming)</>}
           </div>
         </div>
@@ -443,10 +454,10 @@ export default function ClawbackPage() {
         <Tile label="Net at risk £" value={summary ? gbp(summary.total_net_at_risk) : "—"} accent="amber" />
       </section>
 
-      {/* Bucket breakdown -- only meaningful for admins / Guy seeing every
-          bucket. Sellers only have one bucket (themselves) so the section
-          would be a single tile of clutter. */}
-      {!me?.isClawbackSeller && bucketTiles.length > 0 && (
+      {/* Bucket breakdown. Everyone now sees every case across the team
+          (June 2026 access rebuild) so this row is useful to all tiers --
+          admins, sellers and Guy alike. */}
+      {bucketTiles.length > 0 && (
         <section className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
           {bucketTiles.map((b) => (
             <button
@@ -482,18 +493,16 @@ export default function ClawbackPage() {
               <option key={k} value={k}>{v}</option>
             ))}
           </select>
-          {!me?.isClawbackSeller && (
-            <select
-              value={bucketFilter}
-              onChange={(e) => setBucketFilter(e.target.value)}
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
-            >
-              <option value="">All agent buckets</option>
-              {Object.entries(BUCKET_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
-          )}
+          <select
+            value={bucketFilter}
+            onChange={(e) => setBucketFilter(e.target.value)}
+            className="rounded border border-slate-300 px-2 py-1 text-sm"
+          >
+            <option value="">All agent buckets</option>
+            {Object.entries(BUCKET_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
           <select
             value={warningFilter}
             onChange={(e) => setWarningFilter(e.target.value)}
@@ -756,16 +765,29 @@ export default function ClawbackPage() {
         </section>
       )}
 
-      {openCase && (
-        <CaseDrawer
-          row={openCase as DrawerCaseRow}
-          canEdit={me?.canEditClawback ?? false}
-          canNotify={me?.canNotifyCam ?? false}
-          canEditOpenworkCb={me?.isClawbackAdmin ?? false}
-          onClose={() => setOpenCase(null)}
-          onChange={() => { void load(); }}
-        />
-      )}
+      {openCase && (() => {
+        // Compute per-case write permission based on the user's tier:
+        //   - admin / senior seller (canEditAnyCase): can edit any case
+        //   - junior seller (editableAdviserId set): edit only their own
+        //   - viewer: cannot edit at all
+        const canEditThisCase =
+          (me?.canEditAnyCase ?? false) ||
+          (me?.editableAdviserId !== null && me?.editableAdviserId !== undefined &&
+            openCase.adviser_id === me.editableAdviserId);
+        const needsGate = !!me?.isJuniorSeller && canEditThisCase;
+        return (
+          <CaseDrawer
+            row={openCase as DrawerCaseRow}
+            canEdit={canEditThisCase}
+            needsGate={needsGate}
+            ownerLabel={openCase.adviser_name ?? (openCase.agent_bucket === "xstaff" ? "Xstaff" : openCase.agent_bucket === "legacy" ? "Legacy" : "team")}
+            canNotify={me?.canNotifyCam ?? false}
+            canEditOpenworkCb={me?.isClawbackAdmin ?? false}
+            onClose={() => setOpenCase(null)}
+            onChange={() => { void load(); }}
+          />
+        );
+      })()}
 
       {newCaseOpen && (
         <NewCaseModal

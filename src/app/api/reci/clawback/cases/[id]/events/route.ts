@@ -18,7 +18,7 @@
  */
 import { NextResponse } from "next/server";
 import { db } from "@vercel/postgres";
-import { getSession, isClawbackUser, canEditClawback, clawbackAdviserScope } from "@/lib/auth";
+import { getSession, isClawbackUser, getEditableAdviserId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +32,12 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   const session = await getSession();
-  if (!isClawbackUser(session.username) || !canEditClawback(session.username)) {
+  if (!isClawbackUser(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
-  const scope = await clawbackAdviserScope(session.username);
-  if (scope === -1) {
+  // null = edit any case; number = edit only own; undefined = no edit.
+  const editable = await getEditableAdviserId(session.username);
+  if (editable === undefined) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const id = Number(params.id);
@@ -67,9 +68,9 @@ export async function POST(
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "case not found" }, { status: 404 });
     }
-    if (typeof scope === "number" && existsR.rows[0].adviser_id !== scope) {
+    if (typeof editable === "number" && existsR.rows[0].adviser_id !== editable) {
       await client.query("ROLLBACK");
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      return NextResponse.json({ error: "not your case" }, { status: 403 });
     }
 
     if (k === "note") {

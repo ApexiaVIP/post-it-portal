@@ -16,7 +16,7 @@
  */
 import { NextResponse } from "next/server";
 import { sql, db } from "@vercel/postgres";
-import { getSession, isClawbackUser, canEditClawback, clawbackAdviserScope } from "@/lib/auth";
+import { getSession, isClawbackUser, getEditableAdviserId } from "@/lib/auth";
 import { sendClawbackResolvedEmail } from "@/lib/reci/email";
 
 export const dynamic = "force-dynamic";
@@ -33,11 +33,16 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   const session = await getSession();
-  if (!isClawbackUser(session.username) || !canEditClawback(session.username)) {
+  if (!isClawbackUser(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
-  const scope = await clawbackAdviserScope(session.username);
-  if (scope === -1) {
+  // Returns:
+  //   undefined - user has no edit rights at all (viewer, anonymous)
+  //   null      - user can edit ANY case (admin, senior seller)
+  //   number    - user can edit ONLY cases with this adviser_id (junior
+  //               seller)
+  const editable = await getEditableAdviserId(session.username);
+  if (editable === undefined) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const id = Number(params.id);
@@ -75,11 +80,11 @@ export async function PATCH(
       return NextResponse.json({ error: "case not found" }, { status: 404 });
     }
     const prev = cur.rows[0];
-    // Sellers can only edit their own cases. Admins / viewers fall through
-    // (viewers were already rejected at the canEditClawback gate above).
-    if (typeof scope === "number" && prev.adviser_id !== scope) {
+    // Junior sellers (editable is a number) can only touch cases they own.
+    // Admins + senior sellers (editable === null) fall through to edit any.
+    if (typeof editable === "number" && prev.adviser_id !== editable) {
       await client.query("ROLLBACK");
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      return NextResponse.json({ error: "not your case" }, { status: 403 });
     }
     if (prev.status === newStatus && !note) {
       await client.query("ROLLBACK");
