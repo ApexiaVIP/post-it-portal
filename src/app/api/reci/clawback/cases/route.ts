@@ -32,11 +32,15 @@ import { sourceForMasterCode } from "@/lib/reci/clawback-source";
 export const dynamic = "force-dynamic";
 
 const SORTS: Record<string, string> = {
-  cb_desc:     "c.clawback_due DESC NULLS LAST, c.id ASC",
-  cb_asc:      "c.clawback_due ASC NULLS LAST, c.id ASC",
-  cb_due_asc:  "c.clawback_date ASC NULLS LAST, c.clawback_due DESC NULLS LAST",
-  cb_due_desc: "c.clawback_date DESC NULLS LAST, c.clawback_due DESC NULLS LAST",
-  client_asc:  "c.client_last_name ASC NULLS LAST, c.client_first_name ASC NULLS LAST",
+  cb_desc:      "c.clawback_due DESC NULLS LAST, c.id ASC",
+  cb_asc:       "c.clawback_due ASC NULLS LAST, c.id ASC",
+  cb_due_asc:   "c.clawback_date ASC NULLS LAST, c.clawback_due DESC NULLS LAST",
+  cb_due_desc:  "c.clawback_date DESC NULLS LAST, c.clawback_due DESC NULLS LAST",
+  client_asc:   "c.client_last_name ASC NULLS LAST, c.client_first_name ASC NULLS LAST",
+  // Tidy-up sort (Pauline): clusters every case at the same postcode
+  // together, then alphabetical within each postcode bucket. Lets her
+  // spot duplicates / households fast when reconciling cases.
+  postcode_asc: "c.postcode ASC NULLS LAST, c.client_last_name ASC NULLS LAST, c.client_first_name ASC NULLS LAST",
 };
 
 export async function GET(req: Request) {
