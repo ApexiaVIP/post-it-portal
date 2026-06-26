@@ -129,7 +129,7 @@ const STATUS_LABELS: Record<Status, string> = {
   open: "Open",
   saved: "Saved",
   resold: "Resold",
-  dead: "Dead in water",
+  dead: "Lost",
   reinstated: "Reinstated",
   closed: "Closed",
 };

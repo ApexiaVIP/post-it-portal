@@ -72,7 +72,7 @@ const STATUS_LABELS: Record<Status, string> = {
   open: "Open",
   saved: "Saved",
   resold: "Resold",
-  dead: "Dead in water",
+  dead: "Lost",
   reinstated: "Reinstated",
   closed: "Closed",
 };
@@ -228,7 +228,7 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
   // Open form (only one at a time). Prefill state lets the warning-guide
   // buttons launch a panel with a sensible starting point (e.g. status =
   // 'saved' for "Mark mandate reinstated").
-  type Panel = null | "status" | "note" | "contact" | "money" | "notify" | "openwork";
+  type Panel = null | "status" | "note" | "contact" | "money" | "notify" | "openwork" | "lost";
   const [panel, setPanel] = useState<Panel>(null);
   const [statusPrefill, setStatusPrefill] = useState<Status | null>(null);
   const [moneyPrefill, setMoneyPrefill] = useState<MoneyKind | null>(null);
@@ -557,6 +557,13 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
                 <ActionBtn label="Add note" onClick={() => openPanel("note")} />
                 <ActionBtn label="Log contact" onClick={() => openPanel("contact")} />
                 <ActionBtn label="Record £ off" onClick={() => openPanel("money")} accent="green" />
+                {row.status !== "dead" && (
+                  <ActionBtn
+                    label="Mark as LOST"
+                    onClick={() => openPanel("lost")}
+                    accent="red"
+                  />
+                )}
               </>
             ) : (
               <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
@@ -618,6 +625,15 @@ export function CaseDrawer({ row, canEdit, canNotify, canEditOpenworkCb, onClose
             onSubmit={saveOpenworkCb}
           />
         )}
+        {panel === "lost" && (
+          <LostForm
+            busy={busy}
+            clientName={row.client_name}
+            clawbackDue={Number(row.effective_clawback_due ?? row.clawback_due ?? 0)}
+            onCancel={() => setPanel(null)}
+            onSubmit={(note) => patchStatus("dead", note)}
+          />
+        )}
 
         <section className="mt-6 border-t border-slate-200 px-5 py-4">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">History</h3>
@@ -677,10 +693,11 @@ function SourceBtn({ label, active, onClick, disabled }: { label: string; active
   );
 }
 
-function ActionBtn({ label, onClick, accent }: { label: string; onClick: () => void; accent?: "amber" | "green" }) {
+function ActionBtn({ label, onClick, accent }: { label: string; onClick: () => void; accent?: "amber" | "green" | "red" }) {
   const cls =
     accent === "amber" ? "border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100" :
     accent === "green" ? "border-emerald-400 bg-emerald-50 text-emerald-800 hover:bg-emerald-100" :
+    accent === "red"   ? "border-red-600 bg-red-600 text-white hover:bg-red-700" :
     "border-slate-300 bg-white text-slate-700 hover:bg-slate-50";
   return (
     <button
@@ -908,6 +925,68 @@ function OpenworkForm({ busy, currentAmount, providerAmount, onCancel, onSubmit 
         submitLabel={trimmed === "" ? "Clear override" : "Save Openwork CB"}
         disabled={!valid}
       />
+    </form>
+  );
+}
+
+function LostForm({ busy, clientName, clawbackDue, onCancel, onSubmit }: {
+  busy: boolean;
+  clientName: string;
+  clawbackDue: number;
+  onCancel: () => void;
+  onSubmit: (note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  const valid = note.trim().length > 0;
+  const cb = clawbackDue.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2 });
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); if (valid) onSubmit(note.trim()); }}
+      className="mx-5 mt-3 rounded border-2 border-red-300 bg-red-50 p-3 text-sm"
+    >
+      <div className="mb-2 flex items-start gap-2">
+        <span className="inline-block rounded bg-red-600 px-2 py-0.5 text-xs font-bold uppercase text-white">
+          Confirm
+        </span>
+        <div className="text-sm text-red-900">
+          <strong>Mark {clientName} as Lost?</strong>
+          <div className="mt-1 text-xs text-red-800">
+            This confirms the clawback of <strong>{cb}</strong> will happen. The case will
+            stay on the dashboard for reporting but drop out of forecast alerts. A
+            resolution email goes to Guy and Pauline.
+          </div>
+        </div>
+      </div>
+      <label className="mt-2 flex flex-col gap-1">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+          Reason (required)
+        </span>
+        <textarea
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Why is this case unsavable? Client declined, no response, etc."
+          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          autoFocus
+        />
+      </label>
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="rounded px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={busy || !valid}
+          className="rounded bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+        >
+          {busy ? "Working…" : "Mark as LOST"}
+        </button>
+      </div>
     </form>
   );
 }
