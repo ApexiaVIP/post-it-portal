@@ -169,6 +169,11 @@ export default function ClawbackPage() {
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [bucketFilter, setBucketFilter] = useState<string>("");
+  // Agent filter: combined key. "" = all, "a:<id>" = specific adviser
+  // (Tan, Hayder, etc.), "b:xstaff" / "b:legacy" / "b:needs_review" =
+  // bucket-level filter. Mutually exclusive with the bucket pills (the
+  // pills route through this same setter so the state stays consistent).
+  const [agentFilter, setAgentFilter] = useState<string>("");
   const [warningFilter, setWarningFilter] = useState<string>("");
   const [cbDueFrom, setCbDueFrom] = useState<string>("");
   const [cbDueTo, setCbDueTo] = useState<string>("");
@@ -225,7 +230,19 @@ export default function ClawbackPage() {
     try {
       const p = new URLSearchParams();
       if (statusFilter)         p.set("status",          statusFilter);
-      if (bucketFilter)         p.set("bucket",          bucketFilter);
+      // Agent filter resolves to either adviser_id (a:123) or bucket
+      // (b:xstaff). bucketFilter is kept as a fallback for the tile
+      // shortcut so old code paths still work.
+      if (agentFilter.startsWith("a:")) {
+        const id = agentFilter.slice(2);
+        if (id) p.set("adviser_id", id);
+        p.set("bucket", "adviser");
+      } else if (agentFilter.startsWith("b:")) {
+        const b = agentFilter.slice(2);
+        if (b) p.set("bucket", b);
+      } else if (bucketFilter) {
+        p.set("bucket", bucketFilter);
+      }
       if (warningFilter)        p.set("warning",         warningFilter);
       if (cbDueFrom)            p.set("cb_due_from",     cbDueFrom);
       if (cbDueTo)              p.set("cb_due_to",       cbDueTo);
@@ -250,7 +267,7 @@ export default function ClawbackPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, bucketFilter, warningFilter, cbDueFrom, cbDueTo, cbMin, cbMax, masterAgentNo, agentNo, surname, sourceFilter, search, sort]);
+  }, [statusFilter, bucketFilter, agentFilter, warningFilter, cbDueFrom, cbDueTo, cbMin, cbMax, masterAgentNo, agentNo, surname, sourceFilter, search, sort]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -467,10 +484,17 @@ export default function ClawbackPage() {
               key={`${b.agent_bucket}-${b.adviser_id ?? "x"}`}
               type="button"
               onClick={() => {
-                setBucketFilter(b.agent_bucket);
+                // Tile click goes through the Agent dropdown's state so the
+                // dropdown stays in sync with what the filter actually is.
+                if (b.agent_bucket === "adviser" && b.adviser_id !== null) {
+                  setAgentFilter(`a:${b.adviser_id}`);
+                } else {
+                  setAgentFilter(`b:${b.agent_bucket}`);
+                }
+                setBucketFilter("");
               }}
               className="rounded border border-slate-200 bg-white p-3 text-left transition-colors hover:bg-slate-50"
-              title={`Filter to ${BUCKET_LABELS[b.agent_bucket]}${b.adviser_name ? " / " + b.adviser_name : ""}`}
+              title={`Filter to ${b.adviser_name ?? BUCKET_LABELS[b.agent_bucket]}`}
             >
               <div className="text-xs uppercase tracking-wide text-slate-500">
                 {b.agent_bucket === "adviser" && b.adviser_name ? b.adviser_name : BUCKET_LABELS[b.agent_bucket]}
@@ -497,14 +521,33 @@ export default function ClawbackPage() {
             ))}
           </select>
           <select
-            value={bucketFilter}
-            onChange={(e) => setBucketFilter(e.target.value)}
+            value={agentFilter}
+            onChange={(e) => {
+              setAgentFilter(e.target.value);
+              // Agent dropdown takes precedence over the legacy bucket
+              // pill state; clear it so the URL params stay clean.
+              if (e.target.value) setBucketFilter("");
+            }}
             className="rounded border border-slate-300 px-2 py-1 text-sm"
+            title="Filter to one seller / Xstaff / Legacy"
           >
-            <option value="">All agent buckets</option>
-            {Object.entries(BUCKET_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
+            <option value="">All agents</option>
+            {/* Named advisers first, sorted by case volume, then bucket-
+                level entries for Xstaff / Legacy / Needs review. */}
+            {buckets
+              .filter((b) => b.agent_bucket === "adviser" && b.adviser_id !== null && b.adviser_name)
+              .map((b) => (
+                <option key={`a-${b.adviser_id}`} value={`a:${b.adviser_id}`}>
+                  {b.adviser_name} ({b.cases})
+                </option>
+              ))}
+            {buckets
+              .filter((b) => b.agent_bucket !== "adviser")
+              .map((b) => (
+                <option key={`b-${b.agent_bucket}`} value={`b:${b.agent_bucket}`}>
+                  {BUCKET_LABELS[b.agent_bucket]} ({b.cases})
+                </option>
+              ))}
           </select>
           <select
             value={warningFilter}
@@ -556,11 +599,11 @@ export default function ClawbackPage() {
           >
             {moreOpen ? "Hide more" : "More filters"}
           </button>
-          {(statusFilter || bucketFilter || warningFilter || cbDueFrom || cbDueTo || cbMin || cbMax || masterAgentNo || agentNo || surname || sourceFilter || search || sort !== "client_asc") && (
+          {(statusFilter || bucketFilter || agentFilter || warningFilter || cbDueFrom || cbDueTo || cbMin || cbMax || masterAgentNo || agentNo || surname || sourceFilter || search || sort !== "client_asc") && (
             <button
               type="button"
               onClick={() => {
-                setStatusFilter(""); setBucketFilter(""); setWarningFilter("");
+                setStatusFilter(""); setBucketFilter(""); setAgentFilter(""); setWarningFilter("");
                 setCbDueFrom(""); setCbDueTo(""); setCbMin(""); setCbMax("");
                 setMasterAgentNo(""); setAgentNo(""); setSurname("");
                 setSourceFilter(""); setSearch(""); setSort("client_asc");
