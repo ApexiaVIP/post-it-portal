@@ -541,7 +541,8 @@ export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{
   const finalCc = buildCc(cc, [], to);
 
   const newOwPrefix = i.source === "new_ow" ? "[NEW OW] " : "";
-  const subject = `${newOwPrefix}[RECI Clawback] New notification: ${i.clientName} (${i.policyNumber})`;
+  const postcodeTag = i.postcode ? ` [${i.postcode}]` : "";
+  const subject = `${newOwPrefix}[RECI Clawback]${postcodeTag} ${i.clientName} (${i.policyNumber})`;
 
   const greeting = cam.to.length > 0
     ? `Hi ${escapeHtml(i.agentBucket === "xstaff" ? "Tan + Hayder" : cam.label)},`
@@ -603,6 +604,158 @@ export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{
 
   return dispatchMail({
     label: "clawback-notify",
+    fromName: "RECI Clawback",
+    to, cc: finalCc,
+    subject, text, html,
+  });
+}
+
+export interface ClawbackNotifyDigestCase {
+  caseId: number;
+  clientName: string;
+  clientDob?: string | null;
+  policyNumber: string;
+  postcode: string | null;
+  provider: string;
+  policyType: string | null;
+  ebahWarning: string | null;
+  clawbackDate: string | null;
+  source?: string | null;
+}
+
+export interface ClawbackNotifyDigestInput {
+  /** Adviser routing identity. Same shape as ClawbackNotifyInput so the
+   *  caller can reuse the CAM lookup it already had to do for the case. */
+  adviserId: number | null;
+  agentBucket: string;
+  /** Cases for this recipient group. Any order is fine; the digest
+   *  sorts internally by postcode then surname so duplicate-surname
+   *  rows sit next to each other under the right postcode bucket. */
+  cases: ClawbackNotifyDigestCase[];
+  /** Date L&G generated the EBAH report (auto-Notify path) or null
+   *  for backfill / manual bulk sends. */
+  ebahReportDate?: string | null;
+  /** Actor for the audit log entry, e.g. "ebah-upload" or session.username. */
+  actor: string;
+}
+
+/**
+ * Digest variant of the per-case Notify email. Sends ONE email to the
+ * adviser/CAM (CC'd to management + Guy) containing every case in the
+ * batch, grouped by postcode so duplicate surnames are obvious.
+ *
+ * Used by:
+ *   - notify-unnotified backfill (admin button)
+ *   - ingest auto-Notify (one digest per adviser per upload)
+ *
+ * Manual single-case Notify (Pauline opens a case + clicks the button)
+ * still uses sendClawbackNotifyEmail.
+ */
+export async function sendClawbackNotifyDigestEmail(
+  i: ClawbackNotifyDigestInput,
+): Promise<{ sent: boolean; reason?: string }> {
+  if (i.cases.length === 0) return { sent: false, reason: "no cases" };
+  const cam = await resolveCamRecipients(i.adviserId, i.agentBucket);
+  const cc = managementCc();
+  const guy = guyEmail();
+  if (guy) cc.push(guy);
+
+  let to: string[];
+  if (cam.to.length > 0) {
+    to = cam.to;
+  } else {
+    to = [...cc];
+    if (to.length === 0) return { sent: false, reason: "no recipient" };
+  }
+  const finalCc = buildCc(cc, [], to);
+
+  // Group by postcode (case-insensitive, trimmed, "—" for blank), then
+  // within each postcode sort by surname to make dupes visible.
+  const norm = (p: string | null) =>
+    (p || "").trim().toUpperCase().replace(/\s+/g, " ") || "(no postcode)";
+  const surname = (full: string) => {
+    const parts = full.trim().split(/\s+/);
+    return (parts[parts.length - 1] || full).toUpperCase();
+  };
+  const byPostcode = new Map<string, ClawbackNotifyDigestCase[]>();
+  for (const c of i.cases) {
+    const key = norm(c.postcode);
+    const arr = byPostcode.get(key);
+    if (arr) arr.push(c); else byPostcode.set(key, [c]);
+  }
+  const groups = Array.from(byPostcode.entries())
+    .map(([postcode, cases]) => ({
+      postcode,
+      cases: cases.slice().sort((a, b) => surname(a.clientName).localeCompare(surname(b.clientName))),
+    }))
+    .sort((a, b) => a.postcode.localeCompare(b.postcode));
+
+  const totalCases = i.cases.length;
+  const totalPostcodes = groups.length;
+  const newOwAny = i.cases.some((c) => c.source === "new_ow");
+  const newOwPrefix = newOwAny ? "[NEW OW] " : "";
+  const subject = `${newOwPrefix}[RECI Clawback] ${totalCases} case${totalCases === 1 ? "" : "s"} need attention (${totalPostcodes} postcode${totalPostcodes === 1 ? "" : "s"})`;
+
+  const greeting = cam.to.length > 0
+    ? `Hi ${escapeHtml(i.agentBucket === "xstaff" ? "Tan + Hayder" : cam.label)},`
+    : `Hi team,`;
+
+  // Plain-text body. Pauline's house style: no em dashes, basic language,
+  // no commission figures.
+  const textLines: string[] = [];
+  textLines.push(cam.to.length > 0
+    ? `Hi ${i.agentBucket === "xstaff" ? "Tan + Hayder" : cam.label},`
+    : `Hi team,`);
+  textLines.push("");
+  textLines.push(`${totalCases} post-completion clawback case${totalCases === 1 ? "" : "s"} need${totalCases === 1 ? "s" : ""} your attention.`);
+  if (i.ebahReportDate) {
+    textLines.push(`Source: L&G EBAH report ${ukDate(i.ebahReportDate)}.`);
+  }
+  textLines.push("");
+  for (const g of groups) {
+    textLines.push(`Postcode ${g.postcode}:`);
+    for (const c of g.cases) {
+      textLines.push(`  - ${c.clientName} (DOB ${ukDate(c.clientDob)})`);
+      textLines.push(`    Policy ${c.policyNumber} - ${c.provider.toUpperCase()} ${c.policyType || ""}`.trimEnd());
+      textLines.push(`    Status: ${c.ebahWarning || "Clawback notification"}`);
+      textLines.push(`    CB Date: ${ukDate(c.clawbackDate)}`);
+      textLines.push(`    Open: ${clawbackCaseUrl(c.policyNumber)}`);
+      textLines.push("");
+    }
+  }
+  textLines.push("Please contact each client to attempt to save / reinstate the policy and update the Clawback Dashboard with what was done.");
+  textLines.push("");
+  textLines.push("— RECI portal");
+  const text = textLines.join("\n");
+
+  // HTML body, same shape as the plain text. Each group renders as a
+  // postcode header followed by a small table of cases with an Open link.
+  let html = `<p>${greeting}</p>` +
+    `<p>${totalCases} post-completion clawback case${totalCases === 1 ? "" : "s"} need${totalCases === 1 ? "s" : ""} your attention` +
+    (i.ebahReportDate ? ` (L&amp;G EBAH report ${escapeHtml(ukDate(i.ebahReportDate))})` : "") + `.</p>`;
+  for (const g of groups) {
+    html += `<p style="margin:18px 0 4px 0"><strong>Postcode ${escapeHtml(g.postcode)}</strong> <span style="color:#888">(${g.cases.length} case${g.cases.length === 1 ? "" : "s"})</span></p>`;
+    html += `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;width:100%;margin-bottom:8px">`;
+    for (const c of g.cases) {
+      const newOwTag = c.source === "new_ow" ? ` <span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:600">NEW OW</span>` : "";
+      html += `<tr style="border-top:1px solid #e5e7eb">` +
+        `<td style="padding:6px 8px;vertical-align:top">` +
+        `<div><strong>${escapeHtml(c.clientName)}</strong>${newOwTag} <span style="color:#666">(DOB ${escapeHtml(ukDate(c.clientDob))})</span></div>` +
+        `<div style="color:#444;font-size:13px">Policy ${escapeHtml(c.policyNumber)} · ${escapeHtml(c.provider.toUpperCase())} ${escapeHtml(c.policyType || "")}</div>` +
+        `<div style="color:#444;font-size:13px">${escapeHtml(c.ebahWarning || "Clawback notification")} · CB date ${escapeHtml(ukDate(c.clawbackDate))}</div>` +
+        `</td>` +
+        `<td style="padding:6px 8px;vertical-align:top;text-align:right;white-space:nowrap">` +
+        `<a href="${clawbackCaseUrl(c.policyNumber)}" style="display:inline-block;background:#b45309;color:#fff;padding:6px 10px;text-decoration:none;border-radius:4px;font-size:12px;font-weight:600">Open case</a>` +
+        `</td>` +
+        `</tr>`;
+    }
+    html += `</table>`;
+  }
+  html += `<p>Please contact each client to attempt to save / reinstate the policy and update the Clawback Dashboard with what was done.</p>`;
+  html += `<p style="color:#888;font-size:12px">— RECI portal</p>`;
+
+  return dispatchMail({
+    label: "clawback-notify-digest",
     fromName: "RECI Clawback",
     to, cc: finalCc,
     subject, text, html,

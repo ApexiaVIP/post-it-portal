@@ -35,7 +35,7 @@ import {
   bucketAgentByCode,
   type EbahRow,
 } from "./clawback-parser";
-import { sendClawbackNotifyEmail } from "./email";
+import { sendClawbackNotifyDigestEmail } from "./email";
 import { sourceForMasterCode } from "./clawback-source";
 
 const INSERT_BATCH = 250;
@@ -518,62 +518,80 @@ async function autoNotifyNewCases(
   const byPolicy = new Map<string, { row: EbahRow; mapping: { bucket: Bucket; adviser_id: number | null } }>();
   for (const o of toInsert) byPolicy.set(o.row.policy_number, o);
 
-  let attempted = 0, sent = 0, failed = 0;
-
+  // Group every CB-bearing inserted case by routing identity so each
+  // adviser receives ONE digest, not N separate emails. Body groups by
+  // postcode so duplicate surnames sit together.
+  type Item = {
+    id: number;
+    row: EbahRow;
+    bucket: Bucket;
+    adviserId: number | null;
+  };
+  const groups = new Map<string, { adviserId: number | null; bucket: Bucket; items: Item[] }>();
   for (const ins of inserted) {
     const o = byPolicy.get(ins.policy_number);
     if (!o) continue;
-    const r = o.row;
-    const cb = Number(r.clawback_due ?? 0) || 0;
-    if (cb <= 0) continue; // skip zero-pound cases (routine reviews, etc)
+    const cb = Number(o.row.clawback_due ?? 0) || 0;
+    if (cb <= 0) continue;
+    const key = `${o.mapping.adviser_id ?? "null"}|${o.mapping.bucket}`;
+    const item: Item = { id: ins.id, row: o.row, bucket: o.mapping.bucket, adviserId: o.mapping.adviser_id };
+    const g = groups.get(key);
+    if (g) g.items.push(item);
+    else groups.set(key, { adviserId: o.mapping.adviser_id, bucket: o.mapping.bucket, items: [item] });
+  }
 
-    attempted++;
+  let attempted = 0, sent = 0, failed = 0;
+
+  for (const [key, g] of groups) {
+    attempted += g.items.length;
+    const caseIds = g.items.map((it) => it.id);
     try {
-      const result = await sendClawbackNotifyEmail({
-        caseId:         ins.id,
-        clientName:     r.client_name,
-        clientDob:      r.client_dob,
-        policyNumber:   r.policy_number,
-        postcode:       r.postcode,
-        provider:       "l&g",
-        policyType:     r.policy_type,
-        ebahWarning:    r.warning,
-        clawbackDate:   r.clawback_date,
-        ebahReportDate: ebahReportDate,
-        ebahAgentName:  r.ebah_agent_name,
-        adviserId:      o.mapping.adviser_id,
-        agentBucket:    o.mapping.bucket,
-        source:         sourceForMasterCode(r.master_agent_no),
-        // Auto-notify carries no Pauline-typed note. She can manually
-        // re-Notify with a note from the drawer if she needs to add
-        // context.
-        pozNote:       null,
-        actor:         "ebah-upload",
+      const result = await sendClawbackNotifyDigestEmail({
+        adviserId:   g.adviserId,
+        agentBucket: g.bucket,
+        ebahReportDate,
+        actor:       "ebah-upload",
+        cases: g.items.map((it) => ({
+          caseId:       it.id,
+          clientName:   it.row.client_name,
+          clientDob:    it.row.client_dob,
+          policyNumber: it.row.policy_number,
+          postcode:     it.row.postcode,
+          provider:     "l&g",
+          policyType:   it.row.policy_type,
+          ebahWarning:  it.row.warning,
+          clawbackDate: it.row.clawback_date,
+          source:       sourceForMasterCode(it.row.master_agent_no),
+        })),
       });
       if (result.sent) {
-        sent++;
-        // Stamp notified_at + history row so the timeline shows the
-        // auto-send and the case won't be re-notified on the next ingest.
-        await sql`
-          UPDATE clawback_cases
-          SET notified_at = COALESCE(notified_at, now()), updated_at = now()
-          WHERE id = ${ins.id}
-        `;
-        await sql`
-          INSERT INTO clawback_history (case_id, event_type, note, actor)
-          VALUES (${ins.id}, 'email_sent', 'Auto-notification fired on EBAH ingest', 'ebah-upload')
-        `;
+        sent += g.items.length;
+        // Stamp notified_at + history rows on every case in the digest
+        // so the timeline shows the auto-send and they won't re-notify
+        // on the next ingest.
+        await sql.query(
+          `UPDATE clawback_cases
+             SET notified_at = COALESCE(notified_at, now()), updated_at = now()
+             WHERE id = ANY($1::int[])`,
+          [caseIds],
+        );
+        await sql.query(
+          `INSERT INTO clawback_history (case_id, event_type, note, actor)
+             SELECT id, 'email_sent', 'Auto-notification (digest) on EBAH ingest', 'ebah-upload'
+             FROM unnest($1::int[]) AS id`,
+          [caseIds],
+        );
       } else {
-        failed++;
-        console.error(`[clawback-ingest] auto-notify failed for case ${ins.id}:`, result.reason);
+        failed += g.items.length;
+        console.error(`[clawback-ingest] auto-notify digest failed for ${key} (${caseIds.length} cases):`, result.reason);
       }
     } catch (e) {
-      failed++;
-      console.error(`[clawback-ingest] auto-notify exception for case ${ins.id}:`, e instanceof Error ? e.message : String(e));
+      failed += g.items.length;
+      console.error(`[clawback-ingest] auto-notify digest exception for ${key}:`, e instanceof Error ? e.message : String(e));
     }
   }
 
-  console.error(`[clawback-ingest] auto-notify summary: attempted=${attempted} sent=${sent} failed=${failed}`);
+  console.error(`[clawback-ingest] auto-notify summary: digests=${groups.size} attempted=${attempted} sent=${sent} failed=${failed}`);
   return { attempted, sent, failed };
 }
 
