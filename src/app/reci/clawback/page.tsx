@@ -58,6 +58,9 @@ interface CaseRow {
   openwork_clawback_due: string | null;
   openwork_cb_updated_by: string | null;
   openwork_cb_updated_at: string | null;
+  final_clawback_due: string | null;
+  final_cb_updated_by: string | null;
+  final_cb_updated_at: string | null;
   effective_clawback_due: string | null;
   clawback_date: string | null;
   policy_start_date: string | null;
@@ -695,7 +698,14 @@ export default function ClawbackPage() {
                 <Td right>{gbp(c.net_premium)}</Td>
                 <Td right className="font-medium">
                   {gbp(c.effective_clawback_due ?? c.clawback_due)}
-                  {c.openwork_clawback_due !== null && (
+                  {c.final_clawback_due !== null ? (
+                    <span
+                      className="ml-1 inline-block rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold uppercase text-emerald-800"
+                      title={`Final override (OW: ${c.openwork_clawback_due !== null ? gbp(c.openwork_clawback_due) : "—"} · Provider: ${gbp(c.clawback_due)})`}
+                    >
+                      FINAL
+                    </span>
+                  ) : c.openwork_clawback_due !== null && (
                     <span
                       className="ml-1 inline-block rounded bg-blue-100 px-1 py-0.5 text-[10px] font-semibold uppercase text-blue-800"
                       title={`Openwork override (provider amount: ${gbp(c.clawback_due)})`}
@@ -783,6 +793,7 @@ export default function ClawbackPage() {
             ownerLabel={openCase.adviser_name ?? (openCase.agent_bucket === "xstaff" ? "Xstaff" : openCase.agent_bucket === "legacy" ? "Legacy" : "team")}
             canNotify={me?.canNotifyCam ?? false}
             canEditOpenworkCb={me?.isClawbackAdmin ?? false}
+            canEditFinalCb={me?.isClawbackAdmin ?? false}
             onClose={() => setOpenCase(null)}
             onChange={() => { void load(); }}
           />

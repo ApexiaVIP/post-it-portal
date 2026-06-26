@@ -137,7 +137,10 @@ export async function GET(req: Request) {
         c.openwork_clawback_due,
         c.openwork_cb_updated_by,
         c.openwork_cb_updated_at,
-        COALESCE(c.openwork_clawback_due, c.clawback_due) AS effective_clawback_due,
+        c.final_clawback_due,
+        c.final_cb_updated_by,
+        c.final_cb_updated_at,
+        COALESCE(c.final_clawback_due, c.openwork_clawback_due, c.clawback_due) AS effective_clawback_due,
         c.clawback_date::text AS clawback_date,
         c.policy_start_date::text AS policy_start_date,
         c.off_risk_date::text AS off_risk_date,
@@ -174,7 +177,7 @@ export async function GET(req: Request) {
   const tilesQ = await sql.query(
     `SELECT
         COUNT(*)::int                                                       AS total_cases,
-        COALESCE(SUM(COALESCE(c.openwork_clawback_due, c.clawback_due)), 0)::float
+        COALESCE(SUM(COALESCE(c.final_clawback_due, c.openwork_clawback_due, c.clawback_due)), 0)::float
                                                                             AS total_clawback_due,
         COALESCE(SUM(c.clawback_due), 0)::float                             AS total_clawback_due_provider,
         COALESCE(SUM(c.openwork_clawback_due), 0)::float                    AS total_clawback_due_openwork,
@@ -207,7 +210,7 @@ export async function GET(req: Request) {
           a.name AS adviser_name,
           c.adviser_id,
           COUNT(*)::int                                                       AS cases,
-          COALESCE(SUM(COALESCE(c.openwork_clawback_due, c.clawback_due)), 0)::float
+          COALESCE(SUM(COALESCE(c.final_clawback_due, c.openwork_clawback_due, c.clawback_due)), 0)::float
                                                                               AS clawback_due,
           COALESCE(SUM(c.net_at_risk), 0)::float                              AS net_at_risk
        FROM clawback_cases c
