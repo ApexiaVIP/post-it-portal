@@ -91,13 +91,16 @@ interface WarningRow {
 }
 
 type Sort = "client_asc" | "postcode_asc" | "cb_desc" | "cb_asc" | "cb_due_asc" | "cb_due_desc";
+// Order here drives the order in the Sort dropdown. Tidy-up sorts
+// (surname + postcode) sit at the top because that's what Pauline /
+// Poz hit first when reconciling.
 const SORT_LABELS: Record<Sort, string> = {
+  client_asc:   "Client surname A-Z",
+  postcode_asc: "Postcode (group same postcodes)",
   cb_desc:      "CB value (highest first)",
   cb_asc:       "CB value (lowest first)",
   cb_due_asc:   "CB date (soonest first)",
   cb_due_desc:  "CB date (latest first)",
-  client_asc:   "Client surname A-Z",
-  postcode_asc: "Postcode (group same postcodes)",
 };
 
 const SOURCE_LABELS: Record<"old_ow" | "new_ow" | "other", string> = {
