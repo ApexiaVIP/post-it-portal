@@ -456,7 +456,7 @@ function escapeHtml(s: string) {
 const RESOLVED_STATUS_LABELS: Record<string, string> = {
   saved:      "Saved",
   resold:     "Resold",
-  dead:       "Dead in water",
+  dead:       "Lost",
   reinstated: "Reinstated",
   closed:     "Closed",
   open:       "Open",
