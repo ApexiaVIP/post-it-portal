@@ -143,13 +143,10 @@ export async function GET(req: Request) {
         c.net_premium,
         c.premium_outstanding,
         c.clawback_due,
-        c.openwork_clawback_due,
-        c.openwork_cb_updated_by,
-        c.openwork_cb_updated_at,
         c.final_clawback_due,
         c.final_cb_updated_by,
         c.final_cb_updated_at,
-        COALESCE(c.final_clawback_due, c.openwork_clawback_due, c.clawback_due) AS effective_clawback_due,
+        COALESCE(c.final_clawback_due, c.clawback_due) AS effective_clawback_due,
         c.clawback_date::text AS clawback_date,
         c.policy_start_date::text AS policy_start_date,
         c.off_risk_date::text AS off_risk_date,
@@ -180,16 +177,15 @@ export async function GET(req: Request) {
   );
 
   // Summary tiles -- same filter set, so the tiles reflect the visible view.
-  // CB due uses the Openwork override when Pauline has set one, otherwise
-  // the provider (L&G EBAH) figure. net_at_risk is a generated column that
-  // already uses the same COALESCE, so they stay in sync.
+  // CB due uses the Final override when set, otherwise the provider (L&G
+  // EBAH) figure. net_at_risk is a generated column that already uses the
+  // same COALESCE, so they stay in sync.
   const tilesQ = await sql.query(
     `SELECT
         COUNT(*)::int                                                       AS total_cases,
-        COALESCE(SUM(COALESCE(c.final_clawback_due, c.openwork_clawback_due, c.clawback_due)), 0)::float
+        COALESCE(SUM(COALESCE(c.final_clawback_due, c.clawback_due)), 0)::float
                                                                             AS total_clawback_due,
         COALESCE(SUM(c.clawback_due), 0)::float                             AS total_clawback_due_provider,
-        COALESCE(SUM(c.openwork_clawback_due), 0)::float                    AS total_clawback_due_openwork,
         COALESCE(SUM(c.saved_amount), 0)::float                             AS total_saved,
         COALESCE(SUM(c.resold_amount), 0)::float                            AS total_resold,
         COALESCE(SUM(c.net_at_risk), 0)::float                              AS total_net_at_risk
@@ -219,7 +215,7 @@ export async function GET(req: Request) {
           a.name AS adviser_name,
           c.adviser_id,
           COUNT(*)::int                                                       AS cases,
-          COALESCE(SUM(COALESCE(c.final_clawback_due, c.openwork_clawback_due, c.clawback_due)), 0)::float
+          COALESCE(SUM(COALESCE(c.final_clawback_due, c.clawback_due)), 0)::float
                                                                               AS clawback_due,
           COALESCE(SUM(c.net_at_risk), 0)::float                              AS net_at_risk
        FROM clawback_cases c

@@ -57,9 +57,6 @@ interface CaseRow {
   policy_type: string | null;
   net_premium: string | null;
   clawback_due: string | null;
-  openwork_clawback_due: string | null;
-  openwork_cb_updated_by: string | null;
-  openwork_cb_updated_at: string | null;
   final_clawback_due: string | null;
   final_cb_updated_by: string | null;
   final_cb_updated_at: string | null;
@@ -782,19 +779,12 @@ export default function ClawbackPage() {
                 <Td right>{gbp(c.net_premium)}</Td>
                 <Td right className="font-medium">
                   {gbp(c.effective_clawback_due ?? c.clawback_due)}
-                  {c.final_clawback_due !== null ? (
+                  {c.final_clawback_due !== null && (
                     <span
                       className="ml-1 inline-block rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold uppercase text-emerald-800"
-                      title={`Final override (OW: ${c.openwork_clawback_due !== null ? gbp(c.openwork_clawback_due) : "—"} · Provider: ${gbp(c.clawback_due)})`}
+                      title={`Final override (Provider: ${gbp(c.clawback_due)})`}
                     >
                       FINAL
-                    </span>
-                  ) : c.openwork_clawback_due !== null && (
-                    <span
-                      className="ml-1 inline-block rounded bg-blue-100 px-1 py-0.5 text-[10px] font-semibold uppercase text-blue-800"
-                      title={`Openwork override (provider amount: ${gbp(c.clawback_due)})`}
-                    >
-                      OW
                     </span>
                   )}
                 </Td>
@@ -876,7 +866,6 @@ export default function ClawbackPage() {
             needsGate={needsGate}
             ownerLabel={openCase.adviser_name ?? (openCase.agent_bucket === "xstaff" ? "Xstaff" : openCase.agent_bucket === "legacy" ? "Legacy" : "team")}
             canNotify={me?.canNotifyCam ?? false}
-            canEditOpenworkCb={me?.isClawbackAdmin ?? false}
             canEditFinalCb={me?.isClawbackAdmin ?? false}
             onClose={() => setOpenCase(null)}
             onChange={() => { void load(); }}
