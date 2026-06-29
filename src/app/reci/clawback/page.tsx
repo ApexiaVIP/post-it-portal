@@ -223,12 +223,34 @@ export default function ClawbackPage() {
   // emails so clicking through filters straight to the policy number.
   // Stray leading / trailing apostrophes get stripped (some EBAH-derived
   // policy numbers historically had them).
+  // ?q=<policy> seeds the search box AND we remember the policy in a
+  // ref so the first matching case auto-opens its drawer (the email
+  // "Open this case" button expects to land you directly on the
+  // case, not just filter the list).
+  const pendingOpenPolicy = useRef<string | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const qs = new URLSearchParams(window.location.search);
     const q = qs.get("q");
-    if (q) setSearch(q.replace(/^'|'$/g, ""));
+    if (q) {
+      const clean = q.replace(/^'|'$/g, "");
+      setSearch(clean);
+      pendingOpenPolicy.current = clean;
+    }
   }, []);
+
+  // After cases load, if we're holding a pending policy from ?q=, find
+  // the matching row and open the drawer. Fires once: the ref is
+  // cleared as soon as we find a match (or after the first load if no
+  // match, so we don't keep retrying).
+  useEffect(() => {
+    if (!pendingOpenPolicy.current) return;
+    if (loading) return;
+    const wanted = pendingOpenPolicy.current.trim().toLowerCase();
+    const hit = cases.find((c) => c.policy_number.trim().toLowerCase() === wanted);
+    if (hit) setOpenCase(hit);
+    pendingOpenPolicy.current = null;
+  }, [cases, loading]);
 
   const load = useCallback(async () => {
     setLoading(true);
