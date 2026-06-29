@@ -50,6 +50,8 @@ interface CaseRow {
   policy_number: string;
   provider: string;
   client_name: string;
+  client_first_name: string | null;
+  client_last_name: string | null;
   client_dob: string | null;
   postcode: string | null;
   policy_type: string | null;
@@ -734,7 +736,15 @@ export default function ClawbackPage() {
                 }`}
                 title={urgent ? "URGENT New OW case -- click to open" : "Click to open case detail"}
               >
-                <Td>{c.client_name}</Td>
+                <Td title={c.client_name}>
+                  {/* Render surname-first when we have a parsed last
+                      name, so the column reads alphabetically by eye
+                      when sorting A-Z by surname. Falls back to the
+                      raw "Mr Justin Finch" string for legacy rows. */}
+                  {c.client_last_name
+                    ? <><strong>{c.client_last_name}</strong>{c.client_first_name ? `, ${c.client_first_name}` : ""}</>
+                    : c.client_name}
+                </Td>
                 <Td>{c.postcode || "—"}</Td>
                 <Td><code className="text-xs">{c.policy_number}</code></Td>
                 <Td><code className="text-xs">{c.master_agent_no || "—"}</code></Td>
