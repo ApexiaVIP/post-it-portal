@@ -224,6 +224,10 @@ export default function ClawbackPage() {
   // ref so the first matching case auto-opens its drawer (the email
   // "Open this case" button expects to land you directly on the
   // case, not just filter the list).
+  //
+  // Also reads ?status, ?source, ?agent_id / ?bucket from the URL so
+  // the Reports executive-summary tiles can drill straight into the
+  // matching filtered view of the dashboard.
   const pendingOpenPolicy = useRef<string | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -233,6 +237,17 @@ export default function ClawbackPage() {
       const clean = q.replace(/^'|'$/g, "");
       setSearch(clean);
       pendingOpenPolicy.current = clean;
+    }
+    const urlStatus = qs.get("status");
+    if (urlStatus) setStatusFilter(urlStatus);
+    const urlSource = qs.get("source");
+    if (urlSource) setSourceFilter(urlSource);
+    const urlAgentId = qs.get("adviser_id");
+    const urlBucket  = qs.get("bucket");
+    if (urlAgentId && Number.isFinite(Number(urlAgentId))) {
+      setAgentFilter(`a:${urlAgentId}`);
+    } else if (urlBucket) {
+      setAgentFilter(`b:${urlBucket}`);
     }
   }, []);
 
