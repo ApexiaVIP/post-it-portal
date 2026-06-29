@@ -829,7 +829,7 @@ export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promi
     row("Policy No", i.policyNumber) +
     row("Sales agent", i.ebahAgentName) +
     row("Status moved",
-      `${RESOLVED_STATUS_LABELS[i.oldStatus] || i.oldStatus} &rarr; ${statusLabel}`) +
+      `${RESOLVED_STATUS_LABELS[i.oldStatus] || i.oldStatus} → ${statusLabel}`) +
     row("Updated by", i.actor) +
     `</table>` +
     (i.note
