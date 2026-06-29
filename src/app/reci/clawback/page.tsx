@@ -259,7 +259,12 @@ export default function ClawbackPage() {
       if (surname.trim())       p.set("surname",         surname.trim());
       if (sourceFilter)         p.set("source",          sourceFilter);
       if (search.trim())        p.set("q",               search.trim());
-      if (sort !== "client_asc")   p.set("sort",            sort);
+      // Always send sort so the API doesn't silently fall back to its
+      // own default (cb_desc). Previously this skipped the param when
+      // the UI's default (client_asc) was active, causing the surname
+      // sort to look broken because the API was actually sorting by
+      // CB value desc.
+      p.set("sort",            sort);
       const r = await fetch(`/api/reci/clawback/cases?${p.toString()}`, { cache: "no-store" });
       if (!r.ok) throw new Error(`fetch failed (${r.status})`);
       const j = await r.json();
