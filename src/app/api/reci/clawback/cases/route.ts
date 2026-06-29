@@ -36,11 +36,16 @@ const SORTS: Record<string, string> = {
   cb_asc:       "c.clawback_due ASC NULLS LAST, c.id ASC",
   cb_due_asc:   "c.clawback_date ASC NULLS LAST, c.clawback_due DESC NULLS LAST",
   cb_due_desc:  "c.clawback_date DESC NULLS LAST, c.clawback_due DESC NULLS LAST",
-  client_asc:   "c.client_last_name ASC NULLS LAST, c.client_first_name ASC NULLS LAST",
-  // Tidy-up sort (Pauline): clusters every case at the same postcode
-  // together, then alphabetical within each postcode bucket. Lets her
-  // spot duplicates / households fast when reconciling cases.
-  postcode_asc: "c.postcode ASC NULLS LAST, c.client_last_name ASC NULLS LAST, c.client_first_name ASC NULLS LAST",
+  // Case-insensitive, NULL-safe surname sort. Falls back to the full
+  // client_name when last name is NULL (legacy / pre-parser rows) so
+  // those don't all dump at the bottom. LOWER() forces alphabetical
+  // ordering instead of Postgres' default ASCII byte sort (which puts
+  // every uppercase letter before every lowercase one).
+  client_asc:   "LOWER(COALESCE(NULLIF(c.client_last_name, ''), c.client_name)) ASC NULLS LAST, LOWER(COALESCE(c.client_first_name, '')) ASC",
+  // Tidy-up sort: clusters every case at the same postcode together,
+  // then alphabetical within each postcode bucket. Postcode uppercased
+  // so e.g. "m14 6aa" lands next to "M14 6AA" if any sneak in as lower.
+  postcode_asc: "UPPER(c.postcode) ASC NULLS LAST, LOWER(COALESCE(NULLIF(c.client_last_name, ''), c.client_name)) ASC NULLS LAST",
 };
 
 export async function GET(req: Request) {
