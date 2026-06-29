@@ -17,8 +17,9 @@
  * Auth: jimmy / pauline / poz only.
  */
 import { NextResponse } from "next/server";
-import { db } from "@vercel/postgres";
+import { db, sql } from "@vercel/postgres";
 import { getSession, isClawbackUser, getEditableAdviserId } from "@/lib/auth";
+import { sendClawbackResolvedEmail } from "@/lib/reci/email";
 
 export const dynamic = "force-dynamic";
 
@@ -60,15 +61,25 @@ export async function POST(
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const existsR = await client.query<{ id: number; adviser_id: number | null }>(
-      `SELECT id, adviser_id FROM clawback_cases WHERE id = $1`,
+    // Pull enough state up front to drive the auto-status-flip on
+    // money_off (saved/resold) and to feed the Resolved email if the
+    // case transitions out of an active state.
+    const existsR = await client.query<{
+      id: number; adviser_id: number | null; agent_bucket: string;
+      status: string; client_name: string; policy_number: string;
+      postcode: string | null; ebah_agent_name: string;
+    }>(
+      `SELECT id, adviser_id, agent_bucket, status, client_name, policy_number,
+              postcode, ebah_agent_name
+         FROM clawback_cases WHERE id = $1`,
       [id],
     );
     if (existsR.rowCount === 0) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "case not found" }, { status: 404 });
     }
-    if (typeof editable === "number" && existsR.rows[0].adviser_id !== editable) {
+    const prev = existsR.rows[0];
+    if (typeof editable === "number" && prev.adviser_id !== editable) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "not your case" }, { status: 403 });
     }
@@ -97,7 +108,13 @@ export async function POST(
          VALUES ($1, 'contact_attempt', $2, $3)`,
         [id, composed, session.username],
       );
-    } else if (k === "money_off") {
+    }
+
+    // When the money_off path auto-flips status, hold onto enough
+    // info to fire the Resolved email after COMMIT.
+    let autoStatusChange: { from: string; to: string } | null = null;
+
+    if (k === "money_off") {
       const amount = Number(body.amount);
       if (!Number.isFinite(amount) || amount <= 0) {
         await client.query("ROLLBACK");
@@ -127,10 +144,67 @@ export async function POST(
          VALUES ($1, 'money_off', $2, $3, $4, $5)`,
         [id, amount, moneyKind, noteRaw || null, session.username],
       );
+
+      // Per Pauline: logging £ saved or £ resold should flip the
+      // case status to match, so the assigned CAM sees the case is
+      // off their active queue without needing a second click. Only
+      // flips from active states (open / reinstated). Doesn't touch
+      // lost / closed / already-saved / already-resold cases.
+      const ACTIVE = new Set(["open", "reinstated"]);
+      const targetStatus = moneyKind === "saved" ? "saved"
+                         : moneyKind === "resold" ? "resold"
+                         : null;
+      if (targetStatus && ACTIVE.has(prev.status)) {
+        await client.query(
+          `UPDATE clawback_cases SET
+             status = $1,
+             resolved_at = COALESCE(resolved_at, now()),
+             updated_at = now()
+           WHERE id = $2`,
+          [targetStatus, id],
+        );
+        await client.query(
+          `INSERT INTO clawback_history
+             (case_id, event_type, field, old_value, new_value, note, actor)
+           VALUES ($1, 'status_change', 'status', $2, $3, $4, $5)`,
+          [id, prev.status, targetStatus, `Auto-flipped from £${moneyKind} entry`, session.username],
+        );
+        autoStatusChange = { from: prev.status, to: targetStatus };
+      }
     }
 
     await client.query("COMMIT");
-    return NextResponse.json({ ok: true });
+
+    // Fire the Resolved email AFTER commit so the case is durably in
+    // its new state before the CAM gets notified. Failures are logged
+    // but don't fail the request.
+    if (autoStatusChange) {
+      try {
+        const emailResult = await sendClawbackResolvedEmail({
+          caseId: id,
+          clientName: prev.client_name,
+          policyNumber: prev.policy_number,
+          postcode: prev.postcode,
+          newStatus: autoStatusChange.to,
+          oldStatus: autoStatusChange.from,
+          note: noteRaw || null,
+          actor: session.username!,
+          ebahAgentName: prev.ebah_agent_name,
+          adviserId: prev.adviser_id,
+          agentBucket: prev.agent_bucket,
+        });
+        if (emailResult.sent) {
+          await sql`
+            INSERT INTO clawback_history (case_id, event_type, note, actor)
+            VALUES (${id}, 'email_sent', ${'Resolved email sent (auto, status ' + autoStatusChange.to + ')'}, ${session.username})
+          `;
+        }
+      } catch (e) {
+        console.error(`[events] resolved-email exception for case ${id}:`, e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    return NextResponse.json({ ok: true, autoStatusChange });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
