@@ -85,7 +85,7 @@ export async function GET() {
         a.name AS adviser_name,
         c.agent_bucket,
         c.clawback_date::text AS clawback_date,
-        COALESCE(c.final_clawback_due, c.openwork_clawback_due, c.clawback_due)::text AS gross,
+        COALESCE(c.final_clawback_due, c.clawback_due)::text AS gross,
         c.saved_amount::text  AS saved_amount,
         c.resold_amount::text AS resold_amount,
         c.status,

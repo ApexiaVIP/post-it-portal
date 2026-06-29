@@ -82,7 +82,7 @@ export async function GET(req: Request) {
         c.ebah_warning,
         c.status,
         c.clawback_due::float AS clawback_due,
-        COALESCE(c.final_clawback_due, c.openwork_clawback_due, c.clawback_due)::float AS effective_cb,
+        COALESCE(c.final_clawback_due, c.clawback_due)::float AS effective_cb,
         c.agent_bucket,
         c.adviser_id,
         a.name            AS adviser_name
