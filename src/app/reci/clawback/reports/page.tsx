@@ -15,7 +15,19 @@
  * the scope + year so a stack of paper printouts is identifiable.
  */
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { PrintButton, PrintHeader } from "@/components/print";
+
+interface SummaryResp {
+  scoped: boolean;
+  onBooks:  { amount: number; cases: number };
+  netExposure: number;
+  lost:     { amount: number; cases: number };
+  resolved: { amount: number; cases: number; savedAmount: number; resoldAmount: number; reinstatedCases: number };
+  urgent:   { amount: number; cases: number };
+  pending:  { amount: number; cases: number };
+  active:   { amount: number; cases: number };
+}
 
 type Scope = "week" | "month" | "quarter" | "half" | "year";
 
@@ -63,6 +75,7 @@ export default function ClawbackReportsPage() {
   const [scope, setScope] = useState<Scope>("month");
   const [year, setYear]   = useState<number>(new Date().getUTCFullYear());
   const [data, setData]   = useState<ReportResp | null>(null);
+  const [summary, setSummary] = useState<SummaryResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,10 +83,14 @@ export default function ClawbackReportsPage() {
     setLoading(true); setError(null);
     try {
       const p = new URLSearchParams({ scope, year: String(year) });
-      const r = await fetch(`/api/reci/clawback/reports?${p.toString()}`, { cache: "no-store" });
+      const [r, s] = await Promise.all([
+        fetch(`/api/reci/clawback/reports?${p.toString()}`, { cache: "no-store" }),
+        fetch(`/api/reci/clawback/summary`, { cache: "no-store" }),
+      ]);
       if (!r.ok) throw new Error(`fetch failed (${r.status})`);
       const j = await r.json();
       setData(j);
+      if (s.ok) setSummary(await s.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -121,6 +138,66 @@ export default function ClawbackReportsPage() {
           <PrintButton />
         </div>
       </div>
+
+      {/* Executive summary tiles. Click any tile to drop into the
+          dashboard with the matching filter pre-applied. */}
+      {summary && (
+        <section className="mt-4">
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Executive summary{summary.scoped ? " (scoped to your cases)" : ""}
+          </h2>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+            <SummaryTile
+              label="On the books"
+              amount={summary.onBooks.amount}
+              cases={summary.onBooks.cases}
+              accent="slate"
+              href="/reci/clawback"
+              sub={`Net exposure: ${gbp(summary.netExposure)}`}
+            />
+            <SummaryTile
+              label="Urgent"
+              amount={summary.urgent.amount}
+              cases={summary.urgent.cases}
+              accent="red"
+              href="/reci/clawback?source=new_ow&status=open"
+              sub="New OW + still active"
+            />
+            <SummaryTile
+              label="Pending action"
+              amount={summary.pending.amount}
+              cases={summary.pending.cases}
+              accent="amber"
+              href="/reci/clawback?status=open"
+              sub="Open, no action yet"
+            />
+            <SummaryTile
+              label="Actively being worked"
+              amount={summary.active.amount}
+              cases={summary.active.cases}
+              accent="blue"
+              href="/reci/clawback?status=open"
+              sub="Open, someone's on it"
+            />
+            <SummaryTile
+              label="Resolved"
+              amount={summary.resolved.amount}
+              cases={summary.resolved.cases}
+              accent="green"
+              href="/reci/clawback?status=saved"
+              sub={`Saved ${gbp(summary.resolved.savedAmount)} · Resold ${gbp(summary.resolved.resoldAmount)}`}
+            />
+            <SummaryTile
+              label="Lost"
+              amount={summary.lost.amount}
+              cases={summary.lost.cases}
+              accent="rose"
+              href="/reci/clawback?status=dead"
+              sub="Clawback went through"
+            />
+          </div>
+        </section>
+      )}
 
       {/* Controls */}
       <section className="no-print mt-4 flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-white p-2">
@@ -249,5 +326,51 @@ function SellerTable({ rows, totals }: {
         </tr>
       </tbody>
     </table>
+  );
+}
+
+type TileAccent = "slate" | "red" | "amber" | "blue" | "green" | "rose";
+
+const ACCENT_CLASSES: Record<TileAccent, string> = {
+  slate: "border-slate-300 bg-white hover:bg-slate-50",
+  red:   "border-red-300 bg-red-50 hover:bg-red-100",
+  amber: "border-amber-300 bg-amber-50 hover:bg-amber-100",
+  blue:  "border-blue-300 bg-blue-50 hover:bg-blue-100",
+  green: "border-emerald-300 bg-emerald-50 hover:bg-emerald-100",
+  rose:  "border-rose-300 bg-rose-50 hover:bg-rose-100",
+};
+
+const ACCENT_LABEL: Record<TileAccent, string> = {
+  slate: "text-slate-600",
+  red:   "text-red-700",
+  amber: "text-amber-700",
+  blue:  "text-blue-700",
+  green: "text-emerald-700",
+  rose:  "text-rose-700",
+};
+
+function SummaryTile({ label, amount, cases, accent, href, sub }: {
+  label: string;
+  amount: number;
+  cases: number;
+  accent: TileAccent;
+  href: string;
+  sub?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`block rounded border p-3 transition-colors ${ACCENT_CLASSES[accent]}`}
+      title={`Click to drill into the dashboard (${cases} case${cases === 1 ? "" : "s"})`}
+    >
+      <div className={`text-xs font-semibold uppercase tracking-wide ${ACCENT_LABEL[accent]}`}>
+        {label}
+      </div>
+      <div className="mt-1 text-xl font-semibold tabular-nums">{gbp(amount)}</div>
+      <div className="text-xs text-slate-500">
+        {cases.toLocaleString("en-GB")} case{cases === 1 ? "" : "s"}
+      </div>
+      {sub && <div className="mt-1 text-[11px] text-slate-500">{sub}</div>}
+    </Link>
   );
 }
