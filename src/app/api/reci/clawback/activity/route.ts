@@ -43,7 +43,8 @@ export async function GET(req: Request) {
     .filter((s) => KNOWN_EVENT_TYPES.has(s));
   const adviserRaw = searchParams.get("adviser") || "";
 
-  const where: string[] = [];
+  // Always hide events on soft-deleted cases from the audit feed.
+  const where: string[] = ["c.deleted_at IS NULL"];
   const params: (string | number | string[])[] = [];
   function add(clause: string, value: string | number | string[]) {
     params.push(value);

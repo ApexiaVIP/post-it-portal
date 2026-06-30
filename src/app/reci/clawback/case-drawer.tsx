@@ -247,7 +247,7 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
   // Open form (only one at a time). Prefill state lets the warning-guide
   // buttons launch a panel with a sensible starting point (e.g. status =
   // 'saved' for "Mark mandate reinstated").
-  type Panel = null | "status" | "note" | "contact" | "money" | "notify" | "final" | "lost" | "details";
+  type Panel = null | "status" | "note" | "contact" | "money" | "notify" | "final" | "lost" | "details" | "delete";
   const [panel, setPanel] = useState<Panel>(null);
   const [statusPrefill, setStatusPrefill] = useState<Status | null>(null);
   const [moneyPrefill, setMoneyPrefill] = useState<MoneyKind | null>(null);
@@ -394,6 +394,30 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
         await loadHistory();
         onChange();
       }
+    } catch (e) {
+      flash(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+      setPanel(null);
+    }
+  }
+
+  async function deleteCase(reason: string) {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/reci/clawback/cases/${row.id}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: reason || undefined }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        flash(`Failed: ${j.error || r.statusText}`);
+        return;
+      }
+      // Tell parent to refresh + close the drawer (case is now hidden).
+      onChange();
+      onClose();
     } catch (e) {
       flash(`Failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -667,6 +691,13 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
                     onClick={() => openPanel("details")}
                   />
                 )}
+                {canEditDetails && (
+                  <ActionBtn
+                    label="Delete case"
+                    onClick={() => openPanel("delete")}
+                    accent="red"
+                  />
+                )}
               </>
             )}
           </div>
@@ -731,6 +762,15 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
             advisers={advisers}
             onCancel={() => setPanel(null)}
             onSubmit={saveDetails}
+          />
+        )}
+        {panel === "delete" && (
+          <DeleteForm
+            busy={busy}
+            clientName={row.client_name}
+            policyNumber={row.policy_number}
+            onCancel={() => setPanel(null)}
+            onSubmit={deleteCase}
           />
         )}
 
@@ -1086,6 +1126,66 @@ function LostForm({ busy, clientName, clawbackDue, onCancel, onSubmit }: {
           className="rounded bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
         >
           {busy ? "Working…" : "Mark as LOST"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function DeleteForm({ busy, clientName, policyNumber, onCancel, onSubmit }: {
+  busy: boolean;
+  clientName: string;
+  policyNumber: string;
+  onCancel: () => void;
+  onSubmit: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); onSubmit(reason.trim()); }}
+      className="mx-5 mt-3 rounded border-2 border-red-300 bg-red-50 p-3 text-sm"
+    >
+      <div className="mb-2 flex items-start gap-2">
+        <span className="inline-block rounded bg-red-600 px-2 py-0.5 text-xs font-bold uppercase text-white">
+          Confirm
+        </span>
+        <div className="text-sm text-red-900">
+          <strong>Delete case for {clientName} ({policyNumber})?</strong>
+          <div className="mt-1 text-xs text-red-800">
+            The case will disappear from the dashboard, reports, forecast and notifications.
+            It stays in the database (with its full history) so we can restore it later if needed.
+            Reason is optional but helpful for the audit log.
+          </div>
+        </div>
+      </div>
+      <label className="mt-2 flex flex-col gap-1">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+          Reason (optional)
+        </span>
+        <textarea
+          rows={2}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. Increasing cover (no CB), duplicate entry, wrong policy"
+          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          autoFocus
+        />
+      </label>
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="rounded px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+        >
+          {busy ? "Working…" : "Delete case"}
         </button>
       </div>
     </form>

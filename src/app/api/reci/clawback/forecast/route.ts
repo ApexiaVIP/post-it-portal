@@ -94,7 +94,8 @@ export async function GET() {
         c.postcode
      FROM clawback_cases c
      LEFT JOIN advisers a ON a.id = c.adviser_id
-     WHERE c.clawback_date IS NOT NULL
+     WHERE c.deleted_at IS NULL
+       AND c.clawback_date IS NOT NULL
        AND c.clawback_date >= $1::date
        AND c.clawback_date <= $2::date
        AND c.status NOT IN ('saved','resold','closed')
@@ -201,7 +202,8 @@ export async function GET() {
     `SELECT COALESCE(SUM(c.net_at_risk), 0)::text AS net,
             COUNT(*)::text                       AS cases
      FROM clawback_cases c
-     WHERE c.status NOT IN ('saved','resold','closed')
+     WHERE c.deleted_at IS NULL
+       AND c.status NOT IN ('saved','resold','closed')
        ${scopeWhere}`,
     [],
   );
@@ -220,7 +222,8 @@ export async function GET() {
             c.status
      FROM clawback_cases c
      LEFT JOIN advisers a ON a.id = c.adviser_id
-     WHERE c.clawback_date IS NOT NULL
+     WHERE c.deleted_at IS NULL
+       AND c.clawback_date IS NOT NULL
        AND c.clawback_date >= $1::date
        AND c.clawback_date <= $2::date
        AND c.status NOT IN ('saved','resold','closed')

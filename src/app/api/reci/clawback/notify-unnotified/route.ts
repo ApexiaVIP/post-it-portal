@@ -66,7 +66,8 @@ export async function POST(req: Request) {
            c.clawback_due::text AS clawback_due
     FROM clawback_cases c
     LEFT JOIN clawback_uploads up ON up.id = c.last_seen_upload_id
-    WHERE c.clawback_due > 0
+    WHERE c.deleted_at IS NULL
+      AND c.clawback_due > 0
       AND c.notified_at IS NULL
     ORDER BY c.clawback_due DESC NULLS LAST, c.id ASC
   `;

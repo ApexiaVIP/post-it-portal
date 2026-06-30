@@ -123,6 +123,11 @@ export function parseEbahXlsx(buf: Buffer | ArrayBuffer): ParseResult {
       errors.push({ rowIndex: i + 1, reason: "missing client name" });
       continue;
     }
+    // Per Pauline (29 Jun 2026): rows tagged "Increasing cover" never
+    // accrue a CB so they're noise. Skip on ingest.
+    const warningRaw = toStr(r[COL.warning]);
+    if (warningRaw && /increasing cover/i.test(warningRaw)) continue;
+
     const { first, last } = splitClientName(clientName);
     const address = joinNonEmpty([
       toStr(r[COL.address_1]),

@@ -84,7 +84,8 @@ export async function GET(req: Request) {
           c.resold_amount::text AS resold_amount
         FROM clawback_cases c
         LEFT JOIN advisers a ON a.id = c.adviser_id
-        WHERE c.adviser_id = ${adviserScope}
+        WHERE c.deleted_at IS NULL
+          AND c.adviser_id = ${adviserScope}
           AND (c.clawback_date IS NULL OR EXTRACT(YEAR FROM c.clawback_date) = ${year})
       `
     : await sql<{
@@ -106,8 +107,8 @@ export async function GET(req: Request) {
           c.resold_amount::text AS resold_amount
         FROM clawback_cases c
         LEFT JOIN advisers a ON a.id = c.adviser_id
-        WHERE c.clawback_date IS NULL
-           OR EXTRACT(YEAR FROM c.clawback_date) = ${year}
+        WHERE c.deleted_at IS NULL
+          AND (c.clawback_date IS NULL OR EXTRACT(YEAR FROM c.clawback_date) = ${year})
       `;
 
   // Group by (period, bucket).
