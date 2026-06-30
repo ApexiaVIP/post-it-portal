@@ -49,16 +49,24 @@ export async function PATCH(
   if (!Number.isFinite(id) || id <= 0) {
     return NextResponse.json({ error: "bad id" }, { status: 400 });
   }
-  const body = await req.json().catch(() => ({})) as { status?: unknown; status_note?: unknown };
+  const body = await req.json().catch(() => ({})) as { status?: unknown; status_note?: unknown; lost_reason?: unknown };
   const newStatus = body.status;
   const noteRaw   = typeof body.status_note === "string" ? body.status_note.trim() : "";
   const note      = noteRaw.length > 0 ? noteRaw : null;
+  const VALID_LOST_REASONS = new Set(["dead_client","dead_contact","pitched_missed","other"]);
+  const lostReasonRaw = typeof body.lost_reason === "string" ? body.lost_reason.trim() : "";
+  const lostReason = lostReasonRaw && VALID_LOST_REASONS.has(lostReasonRaw) ? lostReasonRaw : null;
 
   if (newStatus !== undefined && !isStatus(newStatus)) {
     return NextResponse.json({ error: "bad status" }, { status: 400 });
   }
   if (newStatus === undefined) {
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });
+  }
+  // LOST transitions require a lost_reason category so Guy's
+  // categorised report has somewhere to put the case.
+  if (newStatus === "dead" && !lostReason) {
+    return NextResponse.json({ error: "lost_reason required when marking as LOST" }, { status: 400 });
   }
 
   const client = await db.connect();
@@ -95,14 +103,17 @@ export async function PATCH(
     // out of 'open' into a resolved state.
     const resolvedStates = new Set(["saved","resold","dead","reinstated","closed"]);
     const becameResolved = resolvedStates.has(newStatus) && !resolvedStates.has(prev.status);
+    // When marking LOST: also stamp lost_reason and clear it on any
+    // other status transition so the field stays consistent.
     await client.query(
       `UPDATE clawback_cases SET
          status = $1,
          status_note = $2,
-         resolved_at = CASE WHEN $3::boolean THEN now() ELSE resolved_at END,
+         lost_reason = CASE WHEN $1 = 'dead' THEN $3::text ELSE NULL END,
+         resolved_at = CASE WHEN $4::boolean THEN now() ELSE resolved_at END,
          updated_at = now()
-       WHERE id = $4`,
-      [newStatus, note, becameResolved, id],
+       WHERE id = $5`,
+      [newStatus, note, lostReason, becameResolved, id],
     );
 
     await client.query(
@@ -111,6 +122,14 @@ export async function PATCH(
        VALUES ($1, 'status_change', 'status', $2, $3, $4, $5)`,
       [id, prev.status, newStatus, note, session.username],
     );
+    if (newStatus === "dead" && lostReason) {
+      await client.query(
+        `INSERT INTO clawback_history
+           (case_id, event_type, field, old_value, new_value, actor)
+         VALUES ($1, 'ebah_change', 'lost_reason', NULL, $2, $3)`,
+        [id, lostReason, session.username],
+      );
+    }
 
     await client.query("COMMIT");
 

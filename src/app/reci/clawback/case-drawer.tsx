@@ -280,13 +280,17 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
 
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(null), 4000); }
 
-  async function patchStatus(newStatus: Status, note: string) {
+  async function patchStatus(newStatus: Status, note: string, lostReason?: string) {
     setBusy(true);
     try {
       const r = await fetch(`/api/reci/clawback/cases/${row.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status: newStatus, status_note: note || undefined }),
+        body: JSON.stringify({
+          status: newStatus,
+          status_note: note || undefined,
+          lost_reason: lostReason || undefined,
+        }),
       });
       const j = await r.json();
       if (!r.ok || !j.ok) {
@@ -752,7 +756,7 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
             clientName={row.client_name}
             clawbackDue={Number(row.effective_clawback_due ?? row.clawback_due ?? 0)}
             onCancel={() => setPanel(null)}
-            onSubmit={(note) => patchStatus("dead", note)}
+            onSubmit={(note, lostReason) => patchStatus("dead", note, lostReason)}
           />
         )}
         {panel === "details" && (
@@ -1070,19 +1074,28 @@ function FinalCbForm({ busy, currentAmount, providerAmount, onCancel, onSubmit }
   );
 }
 
+const LOST_REASONS: { value: string; label: string; hint: string }[] = [
+  { value: "dead_client",    label: "Dead client (can't resell)", hint: "Claim declined; provider must cancel from outset and refund premiums." },
+  { value: "dead_contact",   label: "Dead contact",               hint: "Lost the means to speak to the client." },
+  { value: "pitched_missed", label: "Lost (pitched and missed)",  hint: "Spoke to client; couldn't reinstate or resell." },
+  { value: "other",          label: "Other",                      hint: "Use the note to explain." },
+];
+
 function LostForm({ busy, clientName, clawbackDue, onCancel, onSubmit }: {
   busy: boolean;
   clientName: string;
   clawbackDue: number;
   onCancel: () => void;
-  onSubmit: (note: string) => void;
+  onSubmit: (note: string, lostReason: string) => void;
 }) {
   const [note, setNote] = useState("");
-  const valid = note.trim().length > 0;
+  const [lostReason, setLostReason] = useState("");
+  const valid = note.trim().length > 0 && lostReason.length > 0;
   const cb = clawbackDue.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2 });
+  const activeHint = LOST_REASONS.find((r) => r.value === lostReason)?.hint;
   return (
     <form
-      onSubmit={(e) => { e.preventDefault(); if (valid) onSubmit(note.trim()); }}
+      onSubmit={(e) => { e.preventDefault(); if (valid) onSubmit(note.trim(), lostReason); }}
       className="mx-5 mt-3 rounded border-2 border-red-300 bg-red-50 p-3 text-sm"
     >
       <div className="mb-2 flex items-start gap-2">
@@ -1094,21 +1107,37 @@ function LostForm({ busy, clientName, clawbackDue, onCancel, onSubmit }: {
           <div className="mt-1 text-xs text-red-800">
             This confirms the clawback of <strong>{cb}</strong> will happen. The case will
             stay on the dashboard for reporting but drop out of forecast alerts. A
-            resolution email goes to Guy and Pauline.
+            resolution email goes to Guy and Poz.
           </div>
         </div>
       </div>
       <label className="mt-2 flex flex-col gap-1">
         <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
-          Reason (required)
+          Lost category (required)
+        </span>
+        <select
+          value={lostReason}
+          onChange={(e) => setLostReason(e.target.value)}
+          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          autoFocus
+        >
+          <option value="">Pick a reason...</option>
+          {LOST_REASONS.map((r) => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
+        </select>
+        {activeHint && <span className="text-xs text-red-800">{activeHint}</span>}
+      </label>
+      <label className="mt-2 flex flex-col gap-1">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+          Note (required)
         </span>
         <textarea
           rows={3}
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Why is this case unsavable? Client declined, no response, etc."
+          placeholder="Detail of the conversation, decision, or contact attempt."
           className="rounded border border-slate-300 bg-white px-2 py-1.5"
-          autoFocus
         />
       </label>
       <div className="mt-3 flex justify-end gap-2">
@@ -1125,7 +1154,7 @@ function LostForm({ busy, clientName, clawbackDue, onCancel, onSubmit }: {
           disabled={busy || !valid}
           className="rounded bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
         >
-          {busy ? "Working…" : "Mark as LOST"}
+          {busy ? "Working..." : "Mark as LOST"}
         </button>
       </div>
     </form>

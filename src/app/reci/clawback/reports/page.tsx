@@ -56,6 +56,45 @@ interface ReportResp {
   overall: BucketRow[];
 }
 
+// Categorised monthly report. One row per (month x category), built
+// from L&G warning + status + lost_reason. See the API doc for the
+// exact rules.
+type Category =
+  | "CFO" | "Lapsed" | "Reinstated" | "Resold"
+  | "Dead client" | "Dead contact" | "Lost" | "Other";
+
+interface CategoryMonth {
+  key: string;
+  label: string;
+  start: string;
+  end: string;
+  byCategory: Record<Category, { amount: number; cases: number }>;
+  total: { amount: number; cases: number };
+}
+
+interface CategoryReportResp {
+  year: number;
+  scoped: boolean;
+  categories: Category[];
+  months: CategoryMonth[];
+  unscheduled: CategoryMonth | null;
+  overall: {
+    byCategory: Record<Category, { amount: number; cases: number }>;
+    total: { amount: number; cases: number };
+  };
+}
+
+const CATEGORY_COLOURS: Record<Category, string> = {
+  "CFO":           "text-red-700",
+  "Lapsed":        "text-amber-700",
+  "Reinstated":    "text-emerald-700",
+  "Resold":        "text-blue-700",
+  "Dead client":   "text-rose-700",
+  "Dead contact":  "text-rose-700",
+  "Lost":          "text-rose-700",
+  "Other":         "text-slate-600",
+};
+
 const SCOPE_LABELS: Record<Scope, string> = {
   week:    "Weekly",
   month:   "Monthly",
@@ -76,6 +115,7 @@ export default function ClawbackReportsPage() {
   const [year, setYear]   = useState<number>(new Date().getUTCFullYear());
   const [data, setData]   = useState<ReportResp | null>(null);
   const [summary, setSummary] = useState<SummaryResp | null>(null);
+  const [catReport, setCatReport] = useState<CategoryReportResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,14 +123,16 @@ export default function ClawbackReportsPage() {
     setLoading(true); setError(null);
     try {
       const p = new URLSearchParams({ scope, year: String(year) });
-      const [r, s] = await Promise.all([
+      const [r, s, c] = await Promise.all([
         fetch(`/api/reci/clawback/reports?${p.toString()}`, { cache: "no-store" }),
         fetch(`/api/reci/clawback/summary`, { cache: "no-store" }),
+        fetch(`/api/reci/clawback/category-report?year=${year}`, { cache: "no-store" }),
       ]);
       if (!r.ok) throw new Error(`fetch failed (${r.status})`);
       const j = await r.json();
       setData(j);
       if (s.ok) setSummary(await s.json());
+      if (c.ok) setCatReport(await c.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -237,6 +279,11 @@ export default function ClawbackReportsPage() {
         </div>
       )}
 
+      {/* Categorised monthly report (Guy's view). Sits above the per-
+          seller roll-up because the categories tell him "how much is
+          where in the workflow" at a glance, before he drills in. */}
+      {catReport && <CategoryReportSection report={catReport} />}
+
       {/* Per-period sections */}
       {loading ? (
         <div className="mt-6 text-center text-slate-400">Loading...</div>
@@ -372,5 +419,82 @@ function SummaryTile({ label, amount, cases, accent, href, sub }: {
       </div>
       {sub && <div className="mt-1 text-[11px] text-slate-500">{sub}</div>}
     </Link>
+  );
+}
+
+function CategoryReportSection({ report }: { report: CategoryReportResp }) {
+  // Show months that have at least one case + the Unscheduled bucket
+  // if present. Empty months would just be noise.
+  const months = report.months.filter((m) => m.total.cases > 0);
+  const blocks: CategoryMonth[] = report.unscheduled ? [...months, report.unscheduled] : months;
+  if (blocks.length === 0) {
+    return (
+      <section className="mt-6 rounded border border-slate-200 bg-white p-4 text-sm text-slate-500">
+        No categorised data for {report.year}.
+      </section>
+    );
+  }
+  return (
+    <section className="mt-6">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Monthly breakdown by category{report.scoped ? " (scoped to your cases)" : ""}
+      </h2>
+      <p className="mb-3 text-xs text-slate-500">
+        Cases land in one bucket each, derived from L&amp;G warning + status + lost reason.
+        CFO / Lapsed reflect what L&amp;G said; Resold / Reinstated / Dead client / Dead contact / Lost reflect
+        what the team decided.
+      </p>
+      <div className="overflow-x-auto rounded border border-slate-200 bg-white">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
+            <tr>
+              <th className="px-3 py-2 text-left">Month</th>
+              {report.categories.map((c) => (
+                <th key={c} className={`px-3 py-2 text-right ${CATEGORY_COLOURS[c]}`}>{c}</th>
+              ))}
+              <th className="px-3 py-2 text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {blocks.map((m) => (
+              <tr key={m.key} className="border-t border-slate-200">
+                <td className="px-3 py-2 font-medium">{m.label}</td>
+                {report.categories.map((c) => {
+                  const cell = m.byCategory[c];
+                  return (
+                    <td key={c} className="px-3 py-2 text-right tabular-nums">
+                      {cell.amount > 0 ? (
+                        <>
+                          <div className={CATEGORY_COLOURS[c]}>{gbp(cell.amount)}</div>
+                          <div className="text-[11px] text-slate-500">{cell.cases} case{cell.cases === 1 ? "" : "s"}</div>
+                        </>
+                      ) : (
+                        <span className="text-slate-300">-</span>
+                      )}
+                    </td>
+                  );
+                })}
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                  <div>{gbp(m.total.amount)}</div>
+                  <div className="text-[11px] text-slate-500">{m.total.cases} case{m.total.cases === 1 ? "" : "s"}</div>
+                </td>
+              </tr>
+            ))}
+            <tr className="border-t-2 border-slate-300 bg-amber-50 font-semibold">
+              <td className="px-3 py-2">Year total</td>
+              {report.categories.map((c) => {
+                const cell = report.overall.byCategory[c];
+                return (
+                  <td key={c} className={`px-3 py-2 text-right tabular-nums ${CATEGORY_COLOURS[c]}`}>
+                    {cell.amount > 0 ? gbp(cell.amount) : <span className="text-slate-300">-</span>}
+                  </td>
+                );
+              })}
+              <td className="px-3 py-2 text-right tabular-nums">{gbp(report.overall.total.amount)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
