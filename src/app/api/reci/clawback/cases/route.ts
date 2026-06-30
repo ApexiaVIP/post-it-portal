@@ -138,6 +138,8 @@ export async function GET(req: Request) {
         c.client_first_name,
         c.client_last_name,
         c.client_dob::text AS client_dob,
+        c.client_phone,
+        c.client_email,
         c.postcode,
         c.policy_type,
         c.net_premium,
