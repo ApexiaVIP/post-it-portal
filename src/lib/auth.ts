@@ -227,10 +227,13 @@ export function canNotifyCam(username: string | null | undefined): boolean {
 // see every case. Used by the cases / reports / forecast / activity
 // APIs to decide whether to inject a WHERE c.adviser_id = $scope.
 //
-// After the June 2026 tier rebuild EVERYONE with clawback access sees
-// every case for transparency / lead browsing -- the per-case write
-// gate is enforced by getEditableAdviserId() in the route handlers, not
-// by the read-side scope.
+// Scope rules (Pauline, 29 Jun 2026):
+//   - Admin / viewer / senior seller -> null (see everything)
+//   - Junior seller -> their own adviser_id (see ONLY their own cases)
+//
+// Junior sellers used to see every case but only edit their own. Pauline
+// asked to lock the read view down too so Gurdaht and Atikur can focus
+// on their own caseload without the noise of others' cases.
 //
 // Return -1 (sentinel) for anyone who isn't in any clawback tier --
 // caller MUST treat as 403.
@@ -238,9 +241,18 @@ export async function clawbackAdviserScope(
   username: string | null | undefined,
 ): Promise<number | null | -1> {
   if (!username) return -1;
-  if (isClawbackAdmin(username) || isClawbackViewer(username)
-      || isSeniorSeller(username) || isJuniorSeller(username)) {
+  if (isClawbackAdmin(username) || isClawbackViewer(username) || isSeniorSeller(username)) {
     return null;
+  }
+  if (isJuniorSeller(username)) {
+    // Same lookup as getEditableAdviserId: resolve the adviser row by
+    // username so the junior seller's reads narrow to their adviser_id.
+    const u = username.toLowerCase();
+    const r = await sql<{ id: number }>`
+      SELECT id FROM advisers WHERE username = ${u} LIMIT 1
+    `;
+    if (r.rowCount === 0) return -1;
+    return r.rows[0].id;
   }
   return -1;
 }

@@ -54,7 +54,7 @@ export async function GET() {
               COALESCE(c.final_clawback_due, c.clawback_due)::numeric AS effective_cb,
               c.saved_amount, c.resold_amount
        FROM clawback_cases c
-       WHERE 1=1 ${scopeWhere}
+       WHERE c.deleted_at IS NULL ${scopeWhere}
      ),
      activity AS (
        SELECT h.case_id, COUNT(*) FILTER (

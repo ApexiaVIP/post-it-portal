@@ -78,7 +78,8 @@ export async function GET(req: Request) {
   const limit          = Math.min(Number(searchParams.get("limit") || 1000), 5000);
 
   // Build a parameterised WHERE clause from the optional filters.
-  const where: string[] = [];
+  // Soft-deleted cases are hidden from every read view.
+  const where: string[] = ["c.deleted_at IS NULL"];
   const params: (string | number)[] = [];
   function add(clause: string, value: string | number) {
     params.push(value);
@@ -198,15 +199,17 @@ export async function GET(req: Request) {
 
   // Distinct warnings + bucket breakdown for the filter dropdown and tiles.
   // Scope these too so sellers only see their own warnings / a single bucket.
-  const scopeFilter = typeof scope === "number" ? `WHERE adviser_id = ${scope}` : "";
-  const scopeFilterC = typeof scope === "number" ? `WHERE c.adviser_id = ${scope}` : "";
+  // Always filter soft-deleted; scope is an optional extra adviser
+  // constraint for junior sellers.
+  const scopeAnd = typeof scope === "number" ? ` AND adviser_id = ${scope}` : "";
+  const scopeAndC = typeof scope === "number" ? ` AND c.adviser_id = ${scope}` : "";
   const [warningsQ, bucketsQ] = await Promise.all([
     sql.query(
       `SELECT DISTINCT ebah_warning AS warning,
               COUNT(*)::int AS cases,
               COALESCE(SUM(clawback_due), 0)::float AS clawback_due
        FROM clawback_cases
-       ${scopeFilter ? scopeFilter + " AND" : "WHERE"} ebah_warning IS NOT NULL
+       WHERE deleted_at IS NULL${scopeAnd} AND ebah_warning IS NOT NULL
        GROUP BY ebah_warning
        ORDER BY clawback_due DESC NULLS LAST, ebah_warning ASC`,
       [],
@@ -222,7 +225,7 @@ export async function GET(req: Request) {
           COALESCE(SUM(c.net_at_risk), 0)::float                              AS net_at_risk
        FROM clawback_cases c
        LEFT JOIN advisers a ON a.id = c.adviser_id
-       ${scopeFilterC}
+       WHERE c.deleted_at IS NULL${scopeAndC}
        GROUP BY c.agent_bucket, a.name, c.adviser_id
        ORDER BY clawback_due DESC NULLS LAST`,
       [],

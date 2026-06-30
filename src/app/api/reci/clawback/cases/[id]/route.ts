@@ -16,7 +16,7 @@
  */
 import { NextResponse } from "next/server";
 import { sql, db } from "@vercel/postgres";
-import { getSession, isClawbackUser, getEditableAdviserId } from "@/lib/auth";
+import { getSession, isClawbackUser, isClawbackAdmin, getEditableAdviserId } from "@/lib/auth";
 import { sendClawbackResolvedEmail } from "@/lib/reci/email";
 
 export const dynamic = "force-dynamic";
@@ -146,4 +146,45 @@ export async function PATCH(
   } finally {
     client.release();
   }
+}
+
+/**
+ * DELETE /api/reci/clawback/cases/[id]
+ *
+ * Soft-delete a case (Pauline / Poz / Jimmy only). Sets deleted_at = now()
+ * so it disappears from every read view -- dashboard, reports, forecast,
+ * summary tiles, notify-unnotified, activity feed. The row stays in the
+ * DB with its full history so an admin can restore it via SQL if needed.
+ *
+ * Body (optional):  { reason?: string }
+ */
+export async function DELETE(
+  req: Request,
+  { params }: { params: { id: string } },
+) {
+  const session = await getSession();
+  if (!isClawbackUser(session.username) || !isClawbackAdmin(session.username)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  const id = Number(params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return NextResponse.json({ error: "bad id" }, { status: 400 });
+  }
+  const body = await req.json().catch(() => ({})) as { reason?: unknown };
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+
+  const r = await sql`
+    UPDATE clawback_cases
+       SET deleted_at = now(), updated_at = now()
+     WHERE id = ${id} AND deleted_at IS NULL
+     RETURNING id
+  `;
+  if (r.rowCount === 0) {
+    return NextResponse.json({ error: "case not found or already deleted" }, { status: 404 });
+  }
+  await sql`
+    INSERT INTO clawback_history (case_id, event_type, note, actor)
+    VALUES (${id}, 'note', ${'Case deleted (soft) by ' + session.username + (reason ? ': ' + reason : '')}, ${session.username})
+  `;
+  return NextResponse.json({ ok: true, deletedId: id });
 }
