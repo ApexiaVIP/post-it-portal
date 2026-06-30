@@ -882,6 +882,7 @@ export default function ClawbackPage() {
             ownerLabel={openCase.adviser_name ?? (openCase.agent_bucket === "xstaff" ? "Xstaff" : openCase.agent_bucket === "legacy" ? "Legacy" : "team")}
             canNotify={me?.canNotifyCam ?? false}
             canEditFinalCb={me?.isClawbackAdmin ?? false}
+            canEditDetails={me?.isClawbackAdmin ?? false}
             onClose={() => setOpenCase(null)}
             onChange={() => { void load(); }}
           />

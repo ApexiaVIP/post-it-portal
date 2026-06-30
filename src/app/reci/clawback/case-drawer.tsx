@@ -24,7 +24,11 @@ export interface DrawerCaseRow {
   policy_number: string;
   provider: string;
   client_name: string;
+  client_first_name: string | null;
+  client_last_name: string | null;
   client_dob: string | null;
+  client_phone: string | null;
+  client_email: string | null;
   postcode: string | null;
   policy_type: string | null;
   net_premium: string | null;
@@ -212,7 +216,7 @@ function gbp(v: string | number | null | undefined) {
   return n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, canEditFinalCb, onClose, onChange }: {
+export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, canEditFinalCb, canEditDetails, onClose, onChange }: {
   row: DrawerCaseRow;
   canEdit: boolean;
   /**
@@ -226,6 +230,8 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
   ownerLabel?: string;
   canNotify: boolean;
   canEditFinalCb: boolean;
+  /** Admin only: gates the "Edit case details" button + form. */
+  canEditDetails: boolean;
   onClose: () => void;
   onChange: () => void;
 }) {
@@ -241,7 +247,7 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
   // Open form (only one at a time). Prefill state lets the warning-guide
   // buttons launch a panel with a sensible starting point (e.g. status =
   // 'saved' for "Mark mandate reinstated").
-  type Panel = null | "status" | "note" | "contact" | "money" | "notify" | "final" | "lost";
+  type Panel = null | "status" | "note" | "contact" | "money" | "notify" | "final" | "lost" | "details";
   const [panel, setPanel] = useState<Panel>(null);
   const [statusPrefill, setStatusPrefill] = useState<Status | null>(null);
   const [moneyPrefill, setMoneyPrefill] = useState<MoneyKind | null>(null);
@@ -395,6 +401,50 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
       setPanel(null);
     }
   }
+
+  async function saveDetails(patch: Record<string, unknown>) {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/reci/clawback/cases/${row.id}/details`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        flash(`Failed: ${j.error || r.statusText}`);
+      } else {
+        flash("Case details updated.");
+        await loadHistory();
+        onChange();
+      }
+    } catch (e) {
+      flash(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+      setPanel(null);
+    }
+  }
+
+  // Adviser list for the routing dropdown in EditDetailsForm. Loaded once
+  // the first time the user opens the Edit panel.
+  const [advisers, setAdvisers] = useState<{ id: number; name: string }[] | null>(null);
+  useEffect(() => {
+    if (panel !== "details" || advisers !== null) return;
+    let cancelled = false;
+    fetch("/api/reci/clawback/advisers", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled) return;
+        if (j && Array.isArray(j.advisers)) {
+          setAdvisers(j.advisers as { id: number; name: string }[]);
+        } else {
+          setAdvisers([]);
+        }
+      })
+      .catch(() => { if (!cancelled) setAdvisers([]); });
+    return () => { cancelled = true; };
+  }, [panel, advisers]);
 
   return (
     <>
@@ -611,6 +661,12 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
                     accent="red"
                   />
                 )}
+                {canEditDetails && (
+                  <ActionBtn
+                    label="Edit case details"
+                    onClick={() => openPanel("details")}
+                  />
+                )}
               </>
             )}
           </div>
@@ -666,6 +722,15 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
             clawbackDue={Number(row.effective_clawback_due ?? row.clawback_due ?? 0)}
             onCancel={() => setPanel(null)}
             onSubmit={(note) => patchStatus("dead", note)}
+          />
+        )}
+        {panel === "details" && (
+          <EditDetailsForm
+            busy={busy}
+            row={row}
+            advisers={advisers}
+            onCancel={() => setPanel(null)}
+            onSubmit={saveDetails}
           />
         )}
 
@@ -1024,6 +1089,190 @@ function LostForm({ busy, clientName, clawbackDue, onCancel, onSubmit }: {
         </button>
       </div>
     </form>
+  );
+}
+
+function EditDetailsForm({ busy, row, advisers, onCancel, onSubmit }: {
+  busy: boolean;
+  row: DrawerCaseRow;
+  advisers: { id: number; name: string }[] | null;
+  onCancel: () => void;
+  onSubmit: (patch: Record<string, unknown>) => void;
+}) {
+  // Each field is held as a string so empty input = clear. Date inputs
+  // use yyyy-mm-dd which matches what the API expects.
+  const [firstName, setFirstName]     = useState(row.client_first_name ?? "");
+  const [lastName,  setLastName]      = useState(row.client_last_name  ?? "");
+  const [dob,        setDob]          = useState(row.client_dob        ?? "");
+  const [phone,      setPhone]        = useState(row.client_phone      ?? "");
+  const [email,      setEmail]        = useState(row.client_email      ?? "");
+  const [postcode,   setPostcode]     = useState(row.postcode          ?? "");
+  const [policyType, setPolicyType]   = useState(row.policy_type       ?? "");
+  const [warning,    setWarning]      = useState(row.ebah_warning      ?? "");
+  const [cbDate,     setCbDate]       = useState(row.clawback_date     ?? "");
+  const [netPrem,    setNetPrem]      = useState(row.net_premium ?? "");
+  const [ebahAgent,  setEbahAgent]    = useState(row.ebah_agent_name);
+  // Seller routing: combine adviser_id + bucket into a single dropdown.
+  // "a:<id>" picks a named adviser. "b:<bucket>" picks a bucket (xstaff,
+  // legacy, needs_review).
+  const initialAssignment = row.adviser_id !== null
+    ? `a:${row.adviser_id}`
+    : `b:${row.agent_bucket || "needs_review"}`;
+  const [assignment, setAssignment] = useState(initialAssignment);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    // Diff against the original row; only send keys that actually
+    // changed. Treat empty string as "clear to null" for nullable
+    // string fields, and equal to "" only for ebah_agent_name (NOT
+    // NULL).
+    const patch: Record<string, unknown> = {};
+    const orig = {
+      client_first_name: row.client_first_name ?? "",
+      client_last_name:  row.client_last_name  ?? "",
+      client_dob:        row.client_dob        ?? "",
+      client_phone:      row.client_phone      ?? "",
+      client_email:      row.client_email      ?? "",
+      postcode:          row.postcode          ?? "",
+      policy_type:       row.policy_type       ?? "",
+      ebah_warning:      row.ebah_warning      ?? "",
+      clawback_date:     row.clawback_date     ?? "",
+      net_premium:       row.net_premium       ?? "",
+      ebah_agent_name:   row.ebah_agent_name,
+    };
+    const next = {
+      client_first_name: firstName.trim(),
+      client_last_name:  lastName.trim(),
+      client_dob:        dob.trim(),
+      client_phone:      phone.trim(),
+      client_email:      email.trim(),
+      postcode:          postcode.trim(),
+      policy_type:       policyType.trim(),
+      ebah_warning:      warning.trim(),
+      clawback_date:     cbDate.trim(),
+      net_premium:       netPrem.trim(),
+      ebah_agent_name:   ebahAgent.trim(),
+    };
+    for (const k of Object.keys(next) as (keyof typeof next)[]) {
+      if (next[k] !== orig[k]) {
+        // null-clears for empty strings, except ebah_agent_name (NOT NULL)
+        if (next[k] === "" && k !== "ebah_agent_name") {
+          patch[k] = null;
+        } else if (k === "net_premium") {
+          patch[k] = next[k] === "" ? null : Number(next[k]);
+        } else {
+          patch[k] = next[k];
+        }
+      }
+    }
+    // Routing diff
+    if (assignment !== initialAssignment) {
+      if (assignment.startsWith("a:")) {
+        const id = Number(assignment.slice(2));
+        if (Number.isFinite(id) && id > 0) {
+          patch.adviser_id   = id;
+          patch.agent_bucket = "adviser";
+        }
+      } else if (assignment.startsWith("b:")) {
+        patch.adviser_id   = null;
+        patch.agent_bucket = assignment.slice(2);
+      }
+    }
+    if (Object.keys(patch).length === 0) {
+      onCancel();
+      return;
+    }
+    onSubmit(patch);
+  }
+
+  // Validate basic inputs so we don't post garbage.
+  const dobValid    = dob === "" || /^\d{4}-\d{2}-\d{2}$/.test(dob);
+  const cbDateValid = cbDate === "" || /^\d{4}-\d{2}-\d{2}$/.test(cbDate);
+  const premValid   = netPrem === "" || (Number.isFinite(Number(netPrem)) && Number(netPrem) >= 0);
+  const allValid    = dobValid && cbDateValid && premValid;
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="mx-5 mt-3 rounded border border-slate-300 bg-slate-50 p-3 text-sm"
+    >
+      <p className="mb-2 text-xs text-slate-700">
+        Fix anything wrong on the case. Policy number, provider, CB amount,
+        Source flag, status and £ Saved / Resold are edited elsewhere. Every
+        change you save is written to the case timeline.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="First name">
+          <input value={firstName} onChange={(e) => setFirstName(e.target.value)} className={INPUT_CLS} />
+        </Field>
+        <Field label="Last name">
+          <input value={lastName} onChange={(e) => setLastName(e.target.value)} className={INPUT_CLS} />
+        </Field>
+        <Field label="DOB (yyyy-mm-dd)" error={!dobValid ? "Bad date" : undefined}>
+          <input type="date" value={dob} onChange={(e) => setDob(e.target.value)} className={INPUT_CLS} />
+        </Field>
+        <Field label="Postcode">
+          <input value={postcode} onChange={(e) => setPostcode(e.target.value.toUpperCase())} className={INPUT_CLS} />
+        </Field>
+        <Field label="Phone">
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} className={INPUT_CLS} />
+        </Field>
+        <Field label="Email">
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={INPUT_CLS} />
+        </Field>
+        <Field label="Policy type">
+          <input value={policyType} onChange={(e) => setPolicyType(e.target.value)} className={INPUT_CLS} placeholder="e.g. Life Insurance" />
+        </Field>
+        <Field label="Warning category">
+          <input value={warning} onChange={(e) => setWarning(e.target.value)} className={INPUT_CLS} placeholder="e.g. Lapse" />
+        </Field>
+        <Field label="Clawback date (yyyy-mm-dd)" error={!cbDateValid ? "Bad date" : undefined}>
+          <input type="date" value={cbDate} onChange={(e) => setCbDate(e.target.value)} className={INPUT_CLS} />
+        </Field>
+        <Field label="Net premium £" error={!premValid ? "Must be a number" : undefined}>
+          <input type="number" min="0" step="0.01" value={netPrem} onChange={(e) => setNetPrem(e.target.value)} className={INPUT_CLS} />
+        </Field>
+        <Field label="Sales agent name (L&amp;G)">
+          <input value={ebahAgent} onChange={(e) => setEbahAgent(e.target.value)} className={INPUT_CLS} />
+        </Field>
+        <Field label="Assigned seller / bucket">
+          {advisers === null ? (
+            <div className="rounded border border-slate-300 bg-white px-2 py-1.5 text-slate-400">Loading sellers…</div>
+          ) : (
+            <select value={assignment} onChange={(e) => setAssignment(e.target.value)} className={INPUT_CLS}>
+              <optgroup label="Sellers">
+                {advisers.map((a) => (
+                  <option key={a.id} value={`a:${a.id}`}>{a.name}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Buckets">
+                <option value="b:xstaff">Xstaff</option>
+                <option value="b:legacy">Legacy</option>
+                <option value="b:needs_review">Needs review</option>
+              </optgroup>
+            </select>
+          )}
+        </Field>
+      </div>
+      <FormActions
+        busy={busy}
+        onCancel={onCancel}
+        submitLabel="Save changes"
+        disabled={!allValid}
+      />
+    </form>
+  );
+}
+
+const INPUT_CLS = "rounded border border-slate-300 bg-white px-2 py-1.5";
+
+function Field({ label, children, error }: { label: string; children: React.ReactNode; error?: string }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</span>
+      {children}
+      {error && <span className="text-xs text-red-700">{error}</span>}
+    </label>
   );
 }
 
