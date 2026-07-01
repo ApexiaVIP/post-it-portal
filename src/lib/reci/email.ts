@@ -779,27 +779,31 @@ export interface ClawbackResolvedInput {
 export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promise<{ sent: boolean; reason?: string }> {
   const guy = guyEmail();
   const cc = managementCc();
-  // CAM hears about their own case being resolved too.
+  // CAM hears about their own case being updated too.
   const cam = await resolveCamRecipients(i.adviserId, i.agentBucket);
   for (const e of cam.to) if (!cc.includes(e)) cc.push(e);
-
+  // Poz asked (30 Jun 2026) to keep Guy on every update until further
+  // notice. Put him on the primary To line so he sees them front-and-
+  // centre, and CC everyone else. If his env isn't set, fall back to
+  // the CC list as the To.
   const to: string[] = [];
   if (guy) to.push(guy);
   if (to.length === 0) {
-    // Fall back to management list when Guy isn't configured -- still gets
-    // the resolution recorded somewhere.
     to.push(...cc);
     if (to.length === 0) return { sent: false, reason: "no recipient" };
   }
   const finalCc = buildCc(cc, [], to);
 
   const statusLabel = RESOLVED_STATUS_LABELS[i.newStatus] || i.newStatus;
-  const subject = `[RECI Clawback] ${statusLabel}: ${i.clientName} (${i.policyNumber})`;
+  // Per Poz: use "updated" not "resolved" -- Lost cases aren't
+  // resolved, they're just closed out.
+  const subject = `[RECI Clawback] Updated (${statusLabel}): ${i.clientName} (${i.policyNumber})`;
+  const greeting = guy ? `Hi Guy,` : `Hi team,`;
 
   const lines = [
-    `Hi Guy,`,
+    greeting,
     ``,
-    `A clawback case has been resolved on the dashboard.`,
+    `A clawback case has been updated on the dashboard.`,
     ``,
     `  Client:        ${i.clientName}`,
     `  Postcode:      ${i.postcode || "—"}`,
@@ -821,8 +825,8 @@ export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promi
 
   const caseUrl = clawbackCaseUrl(i.policyNumber);
   const html =
-    `<p>Hi Guy,</p>` +
-    `<p>A clawback case has been resolved on the dashboard.</p>` +
+    `<p>${greeting}</p>` +
+    `<p>A clawback case has been updated on the dashboard.</p>` +
     `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">` +
     row("Client", i.clientName) +
     row("Postcode", i.postcode || "—") +
@@ -840,7 +844,7 @@ export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promi
     `<p style="color:#888;font-size:12px">— RECI portal</p>`;
 
   return dispatchMail({
-    label: "clawback-resolved",
+    label: "clawback-updated",
     fromName: "RECI Clawback",
     to, cc: finalCc,
     subject, text, html,
