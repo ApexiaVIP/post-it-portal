@@ -48,6 +48,7 @@ export async function POST(
   const body = await req.json().catch(() => ({})) as {
     kind?: unknown; note?: unknown; outcome?: unknown;
     amount?: unknown; money_kind?: unknown;
+    also_apply_to?: unknown;
   };
   const kind = body.kind;
   if (typeof kind !== "string" || !(KINDS as readonly string[]).includes(kind)) {
@@ -57,6 +58,17 @@ export async function POST(
 
   const noteRaw = typeof body.note === "string" ? body.note.trim() : "";
   const outcomeRaw = typeof body.outcome === "string" ? body.outcome.trim() : "";
+
+  // Multi-policy sync (per Poz, 30 Jun 2026): notes and contact_attempts
+  // can be echoed to sibling case IDs for the same client. Sanitised
+  // below inside the transaction (existence + edit-scope check).
+  // Not allowed for money_off -- each policy has its own £ figures.
+  const alsoApplyToRaw = Array.isArray(body.also_apply_to)
+    ? body.also_apply_to.filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0)
+    : [];
+  const alsoApplyTo = (k === "note" || k === "contact_attempt")
+    ? Array.from(new Set(alsoApplyToRaw)).filter((x) => x !== id)
+    : [];
 
   const client = await db.connect();
   try {
@@ -84,15 +96,34 @@ export async function POST(
       return NextResponse.json({ error: "not your case" }, { status: 403 });
     }
 
+    // If the caller passed also_apply_to, resolve which of those IDs
+    // this user is actually allowed to touch. Skip missing / deleted /
+    // wrong-adviser cases silently. Result: sanitised list of case IDs
+    // we can safely also-write to.
+    let siblings: number[] = [];
+    if (alsoApplyTo.length > 0) {
+      const sibR = await client.query<{ id: number; adviser_id: number | null }>(
+        `SELECT id, adviser_id FROM clawback_cases
+           WHERE id = ANY($1::int[]) AND deleted_at IS NULL`,
+        [alsoApplyTo],
+      );
+      siblings = sibR.rows
+        .filter((r) => typeof editable !== "number" || r.adviser_id === editable)
+        .map((r) => r.id);
+    }
+
     if (k === "note") {
       if (noteRaw.length === 0) {
         await client.query("ROLLBACK");
         return NextResponse.json({ error: "note required" }, { status: 400 });
       }
+      // Insert the note on the primary case + any allowed siblings in
+      // one round trip via unnest.
+      const targets = [id, ...siblings];
       await client.query(
         `INSERT INTO clawback_history (case_id, event_type, note, actor)
-         VALUES ($1, 'note', $2, $3)`,
-        [id, noteRaw, session.username],
+           SELECT case_id, 'note', $2, $3 FROM unnest($1::int[]) AS case_id`,
+        [targets, noteRaw, session.username],
       );
     } else if (k === "contact_attempt") {
       // Combine outcome + note so the timeline shows both in one row.
@@ -103,10 +134,11 @@ export async function POST(
         await client.query("ROLLBACK");
         return NextResponse.json({ error: "outcome or note required" }, { status: 400 });
       }
+      const targets = [id, ...siblings];
       await client.query(
         `INSERT INTO clawback_history (case_id, event_type, note, actor)
-         VALUES ($1, 'contact_attempt', $2, $3)`,
-        [id, composed, session.username],
+           SELECT case_id, 'contact_attempt', $2, $3 FROM unnest($1::int[]) AS case_id`,
+        [targets, composed, session.username],
       );
     }
 

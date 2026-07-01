@@ -278,6 +278,23 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
 
   useEffect(() => { void loadHistory(); }, [loadHistory]);
 
+  // Sibling policies for the same client. Used by the Add note and Log
+  // contact forms so the lads can tick "also apply to these" instead
+  // of typing the same note into every policy. Loaded once when the
+  // drawer opens; not needed for money_off (each policy has its own £).
+  const [siblings, setSiblings] = useState<SiblingCase[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/reci/clawback/cases/${row.id}/siblings`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled) return;
+        setSiblings(Array.isArray(j?.siblings) ? j.siblings : []);
+      })
+      .catch(() => { if (!cancelled) setSiblings([]); });
+    return () => { cancelled = true; };
+  }, [row.id]);
+
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(null), 4000); }
 
   async function patchStatus(newStatus: Status, note: string, lostReason?: string) {
@@ -721,15 +738,17 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
             busy={busy}
             label="Note"
             placeholder="Free-text note that goes into the case timeline..."
+            siblings={siblings}
             onCancel={() => setPanel(null)}
-            onSubmit={(note) => postEvent({ kind: "note", note })}
+            onSubmit={(note, alsoApplyTo) => postEvent({ kind: "note", note, also_apply_to: alsoApplyTo })}
           />
         )}
         {panel === "contact" && (
           <ContactForm
             busy={busy}
+            siblings={siblings}
             onCancel={() => setPanel(null)}
-            onSubmit={(outcome, note) => postEvent({ kind: "contact_attempt", outcome, note })}
+            onSubmit={(outcome, note, alsoApplyTo) => postEvent({ kind: "contact_attempt", outcome, note, also_apply_to: alsoApplyTo })}
           />
         )}
         {panel === "money" && (
@@ -891,18 +910,22 @@ function StatusForm({ current, prefill, busy, onCancel, onSubmit }: { current: S
   );
 }
 
-function NoteForm({ busy, label, placeholder, submitLabel, onCancel, onSubmit }: {
+function NoteForm({ busy, label, placeholder, submitLabel, siblings, onCancel, onSubmit }: {
   busy: boolean;
   label: string;
   placeholder: string;
   submitLabel?: string;
+  siblings?: SiblingCase[];
   onCancel: () => void;
-  onSubmit: (note: string) => void;
+  onSubmit: (note: string, alsoApplyTo: number[]) => void;
 }) {
   const [note, setNote] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set((siblings ?? []).map((s) => s.id)),
+  );
   return (
     <form
-      onSubmit={(e) => { e.preventDefault(); onSubmit(note); }}
+      onSubmit={(e) => { e.preventDefault(); onSubmit(note, Array.from(selected)); }}
       className="mx-5 mt-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm"
     >
       <label className="flex flex-col gap-1">
@@ -915,14 +938,28 @@ function NoteForm({ busy, label, placeholder, submitLabel, onCancel, onSubmit }:
           className="rounded border border-slate-300 bg-white px-2 py-1.5"
         />
       </label>
+      <SiblingPicker
+        siblings={siblings ?? []}
+        selected={selected}
+        setSelected={setSelected}
+        actionLabel="note"
+      />
       <FormActions busy={busy} onCancel={onCancel} submitLabel={submitLabel || "Save"} />
     </form>
   );
 }
 
-function ContactForm({ busy, onCancel, onSubmit }: { busy: boolean; onCancel: () => void; onSubmit: (outcome: string, note: string) => void }) {
+function ContactForm({ busy, siblings, onCancel, onSubmit }: {
+  busy: boolean;
+  siblings?: SiblingCase[];
+  onCancel: () => void;
+  onSubmit: (outcome: string, note: string, alsoApplyTo: number[]) => void;
+}) {
   const [outcome, setOutcome] = useState("Called client - spoke");
   const [note, setNote] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set((siblings ?? []).map((s) => s.id)),
+  );
   const presets = [
     "Called client - spoke",
     "Called client - left voicemail",
@@ -933,7 +970,7 @@ function ContactForm({ busy, onCancel, onSubmit }: { busy: boolean; onCancel: ()
   ];
   return (
     <form
-      onSubmit={(e) => { e.preventDefault(); onSubmit(outcome, note); }}
+      onSubmit={(e) => { e.preventDefault(); onSubmit(outcome, note, Array.from(selected)); }}
       className="mx-5 mt-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm"
     >
       <label className="flex flex-col gap-1">
@@ -956,8 +993,61 @@ function ContactForm({ busy, onCancel, onSubmit }: { busy: boolean; onCancel: ()
           className="rounded border border-slate-300 bg-white px-2 py-1.5"
         />
       </label>
+      <SiblingPicker
+        siblings={siblings ?? []}
+        selected={selected}
+        setSelected={setSelected}
+        actionLabel="contact log"
+      />
       <FormActions busy={busy} onCancel={onCancel} submitLabel="Log contact" />
     </form>
+  );
+}
+
+interface SiblingCase {
+  id: number; policy_number: string; provider: string;
+  client_name: string; postcode: string | null;
+  clawback_due: string | null; status: string;
+}
+
+function SiblingPicker({ siblings, selected, setSelected, actionLabel }: {
+  siblings: SiblingCase[];
+  selected: Set<number>;
+  setSelected: (s: Set<number>) => void;
+  actionLabel: string;
+}) {
+  if (siblings.length === 0) return null;
+  const toggle = (id: number) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelected(next);
+  };
+  return (
+    <div className="mt-3 rounded border border-blue-200 bg-blue-50 p-2">
+      <div className="text-xs font-medium text-blue-900">
+        This client has {siblings.length} other active {siblings.length === 1 ? "policy" : "policies"}. Also apply this {actionLabel} to:
+      </div>
+      <div className="mt-1 space-y-1">
+        {siblings.map((s) => (
+          <label key={s.id} className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={selected.has(s.id)}
+              onChange={() => toggle(s.id)}
+            />
+            <span>
+              <strong>{s.policy_number}</strong>
+              <span className="ml-1 uppercase text-slate-500">{s.provider}</span>
+              <span className="ml-1 text-slate-500">
+                ({s.status}
+                {s.clawback_due ? `, £${Number(s.clawback_due).toLocaleString("en-GB")}` : ""}
+                )
+              </span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
   );
 }
 
