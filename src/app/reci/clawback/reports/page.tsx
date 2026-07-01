@@ -347,7 +347,7 @@ function SellerTable({ rows, totals }: {
           <th className="px-3 py-2 text-right font-medium">Gross issued £</th>
           <th className="px-3 py-2 text-right font-medium">Saved £</th>
           <th className="px-3 py-2 text-right font-medium">Resold £</th>
-          <th className="px-3 py-2 text-right font-medium">Net at risk £</th>
+          <th className="px-3 py-2 text-right font-medium" title="Gross issued minus Saved minus Resold. Negative = profit on the swap.">Net position £</th>
         </tr>
       </thead>
       <tbody>
@@ -360,7 +360,9 @@ function SellerTable({ rows, totals }: {
             <td className="px-3 py-2 text-right">{gbp(b.gross)}</td>
             <td className="px-3 py-2 text-right text-emerald-700">{b.saved > 0 ? gbp(b.saved) : "—"}</td>
             <td className="px-3 py-2 text-right text-blue-700">{b.resold > 0 ? gbp(b.resold) : "—"}</td>
-            <td className="px-3 py-2 text-right font-medium">{gbp(b.net)}</td>
+            <td className={`px-3 py-2 text-right font-medium ${b.net < 0 ? "text-emerald-700" : b.net > 0 ? "text-amber-700" : ""}`}>
+              {b.net < 0 ? `+${gbp(-b.net)}` : gbp(b.net)}
+            </td>
           </tr>
         ))}
         <tr className="border-t-2 border-slate-300 bg-amber-50 font-semibold">
@@ -369,7 +371,9 @@ function SellerTable({ rows, totals }: {
           <td className="px-3 py-2 text-right">{gbp(totals.gross)}</td>
           <td className="px-3 py-2 text-right text-emerald-700">{gbp(totals.saved)}</td>
           <td className="px-3 py-2 text-right text-blue-700">{gbp(totals.resold)}</td>
-          <td className="px-3 py-2 text-right">{gbp(totals.net)}</td>
+          <td className={`px-3 py-2 text-right ${totals.net < 0 ? "text-emerald-700" : ""}`}>
+            {totals.net < 0 ? `+${gbp(-totals.net)}` : gbp(totals.net)}
+          </td>
         </tr>
       </tbody>
     </table>

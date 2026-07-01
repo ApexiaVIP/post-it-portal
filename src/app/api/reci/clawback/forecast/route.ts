@@ -149,8 +149,11 @@ export async function GET() {
   }
   for (const m of monthsMap.values()) {
     m.sellers.sort((a, b) => SELLER_ORDER.indexOf(a.key) - SELLER_ORDER.indexOf(b.key));
-    for (const s of m.sellers) s.net = Math.max(0, s.gross - s.saved);
-    m.totals.net = Math.max(0, m.totals.gross - m.totals.saved);
+    // Net includes both saved and resold offsets; can go negative
+    // (profit on the swap). Forecast still uses max() for "net at risk"
+    // since exposure can't go below zero, but resold now counts.
+    for (const s of m.sellers) s.net = Math.max(0, s.gross - s.saved - s.resold);
+    m.totals.net = Math.max(0, m.totals.gross - m.totals.saved - m.totals.resold);
   }
   const months = Array.from(monthsMap.values());
 
