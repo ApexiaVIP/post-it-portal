@@ -528,7 +528,28 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
             accent={row.final_clawback_due !== null ? "green" : "amber"}
             subline={row.final_clawback_due !== null ? <>Provider: {gbp(row.clawback_due)}</> : null}
           />
-          <Stat label="Net at risk £" value={gbp(row.net_at_risk)} accent={Number(row.net_at_risk || 0) > 0 ? "amber" : "green"} />
+          {(() => {
+            const cb     = Number(row.effective_clawback_due ?? row.clawback_due ?? 0);
+            const saved  = Number(row.saved_amount ?? 0);
+            const resold = Number(row.resold_amount ?? 0);
+            // Net position = CB minus everything recovered. Can go
+            // negative when the resell covers more than the clawback
+            // (Poz's Lucena case: -£620.93 = £620.93 profit on the swap).
+            const netPos = cb - saved - resold;
+            const inProfit = netPos < 0;
+            return (
+              <Stat
+                label={inProfit ? "Net profit £" : "Net at risk £"}
+                value={gbp(Math.abs(netPos).toFixed(2))}
+                accent={inProfit ? "green" : netPos > 0 ? "amber" : "green"}
+                subline={
+                  saved > 0 || resold > 0
+                    ? <>CB {gbp(cb)} - saved {gbp(saved)} - resold {gbp(resold)}</>
+                    : null
+                }
+              />
+            );
+          })()}
           <Stat label="Saved £" value={gbp(row.saved_amount)} accent="green" />
           <Stat label="Resold £" value={gbp(row.resold_amount)} accent="blue" />
         </div>

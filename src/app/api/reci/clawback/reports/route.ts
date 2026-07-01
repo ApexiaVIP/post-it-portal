@@ -150,7 +150,7 @@ export async function GET(req: Request) {
   // Net = Gross - Saved (per Poz's brief; resold goes alongside as a separate
   // line so Guy can see replacement-sale activity but it doesn't reduce Gross).
   for (const { buckets } of byPeriod.values()) {
-    for (const b of buckets.values()) b.net = Math.max(0, b.gross - b.saved);
+    for (const b of buckets.values()) b.net = b.gross - b.saved - b.resold;
   }
 
   // Order periods by sortRank, sellers by Poz's preferred order.
@@ -176,7 +176,7 @@ export async function GET(req: Request) {
       o.cases  += b.cases;
     }
   }
-  for (const o of overall.values()) o.net = Math.max(0, o.gross - o.saved);
+  for (const o of overall.values()) o.net = o.gross - o.saved - o.resold;
 
   return NextResponse.json({
     scope, year,
