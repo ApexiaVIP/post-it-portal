@@ -21,7 +21,7 @@ import { sendClawbackResolvedEmail } from "@/lib/reci/email";
 
 export const dynamic = "force-dynamic";
 
-const STATUSES = ["open","saved","resold","dead","reinstated","closed"] as const;
+const STATUSES = ["open","saved","resold","dead","reinstated","redraw","closed"] as const;
 type Status = typeof STATUSES[number];
 
 function isStatus(s: unknown): s is Status {
@@ -49,13 +49,27 @@ export async function PATCH(
   if (!Number.isFinite(id) || id <= 0) {
     return NextResponse.json({ error: "bad id" }, { status: 400 });
   }
-  const body = await req.json().catch(() => ({})) as { status?: unknown; status_note?: unknown; lost_reason?: unknown };
+  const body = await req.json().catch(() => ({})) as {
+    status?: unknown; status_note?: unknown; lost_reason?: unknown;
+    redraw_off_amount?: unknown; redraw_on_amount?: unknown;
+  };
   const newStatus = body.status;
   const noteRaw   = typeof body.status_note === "string" ? body.status_note.trim() : "";
   const note      = noteRaw.length > 0 ? noteRaw : null;
   const VALID_LOST_REASONS = new Set(["dead_client","dead_contact","pitched_missed","other"]);
   const lostReasonRaw = typeof body.lost_reason === "string" ? body.lost_reason.trim() : "";
   const lostReason = lostReasonRaw && VALID_LOST_REASONS.has(lostReasonRaw) ? lostReasonRaw : null;
+
+  // Redraw amounts: only apply when the caller is moving the case
+  // into 'redraw'. Off = commission L&G took back, On = commission
+  // L&G paid on the revised terms. System computes net = on - off.
+  function toAmount(v: unknown): number | null {
+    if (v === undefined || v === null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }
+  const redrawOff = toAmount(body.redraw_off_amount);
+  const redrawOn  = toAmount(body.redraw_on_amount);
 
   if (newStatus !== undefined && !isStatus(newStatus)) {
     return NextResponse.json({ error: "bad status" }, { status: 400 });
@@ -67,6 +81,11 @@ export async function PATCH(
   // categorised report has somewhere to put the case.
   if (newStatus === "dead" && !lostReason) {
     return NextResponse.json({ error: "lost_reason required when marking as LOST" }, { status: 400 });
+  }
+  // Redraw transitions require both off + on amounts so the report
+  // can compute Net.
+  if (newStatus === "redraw" && (redrawOff === null || redrawOn === null)) {
+    return NextResponse.json({ error: "redraw_off_amount and redraw_on_amount required for Redraw status" }, { status: 400 });
   }
 
   const client = await db.connect();
@@ -100,20 +119,24 @@ export async function PATCH(
     }
 
     // The resolved_at timestamp gets stamped the first time the case moves
-    // out of 'open' into a resolved state.
-    const resolvedStates = new Set(["saved","resold","dead","reinstated","closed"]);
+    // out of 'open' into a resolved state. Redraw counts as resolved too.
+    const resolvedStates = new Set(["saved","resold","dead","reinstated","redraw","closed"]);
     const becameResolved = resolvedStates.has(newStatus) && !resolvedStates.has(prev.status);
     // When marking LOST: also stamp lost_reason and clear it on any
     // other status transition so the field stays consistent.
+    // When marking Redraw: write off/on amounts. Any other status
+    // resets them to 0 so we don't leave stale values on the record.
     await client.query(
       `UPDATE clawback_cases SET
          status = $1,
          status_note = $2,
          lost_reason = CASE WHEN $1 = 'dead' THEN $3::text ELSE NULL END,
+         redraw_off_amount = CASE WHEN $1 = 'redraw' THEN $6::numeric ELSE 0 END,
+         redraw_on_amount  = CASE WHEN $1 = 'redraw' THEN $7::numeric ELSE 0 END,
          resolved_at = CASE WHEN $4::boolean THEN now() ELSE resolved_at END,
          updated_at = now()
        WHERE id = $5`,
-      [newStatus, note, lostReason, becameResolved, id],
+      [newStatus, note, lostReason, becameResolved, id, redrawOff ?? 0, redrawOn ?? 0],
     );
 
     await client.query(
@@ -122,6 +145,15 @@ export async function PATCH(
        VALUES ($1, 'status_change', 'status', $2, $3, $4, $5)`,
       [id, prev.status, newStatus, note, session.username],
     );
+    if (newStatus === "redraw") {
+      await client.query(
+        `INSERT INTO clawback_history
+           (case_id, event_type, field, old_value, new_value, actor)
+         VALUES ($1, 'ebah_change', 'redraw_off_amount', NULL, $2, $3),
+                ($1, 'ebah_change', 'redraw_on_amount', NULL, $4, $3)`,
+        [id, String(redrawOff ?? 0), session.username, String(redrawOn ?? 0)],
+      );
+    }
     if (newStatus === "dead" && lostReason) {
       await client.query(
         `INSERT INTO clawback_history

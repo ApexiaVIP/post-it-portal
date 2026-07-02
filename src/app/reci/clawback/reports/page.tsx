@@ -27,6 +27,8 @@ interface SummaryResp {
   urgent:   { amount: number; cases: number };
   pending:  { amount: number; cases: number };
   active:   { amount: number; cases: number };
+  historicOw: { amount: number; cases: number };
+  redraw:   { amount: number; cases: number; offTotal: number; onTotal: number; netTotal: number };
 }
 
 type Scope = "week" | "month" | "quarter" | "half" | "year";
@@ -236,6 +238,22 @@ export default function ClawbackReportsPage() {
               accent="rose"
               href="/reci/clawback?status=dead"
               sub="Clawback went through"
+            />
+            <SummaryTile
+              label="Historic Old OW"
+              amount={summary.historicOw.amount}
+              cases={summary.historicOw.cases}
+              accent="slate"
+              href="/reci/clawback?source=old_ow"
+              sub="Excluded from current at-risk"
+            />
+            <SummaryTile
+              label="Redraw (net)"
+              amount={Math.abs(summary.redraw.netTotal)}
+              cases={summary.redraw.cases}
+              accent={summary.redraw.netTotal >= 0 ? "green" : "amber"}
+              href="/reci/clawback?status=redraw"
+              sub={`Off ${gbp(summary.redraw.offTotal)} · On ${gbp(summary.redraw.onTotal)}${summary.redraw.netTotal < 0 ? " (net loss)" : ""}`}
             />
           </div>
         </section>

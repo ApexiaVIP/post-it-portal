@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fmtDate } from "./format";
 
-type Status = "open" | "saved" | "resold" | "dead" | "reinstated" | "closed";
+type Status = "open" | "saved" | "resold" | "dead" | "reinstated" | "redraw" | "closed";
 type Bucket = "adviser" | "xstaff" | "legacy" | "needs_review";
 type MoneyKind = "saved" | "resold" | "reinstated_cancelled";
 
@@ -36,6 +36,10 @@ export interface DrawerCaseRow {
   final_clawback_due: string | null;
   final_cb_updated_by: string | null;
   final_cb_updated_at: string | null;
+  redraw_off_amount: string | null;
+  redraw_on_amount: string | null;
+  ow_actualised_at: string | null;
+  ow_actualised_by: string | null;
   effective_clawback_due: string | null;
   source: "old_ow" | "new_ow" | "other" | null;
   source_updated_by: string | null;
@@ -78,6 +82,7 @@ const STATUS_LABELS: Record<Status, string> = {
   resold: "Resold",
   dead: "Lost",
   reinstated: "Reinstated",
+  redraw: "Redraw",
   closed: "Closed",
 };
 const STATUS_CLS: Record<Status, string> = {
@@ -86,6 +91,7 @@ const STATUS_CLS: Record<Status, string> = {
   resold:     "bg-blue-100 text-blue-800",
   dead:       "bg-red-100 text-red-800",
   reinstated: "bg-amber-100 text-amber-800",
+  redraw:     "bg-purple-100 text-purple-800",
   closed:     "bg-slate-200 text-slate-600",
 };
 
@@ -297,7 +303,12 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
 
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(null), 4000); }
 
-  async function patchStatus(newStatus: Status, note: string, lostReason?: string) {
+  async function patchStatus(
+    newStatus: Status,
+    note: string,
+    lostReason?: string,
+    extra?: { redraw_off_amount?: number; redraw_on_amount?: number },
+  ) {
     setBusy(true);
     try {
       const r = await fetch(`/api/reci/clawback/cases/${row.id}`, {
@@ -307,6 +318,8 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
           status: newStatus,
           status_note: note || undefined,
           lost_reason: lostReason || undefined,
+          redraw_off_amount: extra?.redraw_off_amount,
+          redraw_on_amount:  extra?.redraw_on_amount,
         }),
       });
       const j = await r.json();
@@ -420,6 +433,28 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
     } finally {
       setBusy(false);
       setPanel(null);
+    }
+  }
+
+  async function toggleActualiseOw() {
+    setBusy(true);
+    try {
+      const wasActualised = row.ow_actualised_at !== null;
+      const r = await fetch(`/api/reci/clawback/cases/${row.id}/actualise-ow`, {
+        method: wasActualised ? "DELETE" : "PUT",
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        flash(`Failed: ${j.error || r.statusText}`);
+      } else {
+        flash(wasActualised ? "Reverted to historic OW." : "Promoted to Actual Clawback.");
+        await loadHistory();
+        onChange();
+      }
+    } catch (e) {
+      flash(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -553,6 +588,49 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
           <Stat label="Saved £" value={gbp(row.saved_amount)} accent="green" />
           <Stat label="Resold £" value={gbp(row.resold_amount)} accent="blue" />
         </div>
+
+        {row.source === "old_ow" && (
+          <div className="mt-3 px-5">
+            <div className={`flex items-center justify-between rounded border px-3 py-2 text-sm ${
+              row.ow_actualised_at
+                ? "border-red-300 bg-red-50"
+                : "border-slate-300 bg-slate-100"
+            }`}>
+              <div>
+                {row.ow_actualised_at ? (
+                  <>
+                    <span className="font-medium text-red-900">Actualised clawback:</span>{" "}
+                    <strong>this case is in the current at-risk figures.</strong>
+                    {row.ow_actualised_by && (
+                      <span className="ml-2 text-xs text-slate-500">
+                        by {row.ow_actualised_by} on {new Date(row.ow_actualised_at).toLocaleDateString("en-GB")}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-slate-700">Historic Old OW.</span>{" "}
+                    <span className="text-slate-600">Excluded from current-month at-risk figures. Promote if this one appears on the OW bank statement.</span>
+                  </>
+                )}
+              </div>
+              {canEditFinalCb && (
+                <button
+                  type="button"
+                  onClick={toggleActualiseOw}
+                  disabled={busy}
+                  className={`rounded border px-3 py-1 text-xs font-medium ${
+                    row.ow_actualised_at
+                      ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                      : "border-red-400 bg-white text-red-800 hover:bg-red-50"
+                  } disabled:opacity-50`}
+                >
+                  {row.ow_actualised_at ? "Revert to historic" : "Mark as actualised CB"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {canEditFinalCb && (
           <div className="mt-3 px-5">
@@ -751,7 +829,7 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
             prefill={statusPrefill}
             busy={busy}
             onCancel={() => setPanel(null)}
-            onSubmit={patchStatus}
+            onSubmit={(s, note, extra) => patchStatus(s, note, undefined, extra)}
           />
         )}
         {panel === "note" && (
@@ -893,13 +971,34 @@ function ActionBtn({ label, onClick, accent }: { label: string; onClick: () => v
   );
 }
 
-function StatusForm({ current, prefill, busy, onCancel, onSubmit }: { current: Status; prefill: Status | null; busy: boolean; onCancel: () => void; onSubmit: (s: Status, note: string) => void }) {
+function StatusForm({ current, prefill, busy, onCancel, onSubmit }: {
+  current: Status;
+  prefill: Status | null;
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (s: Status, note: string, extra?: { redraw_off_amount?: number; redraw_on_amount?: number }) => void;
+}) {
   const [newStatus, setNewStatus] = useState<Status>(prefill ?? current);
   const [note, setNote] = useState("");
+  const [redrawOff, setRedrawOff] = useState("");
+  const [redrawOn,  setRedrawOn]  = useState("");
   const needsNote = newStatus !== current && newStatus !== "open";
+  const isRedraw  = newStatus === "redraw";
+  const offN = Number(redrawOff);
+  const onN  = Number(redrawOn);
+  const redrawValid = !isRedraw || (
+    Number.isFinite(offN) && offN >= 0 &&
+    Number.isFinite(onN) && onN >= 0 &&
+    redrawOff !== "" && redrawOn !== ""
+  );
+  const net = isRedraw && redrawValid ? onN - offN : 0;
   return (
     <form
-      onSubmit={(e) => { e.preventDefault(); onSubmit(newStatus, note); }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!redrawValid) return;
+        onSubmit(newStatus, note, isRedraw ? { redraw_off_amount: offN, redraw_on_amount: onN } : undefined);
+      }}
       className="mx-5 mt-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm"
     >
       <label className="flex flex-col gap-1">
@@ -914,6 +1013,43 @@ function StatusForm({ current, prefill, busy, onCancel, onSubmit }: { current: S
           ))}
         </select>
       </label>
+
+      {isRedraw && (
+        <div className="mt-3 rounded border border-purple-200 bg-purple-50 p-2">
+          <div className="text-xs font-medium text-purple-900">
+            Redraw amounts (Poz):
+          </div>
+          <div className="mt-1 grid grid-cols-3 gap-2 text-xs">
+            <label className="flex flex-col gap-1">
+              <span className="text-slate-500">Off commission £</span>
+              <input
+                type="number" min="0" step="0.01"
+                value={redrawOff}
+                onChange={(e) => setRedrawOff(e.target.value)}
+                placeholder="What L&amp;G took back"
+                className="rounded border border-slate-300 bg-white px-2 py-1"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-slate-500">On commission £</span>
+              <input
+                type="number" min="0" step="0.01"
+                value={redrawOn}
+                onChange={(e) => setRedrawOn(e.target.value)}
+                placeholder="What L&amp;G paid on revised"
+                className="rounded border border-slate-300 bg-white px-2 py-1"
+              />
+            </label>
+            <div className="flex flex-col gap-1">
+              <span className="text-slate-500">Net £</span>
+              <div className={`rounded border border-slate-200 bg-white px-2 py-1 font-medium ${net > 0 ? "text-emerald-700" : net < 0 ? "text-red-700" : "text-slate-500"}`}>
+                {redrawValid ? (net >= 0 ? `+£${net.toFixed(2)}` : `-£${Math.abs(net).toFixed(2)}`) : "—"}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <label className="mt-2 flex flex-col gap-1">
         <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
           Note {needsNote && <span className="text-amber-600">(recommended)</span>}
@@ -926,7 +1062,7 @@ function StatusForm({ current, prefill, busy, onCancel, onSubmit }: { current: S
           className="rounded border border-slate-300 bg-white px-2 py-1.5"
         />
       </label>
-      <FormActions busy={busy} onCancel={onCancel} submitLabel="Save status" />
+      <FormActions busy={busy} onCancel={onCancel} submitLabel="Save status" disabled={!redrawValid} />
     </form>
   );
 }
