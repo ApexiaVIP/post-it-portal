@@ -171,7 +171,8 @@ export async function ingestEbahFile(
           off_risk_date::text           AS off_risk_date,
           client_name, postcode, address, policy_type,
           ebah_agent_name, adviser_id, agent_bucket,
-          master_agent_no, agent_no
+          master_agent_no, agent_no,
+          deleted_at::text              AS deleted_at
        FROM clawback_cases WHERE policy_number = ANY($1)`,
       [policyNumbers],
     );
@@ -204,6 +205,18 @@ export async function ingestEbahFile(
         const b = newV === null || newV === undefined ? null : String(newV);
         if (a !== b) diffs.push({ field, oldV: a, newV: b });
       }
+      // Auto-restore: if the case was previously soft-deleted (typically
+      // by the "Increasing cover" scrub) but the new EBAH row's warning
+      // is NOT increasing cover, L&G has re-classified the case as
+      // something real (usually Lapse when the client cancels a policy
+      // that was previously just "Increasing cover review"). Bring it
+      // back so it appears on the dashboard and gets worked. Pauline
+      // spotted this on the Jeffreys case 2 Jul 2026.
+      const incomingIsIncreasingCover = r.warning != null && /increasing cover/i.test(r.warning);
+      if (existing.deleted_at && !incomingIsIncreasingCover) {
+        diffs.push({ field: "deleted_at", oldV: existing.deleted_at, newV: null });
+      }
+
       check("ebah_warning",        existing.ebah_warning, r.warning);
       check("clawback_due",        normNum(existing.clawback_due),         normNum(r.clawback_due));
       check("clawback_date",       existing.clawback_date,                 r.clawback_date);
@@ -234,6 +247,9 @@ export async function ingestEbahFile(
     // ---------- 8. Update changed cases (per-row, but only the changed set) ----------
     for (const u of toUpdate) {
       const r = u.row;
+      // If the diff set includes an auto-restore (deleted_at -> NULL),
+      // clear the soft-delete on this update.
+      const restoreThis = u.diffs.some((d) => d.field === "deleted_at" && d.newV === null);
       await client.query(
         `UPDATE clawback_cases SET
            ebah_warning = $1,
@@ -255,8 +271,9 @@ export async function ingestEbahFile(
            master_agent_no = $17,
            agent_no = $18,
            last_seen_upload_id = $19,
+           deleted_at = CASE WHEN $20::boolean THEN NULL ELSE deleted_at END,
            updated_at = now()
-         WHERE id = $20`,
+         WHERE id = $21`,
         [
           r.warning, r.clawback_due, r.clawback_date, r.net_premium,
           r.premium_outstanding, r.policy_start_date, r.off_risk_date,
@@ -264,7 +281,7 @@ export async function ingestEbahFile(
           r.postcode, r.address, r.policy_type, r.ebah_agent_name,
           u.mapping.adviser_id, u.mapping.bucket,
           r.master_agent_no, r.agent_no,
-          uploadId, u.id,
+          uploadId, restoreThis, u.id,
         ],
       );
     }
@@ -376,6 +393,7 @@ interface ExistingCaseRow {
   agent_bucket: string;
   master_agent_no: string | null;
   agent_no: string | null;
+  deleted_at: string | null;
 }
 
 function normNum(v: string | number | null | undefined): string | null {
