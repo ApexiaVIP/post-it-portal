@@ -850,3 +850,98 @@ export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promi
     subject, text, html,
   });
 }
+
+export interface StaleDigestCase {
+  policyNumber: string;
+  clientName: string;
+  seller: string;
+  clawback: number;
+  daysIdle: number;
+  trigger: string | null;
+}
+
+/**
+ * Weekday digest to Guy + management (Poz) listing OPEN cases with no
+ * human action inside the stale threshold. Fired from the cron at the
+ * 10:00 UTC run, London weekdays only. One email, grouped by seller,
+ * biggest CB first.
+ */
+export async function sendStaleCaseDigest(
+  cases: StaleDigestCase[],
+  staleDays: number,
+): Promise<{ sent: boolean; reason?: string }> {
+  if (cases.length === 0) return { sent: false, reason: "no stale cases" };
+  const guy = guyEmail();
+  const cc = managementCc();
+  const to: string[] = [];
+  if (guy) to.push(guy);
+  if (to.length === 0) {
+    to.push(...cc);
+    if (to.length === 0) return { sent: false, reason: "no recipient" };
+  }
+  const finalCc = buildCc(cc, [], to);
+
+  const totalCb = cases.reduce((n, c) => n + c.clawback, 0);
+  const subject = `[RECI Clawback] ${cases.length} case${cases.length === 1 ? "" : "s"} not worked in ${staleDays}+ days (${totalCb.toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })} exposure)`;
+
+  // Group by seller for both bodies.
+  const bySeller = new Map<string, StaleDigestCase[]>();
+  for (const c of cases) {
+    const arr = bySeller.get(c.seller);
+    if (arr) arr.push(c); else bySeller.set(c.seller, [c]);
+  }
+  const groups = Array.from(bySeller.entries())
+    .map(([seller, rows]) => ({
+      seller,
+      rows: rows.slice().sort((a, b) => b.clawback - a.clawback),
+    }))
+    .sort((a, b) => a.seller.localeCompare(b.seller));
+
+  const gbpFmt = (n: number) => n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2 });
+
+  const textLines: string[] = [
+    `Hi ${guy ? "Guy" : "team"},`,
+    ``,
+    `These open clawback cases have had no action logged for ${staleDays} days or more.`,
+    ``,
+  ];
+  for (const g of groups) {
+    textLines.push(`${g.seller}:`);
+    for (const c of g.rows) {
+      textLines.push(`  - ${c.clientName} · ${c.policyNumber} · ${gbpFmt(c.clawback)} · idle ${c.daysIdle}d${c.trigger ? ` · ${c.trigger}` : ""}`);
+      textLines.push(`    Open: ${clawbackCaseUrl(c.policyNumber)}`);
+    }
+    textLines.push(``);
+  }
+  textLines.push(`Total exposure sitting untouched: ${gbpFmt(totalCb)}.`);
+  textLines.push(``);
+  textLines.push(`— RECI portal`);
+  const text = textLines.join("\n");
+
+  let html = `<p>Hi ${guy ? "Guy" : "team"},</p>` +
+    `<p>These open clawback cases have had no action logged for <strong>${staleDays} days or more</strong>.</p>`;
+  for (const g of groups) {
+    html += `<p style="margin:14px 0 4px 0"><strong>${escapeHtml(g.seller)}</strong> <span style="color:#888">(${g.rows.length})</span></p>`;
+    html += `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;width:100%">`;
+    for (const c of g.rows) {
+      html += `<tr style="border-top:1px solid #e5e7eb">` +
+        `<td style="padding:5px 8px"><strong>${escapeHtml(c.clientName)}</strong><br>` +
+        `<span style="color:#666;font-size:12px">${escapeHtml(c.policyNumber)}${c.trigger ? ` · ${escapeHtml(c.trigger)}` : ""}</span></td>` +
+        `<td style="padding:5px 8px;text-align:right;white-space:nowrap">${gbpFmt(c.clawback)}<br>` +
+        `<span style="color:#b91c1c;font-size:12px;font-weight:600">idle ${c.daysIdle}d</span></td>` +
+        `<td style="padding:5px 8px;text-align:right;white-space:nowrap">` +
+        `<a href="${clawbackCaseUrl(c.policyNumber)}" style="display:inline-block;background:#b45309;color:#fff;padding:5px 9px;text-decoration:none;border-radius:4px;font-size:12px;font-weight:600">Open</a></td>` +
+        `</tr>`;
+    }
+    html += `</table>`;
+  }
+  html += `<p style="margin-top:12px">Total exposure sitting untouched: <strong>${gbpFmt(totalCb)}</strong>.</p>`;
+  html += `<p style="color:#888;font-size:12px">— RECI portal</p>`;
+
+  return dispatchMail({
+    label: "clawback-stale-digest",
+    fromName: "RECI Clawback",
+    to, cc: finalCc,
+    subject, text, html,
+  });
+}
