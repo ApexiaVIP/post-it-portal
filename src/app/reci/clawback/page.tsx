@@ -463,6 +463,12 @@ export default function ClawbackPage() {
           >
             Reports
           </a>
+          <a
+            href="/reci/clawback/credit-report"
+            className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            Credit Control
+          </a>
           <PrintButton />
         </div>
       </div>

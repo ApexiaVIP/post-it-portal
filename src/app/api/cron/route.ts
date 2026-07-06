@@ -12,7 +12,9 @@
  * across BST/GMT (Hobby plan has a 2-cron-per-project limit).
  */
 import { NextResponse } from "next/server";
+import { sql } from "@vercel/postgres";
 import { runNightlyBackup } from "@/lib/reci/backup";
+import { sendStaleCaseDigest, type StaleDigestCase } from "@/lib/reci/email";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -126,6 +128,20 @@ export async function GET(req: Request) {
     }
   }
 
+  // Stale-case digest for Guy + Poz: fires on the 10:00 UTC run only
+  // (once daily), London weekdays. Runs as a side task BEFORE the POST
+  // IT dispatch check because during BST 10:00 UTC is also the 11:00
+  // London POST IT target -- both must happen on the same invocation.
+  let staleDigest: { attempted: boolean; sent?: boolean; cases?: number; reason?: string } = { attempted: false };
+  if (utcMin >= 600 && utcMin <= 615 && !isLondonWeekend()) {
+    try {
+      staleDigest = { attempted: true, ...(await runStaleDigest()) };
+    } catch (e) {
+      console.error("[cron] stale digest failed:", e);
+      staleDigest = { attempted: true, sent: false, reason: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   const nowMin = londonMinutesNow();
   const target = matchingTarget(nowMin);
 
@@ -135,6 +151,7 @@ export async function GET(req: Request) {
       action: "skipped",
       reason: "no target in window",
       nowMin,
+      staleDigest,
     });
   }
 
@@ -157,5 +174,65 @@ export async function GET(req: Request) {
     target,
     githubStatus: result.status,
     githubBody: result.body,
+    staleDigest,
   }, { status: result.ok ? 200 : 502 });
+}
+
+/**
+ * Query open clawback cases with no human action inside the stale
+ * threshold and email the digest to Guy + management. Threshold comes
+ * from STALE_CASE_DAYS (default 3). Historic Old OW cases excluded --
+ * they're parked, not "unworked".
+ */
+async function runStaleDigest(): Promise<{ sent: boolean; cases: number; reason?: string }> {
+  const staleDays = Math.min(60, Math.max(1, Number(process.env.STALE_CASE_DAYS || 3)));
+  const r = await sql.query<{
+    policy_number: string;
+    client_name: string;
+    seller: string;
+    clawback: string | null;
+    trigger: string | null;
+    days_idle: string;
+  }>(
+    `SELECT
+        c.policy_number,
+        c.client_name,
+        COALESCE(a.name,
+          CASE c.agent_bucket
+            WHEN 'xstaff' THEN 'Xstaff'
+            WHEN 'legacy' THEN 'Legacy'
+            ELSE 'Needs review'
+          END)                                        AS seller,
+        COALESCE(c.final_clawback_due, c.clawback_due)::text AS clawback,
+        c.ebah_warning                                AS trigger,
+        FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(la.last_action_at, c.created_at))) / 86400)::text AS days_idle
+     FROM clawback_cases c
+     LEFT JOIN advisers a ON a.id = c.adviser_id
+     LEFT JOIN LATERAL (
+       SELECT MAX(h.created_at) AS last_action_at
+       FROM clawback_history h
+       WHERE h.case_id = c.id
+         AND h.event_type IN ('note','contact_attempt','money_off','status_change')
+     ) la ON true
+     WHERE c.deleted_at IS NULL
+       AND c.status = 'open'
+       AND NOT (c.source = 'old_ow' AND c.ow_actualised_at IS NULL)
+       AND COALESCE(la.last_action_at, c.created_at) < now() - ($1 || ' days')::interval
+     ORDER BY COALESCE(c.final_clawback_due, c.clawback_due) DESC NULLS LAST`,
+    [staleDays],
+  );
+
+  const cases: StaleDigestCase[] = r.rows.map((row) => ({
+    policyNumber: row.policy_number,
+    clientName: row.client_name,
+    seller: row.seller,
+    clawback: Number(row.clawback) || 0,
+    daysIdle: Number(row.days_idle) || 0,
+    trigger: row.trigger,
+  }));
+
+  if (cases.length === 0) return { sent: false, cases: 0, reason: "no stale cases" };
+  const result = await sendStaleCaseDigest(cases, staleDays);
+  console.error(`[cron] stale digest: ${cases.length} cases, sent=${result.sent}${result.reason ? ` (${result.reason})` : ""}`);
+  return { sent: result.sent, cases: cases.length, reason: result.reason };
 }
