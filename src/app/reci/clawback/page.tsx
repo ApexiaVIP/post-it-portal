@@ -43,7 +43,7 @@ interface MeResp {
 }
 
 type Bucket = "adviser" | "xstaff" | "legacy" | "needs_review";
-type Status = "open" | "saved" | "resold" | "dead" | "reinstated" | "closed";
+type Status = "open" | "saved" | "resold" | "dead" | "reinstated" | "redraw" | "closed";
 
 interface CaseRow {
   id: number;
@@ -81,6 +81,14 @@ interface CaseRow {
   adviser_name: string | null;
   agent_bucket: Bucket;
   updated_at: string;
+  created_at: string;
+  last_called_at: string | null;
+  client_phone: string | null;
+  client_email: string | null;
+  redraw_off_amount: string | null;
+  redraw_on_amount: string | null;
+  ow_actualised_at: string | null;
+  ow_actualised_by: string | null;
 }
 
 interface WarningRow {
@@ -89,18 +97,28 @@ interface WarningRow {
   clawback_due: number;
 }
 
-type Sort = "client_asc" | "postcode_asc" | "cb_desc" | "cb_asc" | "cb_due_asc" | "cb_due_desc";
+type Sort = "client_asc" | "postcode_asc" | "seller_default" | "cb_desc" | "cb_asc" | "cb_due_asc" | "cb_due_desc";
 // Order here drives the order in the Sort dropdown. Tidy-up sorts
 // (surname + postcode) sit at the top because that's what Pauline /
-// Poz hit first when reconciling.
+// Poz hit first when reconciling. seller_default is what sellers land
+// on automatically (Guy's spec): open cases first, newest EBAH batch
+// before older, biggest CB first.
 const SORT_LABELS: Record<Sort, string> = {
-  client_asc:   "Client surname A-Z",
-  postcode_asc: "Postcode (group same postcodes)",
-  cb_desc:      "CB value (highest first)",
-  cb_asc:       "CB value (lowest first)",
-  cb_due_asc:   "CB date (soonest first)",
-  cb_due_desc:  "CB date (latest first)",
+  client_asc:     "Client surname A-Z",
+  postcode_asc:   "Postcode (group same postcodes)",
+  seller_default: "To work: new + biggest CB first",
+  cb_desc:        "CB value (highest first)",
+  cb_asc:         "CB value (lowest first)",
+  cb_due_asc:     "CB date (soonest first)",
+  cb_due_desc:    "CB date (latest first)",
 };
+
+/** NEW badge window: cases created within the last 5 days covers the
+ *  Mon/Thu EBAH cycle plus manual adds between uploads. */
+const NEW_CASE_DAYS = 5;
+function isNewCase(createdAt: string): boolean {
+  return Date.now() - new Date(createdAt).getTime() < NEW_CASE_DAYS * 86400000;
+}
 
 const SOURCE_LABELS: Record<"old_ow" | "new_ow" | "other", string> = {
   old_ow: "Old OW",
@@ -144,6 +162,7 @@ const STATUS_LABELS: Record<Status, string> = {
   resold: "Resold",
   dead: "Lost",
   reinstated: "Reinstated",
+  redraw: "Redraw",
   closed: "Closed",
 };
 
@@ -166,6 +185,7 @@ export default function ClawbackPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [buckets, setBuckets] = useState<BucketRow[]>([]);
   const [recentUploads, setRecentUploads] = useState<RecentUpload[]>([]);
+  const [latestUpload, setLatestUpload] = useState<{ report_date: string | null; uploaded_at: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -208,10 +228,21 @@ export default function ClawbackPage() {
 
   // Capabilities from /api/me. Drive what's editable / uploadable / notifiable.
   const [me, setMe] = useState<MeResp | null>(null);
+  const sellerSortApplied = useRef(false);
   useEffect(() => {
     fetch("/api/me", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: MeResp | null) => { if (j) setMe(j); })
+      .then((j: MeResp | null) => {
+        if (!j) return;
+        setMe(j);
+        // Sellers land on "to work" order (Guy's spec: open cases,
+        // newest batch first, biggest CB first). Admins keep surname
+        // A-Z. Applied once so a manual sort change isn't fought.
+        if (!sellerSortApplied.current && (j.isSeniorSeller || j.isJuniorSeller)) {
+          sellerSortApplied.current = true;
+          setSort("seller_default");
+        }
+      })
       .catch(() => { /* ignore */ });
   }, []);
 
@@ -307,6 +338,7 @@ export default function ClawbackPage() {
       setBuckets(j.buckets || []);
       setWarnings(j.warnings || []);
       setRecentUploads(j.recentUploads || []);
+      setLatestUpload(j.latestUpload || null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -315,6 +347,19 @@ export default function ClawbackPage() {
   }, [statusFilter, bucketFilter, agentFilter, warningFilter, cbDueFrom, cbDueTo, cbMin, cbMax, masterAgentNo, agentNo, surname, sourceFilter, search, sort]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Keep the open drawer in sync with fresh data after any save. The
+  // drawer used to show a stale snapshot after an update, forcing Poz
+  // to close it and search for the client again to sense-check what
+  // she'd changed. Now the same case re-renders in place with the
+  // updated values, and the list keeps its scroll position.
+  useEffect(() => {
+    setOpenCase((prev) => {
+      if (!prev) return prev;
+      const fresh = cases.find((c) => c.id === prev.id);
+      return fresh ?? prev;
+    });
+  }, [cases]);
 
   // Backfill Notify runner (placed here so it can close over load()).
   const runBackfillNotify = useCallback(async () => {
@@ -759,6 +804,7 @@ export default function ClawbackPage() {
               <Th right>Premium</Th>
               <Th right>CB Due £</Th>
               <Th>CB Date</Th>
+              <Th>Last called</Th>
               <Th>Agent</Th>
               <Th>Bucket</Th>
               <Th>Source</Th>
@@ -767,19 +813,22 @@ export default function ClawbackPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={15}>Loading...</td></tr>
+              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={16}>Loading...</td></tr>
             ) : cases.length === 0 ? (
-              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={15}>No cases match.</td></tr>
+              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={16}>No cases match.</td></tr>
             ) : cases.map((c) => {
               const urgent = isUrgentNewOw(c.source, c.clawback_due, c.status);
+              const lost = c.status === "dead";
               return (
               <tr
                 key={c.id}
                 onClick={() => setOpenCase(c)}
                 className={`cursor-pointer border-t border-slate-100 ${
-                  urgent ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-amber-50"
+                  lost ? "bg-red-100 hover:bg-red-200"
+                  : urgent ? "bg-red-50/60 hover:bg-red-50"
+                  : "hover:bg-amber-50"
                 }`}
-                title={urgent ? "URGENT New OW case -- click to open" : "Click to open case detail"}
+                title={lost ? "LOST case -- click to open" : urgent ? "URGENT New OW case -- click to open" : "Click to open case detail"}
               >
                 <Td title={c.client_name}>
                   {/* Render surname-first when we have a parsed last
@@ -789,6 +838,14 @@ export default function ClawbackPage() {
                   {c.client_last_name
                     ? <><strong>{c.client_last_name}</strong>{c.client_first_name ? `, ${c.client_first_name}` : ""}</>
                     : c.client_name}
+                  {isNewCase(c.created_at) && (
+                    <span
+                      className="ml-1 inline-block rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
+                      title={`Added ${fmtDate(c.created_at.slice(0, 10))}`}
+                    >
+                      New
+                    </span>
+                  )}
                 </Td>
                 <Td>{c.postcode || "—"}</Td>
                 <Td><code className="text-xs">{c.policy_number}</code></Td>
@@ -810,6 +867,11 @@ export default function ClawbackPage() {
                   )}
                 </Td>
                 <Td>{fmtDate(c.clawback_date)}</Td>
+                <Td className="whitespace-nowrap">
+                  {c.last_called_at
+                    ? fmtDate(c.last_called_at.slice(0, 10))
+                    : <span className="text-slate-400">never</span>}
+                </Td>
                 <Td className="max-w-[200px] truncate" title={c.ebah_agent_name}>
                   {c.adviser_name ? <strong>{c.adviser_name}</strong> : c.ebah_agent_name}
                 </Td>
@@ -829,6 +891,22 @@ export default function ClawbackPage() {
             })}
           </tbody>
         </table>
+        {/* Footer: latest EBAH context + NEW count, per Poz's ask so
+            everyone can see at a glance what the freshest data is. */}
+        {!loading && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            {latestUpload && (
+              <span>
+                Latest EBAH report: <strong>{latestUpload.report_date ? fmtDate(latestUpload.report_date) : "unknown"}</strong>
+                {" "}(uploaded {new Date(latestUpload.uploaded_at).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })})
+              </span>
+            )}
+            <span>
+              <span className="inline-block rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">New</span>
+              {" "}= added in the last {NEW_CASE_DAYS} days: <strong>{cases.filter((c) => isNewCase(c.created_at)).length}</strong> showing
+            </span>
+          </div>
+        )}
       </section>
 
       {/* Recent uploads */}
@@ -941,6 +1019,7 @@ function StatusPill({ status }: { status: Status }) {
     resold:     "bg-blue-100 text-blue-800",
     dead:       "bg-red-100 text-red-800",
     reinstated: "bg-amber-100 text-amber-800",
+    redraw:     "bg-purple-100 text-purple-800",
     closed:     "bg-slate-200 text-slate-600",
   };
   return <span className={`inline-block rounded px-2 py-0.5 text-xs ${cls[status]}`}>{STATUS_LABELS[status]}</span>;

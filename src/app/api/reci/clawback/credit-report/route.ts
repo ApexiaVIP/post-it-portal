@@ -180,21 +180,39 @@ export async function GET(req: Request) {
     return `${MONTHS[m - 1]} ${y}`;
   };
 
+  // Totals per month, in Guy's mock-up vocabulary:
+  //   ddBooked    = reinstated cases (DD collection back on) CB £
+  //   resold      = resold cases CB £ (the exposure that was recovered)
+  //   deadNumber  = lost cases with reason dead_contact CB £
+  //   cancelled   = lost cases with any other reason CB £
+  //   saved       = ddBooked + resold + explicitly-saved CB £
+  //   lost        = deadNumber + cancelled
+  //   earnedComm  = new commission booked from resells (resold_amount)
+  //   savedComm   = CB avoided (saved + reinstated + resold cases)
   function totalsFor(rows: CaseRow[]) {
     const t = {
-      exposure: 0, outstanding: 0, reinstated: 0, resold: 0,
-      saved: 0, redrawNet: 0, lost: 0, staleCount: 0, cases: rows.length,
+      exposure: 0, outstanding: 0, ddBooked: 0, resold: 0,
+      deadNumber: 0, cancelled: 0, savedExplicit: 0,
+      saved: 0, lost: 0, redrawNet: 0,
+      earnedComm: 0, savedComm: 0,
+      staleCount: 0, cases: rows.length,
     };
     for (const c of rows) {
       t.exposure += c.clawback;
       if (c.status === "open") t.outstanding += c.clawback;
-      if (c.status === "reinstated") t.reinstated += c.clawback;
-      if (c.status === "resold") t.resold += c.resold_amount || c.clawback;
-      if (c.status === "saved") t.saved += c.saved_amount || c.clawback;
+      if (c.status === "reinstated") t.ddBooked += c.clawback;
+      if (c.status === "resold") { t.resold += c.clawback; t.earnedComm += c.resold_amount; }
+      if (c.status === "saved") t.savedExplicit += c.clawback;
       if (c.status === "redraw") t.redrawNet += c.redraw_on - c.redraw_off;
-      if (c.status === "dead") t.lost += c.clawback;
+      if (c.status === "dead") {
+        if (c.lost_reason === "dead_contact") t.deadNumber += c.clawback;
+        else t.cancelled += c.clawback;
+      }
       if (c.stale) t.staleCount++;
     }
+    t.saved = t.ddBooked + t.resold + t.savedExplicit;
+    t.lost = t.deadNumber + t.cancelled;
+    t.savedComm = t.saved;
     return t;
   }
 
