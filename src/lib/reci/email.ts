@@ -526,11 +526,11 @@ function ukDate(iso: string | null | undefined): string {
 export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{ sent: boolean; reason?: string }> {
   const cam = await resolveCamRecipients(i.adviserId, i.agentBucket);
   const cc = managementCc();
-  const guy = guyEmail();
-  if (guy) cc.push(guy);
+  // Guy asked (7 Jul 2026) to come off per-case notifications. He only
+  // gets the daily stale-case summary now.
 
   // If the bucket has no CAM (legacy / needs_review) fall back to sending
-  // straight to Guy + management so the case isn't silently lost.
+  // straight to management so the case isn't silently lost.
   let to: string[];
   if (cam.to.length > 0) {
     to = cam.to;
@@ -657,8 +657,8 @@ export async function sendClawbackNotifyDigestEmail(
   if (i.cases.length === 0) return { sent: false, reason: "no cases" };
   const cam = await resolveCamRecipients(i.adviserId, i.agentBucket);
   const cc = managementCc();
-  const guy = guyEmail();
-  if (guy) cc.push(guy);
+  // Guy asked (7 Jul 2026) to come off per-case notifications. He only
+  // gets the daily stale-case summary now.
 
   let to: string[];
   if (cam.to.length > 0) {
@@ -777,28 +777,22 @@ export interface ClawbackResolvedInput {
 }
 
 export async function sendClawbackResolvedEmail(i: ClawbackResolvedInput): Promise<{ sent: boolean; reason?: string }> {
-  const guy = guyEmail();
   const cc = managementCc();
   // CAM hears about their own case being updated too.
   const cam = await resolveCamRecipients(i.adviserId, i.agentBucket);
   for (const e of cam.to) if (!cc.includes(e)) cc.push(e);
-  // Poz asked (30 Jun 2026) to keep Guy on every update until further
-  // notice. Put him on the primary To line so he sees them front-and-
-  // centre, and CC everyone else. If his env isn't set, fall back to
-  // the CC list as the To.
-  const to: string[] = [];
-  if (guy) to.push(guy);
-  if (to.length === 0) {
-    to.push(...cc);
-    if (to.length === 0) return { sent: false, reason: "no recipient" };
-  }
+  // Guy came OFF per-case update emails on 7 Jul 2026 (too many). He
+  // only gets the daily stale-case summary now. Management (Poz) is
+  // the To line; the CAM stays in CC.
+  const to = [...cc];
+  if (to.length === 0) return { sent: false, reason: "no recipient" };
   const finalCc = buildCc(cc, [], to);
 
   const statusLabel = RESOLVED_STATUS_LABELS[i.newStatus] || i.newStatus;
   // Per Poz: use "updated" not "resolved" -- Lost cases aren't
   // resolved, they're just closed out.
   const subject = `[RECI Clawback] Updated (${statusLabel}): ${i.clientName} (${i.policyNumber})`;
-  const greeting = guy ? `Hi Guy,` : `Hi team,`;
+  const greeting = `Hi team,`;
 
   const lines = [
     greeting,
