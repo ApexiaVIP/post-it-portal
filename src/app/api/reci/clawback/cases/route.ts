@@ -46,6 +46,14 @@ const SORTS: Record<string, string> = {
   // then alphabetical within each postcode bucket. Postcode uppercased
   // so e.g. "m14 6aa" lands next to "M14 6AA" if any sneak in as lower.
   postcode_asc: "UPPER(c.postcode) ASC NULLS LAST, LOWER(COALESCE(NULLIF(c.client_last_name, ''), c.client_name)) ASC NULLS LAST",
+  // Guy's default view for sellers: open (not yet clawed back) cases
+  // first, newest EBAH batch before older ones, biggest CB first within
+  // each band; resolved cases follow, alphabetical.
+  seller_default:
+    "CASE WHEN c.status = 'open' THEN 0 ELSE 1 END ASC, " +
+    "CASE WHEN c.status = 'open' AND c.created_at >= now() - interval '5 days' THEN 0 ELSE 1 END ASC, " +
+    "COALESCE(c.final_clawback_due, c.clawback_due) DESC NULLS LAST, " +
+    "LOWER(COALESCE(NULLIF(c.client_last_name, ''), c.client_name)) ASC NULLS LAST",
 };
 
 export async function GET(req: Request) {
@@ -174,9 +182,16 @@ export async function GET(req: Request) {
         c.adviser_id,
         a.name AS adviser_name,
         c.agent_bucket,
-        c.updated_at
+        c.updated_at,
+        c.created_at,
+        lc.last_called_at
      FROM clawback_cases c
      LEFT JOIN advisers a ON a.id = c.adviser_id
+     LEFT JOIN LATERAL (
+       SELECT MAX(h.created_at) AS last_called_at
+       FROM clawback_history h
+       WHERE h.case_id = c.id AND h.event_type = 'contact_attempt'
+     ) lc ON true
      ${whereSql}
      ORDER BY ${orderBy}
      LIMIT ${limitParam}`,
@@ -237,8 +252,9 @@ export async function GET(req: Request) {
   ]);
 
   // Pull recent uploads (last 10) so the dashboard can show last-ingested
-  // state. Sellers / viewers don't need to see this -- it's an internal
-  // audit log of who uploaded what.
+  // state. Sellers / viewers don't need the full audit list, but everyone
+  // gets the latest report date so the "New since <EBAH date>" footer
+  // renders for the whole team.
   const uploads = typeof scope === "number" ? { rows: [] } : await sql.query(
     `SELECT id, filename, uploaded_by,
             uploaded_at AT TIME ZONE 'Europe/London' AS uploaded_at,
@@ -250,6 +266,14 @@ export async function GET(req: Request) {
      LIMIT 10`,
     [],
   );
+  const latestUploadQ = await sql.query(
+    `SELECT report_date::text AS report_date,
+            uploaded_at AT TIME ZONE 'Europe/London' AS uploaded_at
+     FROM clawback_uploads
+     ORDER BY uploaded_at DESC
+     LIMIT 1`,
+    [],
+  );
 
   return NextResponse.json({
     cases: casesQ.rows,
@@ -257,6 +281,7 @@ export async function GET(req: Request) {
     buckets: bucketsQ.rows,
     warnings: warningsQ.rows,
     recentUploads: uploads.rows,
+    latestUpload: latestUploadQ.rows[0] ?? null,
   });
 }
 
