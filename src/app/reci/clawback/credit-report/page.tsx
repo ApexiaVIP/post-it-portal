@@ -62,6 +62,7 @@ interface ReportResp {
   scoped: boolean;
   forecast: MonthBlock[];
   completed: MonthBlock[];
+  historicMonths: { key: string; label: string; cases: number; cb: number }[];
 }
 
 /** Row tint + status pill styling per Guy's colour key. */
@@ -229,11 +230,29 @@ export default function CreditReportPage() {
 
       {data && (
         <>
-          {/* Current month first... */}
-          {data.forecast.length > 0 && <MonthSection block={data.forecast[0]} kind="forecast" />}
+          {/* Every at-risk month first (Poz 9 Jul: summary moves to the
+              END of the clawback-due section, not after month one). */}
+          {data.forecast.map((m) => <MonthSection key={m.key} block={m} kind="forecast" />)}
 
-          {/* ...then the year summary directly beneath it so Guy sees the
-              key figures without scrolling. */}
+          {/* Months that look "missing" above are usually all Historic
+              Old OW (excluded from at-risk by design). Say so explicitly
+              so a gap like August never reads as lost data. */}
+          {data.historicMonths.length > 0 && (
+            <section className="mt-6 rounded border border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-700">
+              <strong>Not shown above (Historic Old OW, excluded from at-risk):</strong>{" "}
+              {data.historicMonths.map((m, i) => (
+                <span key={m.key}>
+                  {i > 0 && " · "}
+                  {m.label}: {m.cases} case{m.cases === 1 ? "" : "s"} ({gbp(m.cb)})
+                </span>
+              ))}
+              <span className="ml-1 text-slate-500">
+                These appear in the at-risk months only if promoted to actualised CB. Running total on the Reports page.
+              </span>
+            </section>
+          )}
+
+          {/* Year summary beneath the full at-risk section. */}
           <section className="mt-8 break-inside-avoid">
             <h2 className="border-b-2 border-slate-900 pb-2 text-lg font-bold">
               Completed months — {year} summary
@@ -303,9 +322,6 @@ export default function CreditReportPage() {
               </div>
             </div>
           </section>
-
-          {/* Remaining forecast months */}
-          {data.forecast.slice(1).map((m) => <MonthSection key={m.key} block={m} kind="forecast" />)}
 
           {/* Completed month detail */}
           {showCompleted && data.completed.length > 0 && (

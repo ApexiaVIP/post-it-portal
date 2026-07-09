@@ -701,7 +701,24 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
           </>
         )}
 
+        {/* Client contact details from the EBAH (or manual entry). The
+            lads ring/email from here, so make both actionable. */}
         <section className="mt-4 grid grid-cols-2 gap-3 px-5 text-sm">
+          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="text-xs uppercase tracking-wide text-slate-500">Phone</div>
+            {row.client_phone
+              ? <a href={`tel:${row.client_phone.replace(/\s+/g, "")}`} className="font-medium text-blue-700 hover:underline">{row.client_phone}</a>
+              : <span className="text-slate-400">not held</span>}
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="text-xs uppercase tracking-wide text-slate-500">Email</div>
+            {row.client_email
+              ? <a href={`mailto:${row.client_email}`} className="break-all font-medium text-blue-700 hover:underline">{row.client_email}</a>
+              : <span className="text-slate-400">not held</span>}
+          </div>
+        </section>
+
+        <section className="mt-3 grid grid-cols-2 gap-3 px-5 text-sm">
           <FieldRow label="DOB" value={fmtDate(row.client_dob)} />
           <FieldRow label="Sales agent" value={row.ebah_agent_name} />
           <FieldRow label="Bucket" value={row.agent_bucket === "adviser" && row.adviser_name ? row.adviser_name : row.agent_bucket} />
