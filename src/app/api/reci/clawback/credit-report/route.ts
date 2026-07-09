@@ -239,11 +239,37 @@ export async function GET(req: Request) {
     return a.key.localeCompare(b.key);
   });
 
+  // Historic Old OW cases are excluded from the month sections above,
+  // which can make a whole month disappear (Poz's "where's August?"
+  // question, 9 Jul 2026: every August case was historic OW). Return a
+  // per-month breakdown of what's excluded so the page can say so
+  // explicitly instead of silently skipping.
+  const histR = await sql.query<{ month: string; n: string; cb: string }>(
+    `SELECT to_char(c.clawback_date, 'YYYY-MM') AS month,
+            COUNT(*)::text AS n,
+            COALESCE(SUM(COALESCE(c.final_clawback_due, c.clawback_due)), 0)::text AS cb
+     FROM clawback_cases c
+     WHERE c.deleted_at IS NULL
+       AND c.source = 'old_ow' AND c.ow_actualised_at IS NULL
+       AND c.clawback_date IS NOT NULL
+       ${scopeWhere}
+     GROUP BY 1
+     ORDER BY 1`,
+    [],
+  );
+  const historicMonths = histR.rows.map((r) => ({
+    key: r.month,
+    label: monthLabel(r.month),
+    cases: Number(r.n) || 0,
+    cb: Number(r.cb) || 0,
+  }));
+
   return NextResponse.json({
     generatedAt: new Date().toISOString(),
     staleDays,
     scoped: typeof scope === "number",
     forecast,
     completed,
+    historicMonths,
   });
 }
