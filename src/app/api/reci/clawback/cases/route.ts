@@ -93,7 +93,23 @@ export async function GET(req: Request) {
     params.push(value);
     where.push(clause.replace("$$", `$${params.length}`));
   }
-  if (status)        add("c.status = $$",          status);
+  // status accepts a single value or a comma-separated list, plus two
+  // v2 group shorthands: "positive" (all On statuses) and "negative"
+  // (all Off statuses). Lets the Reports drill-through tiles link to a
+  // whole group.
+  if (status) {
+    const POS = ["saved_cfo","saved_lapse","resold_on","redraw_on","dd_reinstated","bp_saved"];
+    const NEG = ["lost_cfo","lost_lapse","resold_off","redraw_off","dd_cancelled","bp_off","dead_client","post_completion"];
+    const list = status === "positive" ? POS
+               : status === "negative" ? NEG
+               : status.split(",").map((s) => s.trim()).filter(Boolean);
+    if (list.length === 1) {
+      add("c.status = $$", list[0]);
+    } else if (list.length > 1) {
+      params.push(list as unknown as string);
+      where.push(`c.status = ANY($${params.length})`);
+    }
+  }
   // Scoped sellers can't widen out of their own bucket: ignore any bucket
   // or adviser_id query they pass and pin to their adviser_id.
   if (typeof scope === "number") {

@@ -98,7 +98,7 @@ export async function GET() {
        AND c.clawback_date IS NOT NULL
        AND c.clawback_date >= $1::date
        AND c.clawback_date <= $2::date
-       AND c.status NOT IN ('saved','resold','closed')
+       AND c.status NOT IN ('saved_cfo','saved_lapse','resold_on','redraw_on','dd_reinstated','bp_saved','closed')
        ${scopeWhere}`,
     [todayIso, windowEndIso],
   );
@@ -206,7 +206,7 @@ export async function GET() {
             COUNT(*)::text                       AS cases
      FROM clawback_cases c
      WHERE c.deleted_at IS NULL
-       AND c.status NOT IN ('saved','resold','closed')
+       AND c.status NOT IN ('saved_cfo','saved_lapse','resold_on','redraw_on','dd_reinstated','bp_saved','closed')
        ${scopeWhere}`,
     [],
   );
@@ -229,7 +229,7 @@ export async function GET() {
        AND c.clawback_date IS NOT NULL
        AND c.clawback_date >= $1::date
        AND c.clawback_date <= $2::date
-       AND c.status NOT IN ('saved','resold','closed')
+       AND c.status NOT IN ('saved_cfo','saved_lapse','resold_on','redraw_on','dd_reinstated','bp_saved','closed')
        ${scopeWhere}
      ORDER BY c.net_at_risk DESC NULLS LAST, c.clawback_date ASC
      LIMIT 10`,

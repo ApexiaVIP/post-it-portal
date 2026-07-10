@@ -76,25 +76,27 @@ export async function GET() {
        COALESCE(SUM(e.effective_cb), 0)::text                          AS total_amount,
        COUNT(*)::text                                                  AS total_cases,
 
+       -- Negatives (Off statuses) = lost. Positives (On statuses) =
+       -- resolved. V2 taxonomy, 10 Jul 2026.
        COALESCE(SUM(e.effective_cb)
-         FILTER (WHERE e.status = 'dead'), 0)::text                    AS lost_amount,
-       COUNT(*) FILTER (WHERE e.status = 'dead')::text                 AS lost_cases,
+         FILTER (WHERE e.status IN ('lost_cfo','lost_lapse','resold_off','redraw_off','dd_cancelled','bp_off','dead_client','post_completion')), 0)::text AS lost_amount,
+       COUNT(*) FILTER (WHERE e.status IN ('lost_cfo','lost_lapse','resold_off','redraw_off','dd_cancelled','bp_off','dead_client','post_completion'))::text AS lost_cases,
 
        COALESCE(SUM(e.effective_cb)
-         FILTER (WHERE e.status IN ('saved','resold','reinstated')), 0)::text  AS resolved_amount,
-       COUNT(*) FILTER (WHERE e.status IN ('saved','resold','reinstated'))::text AS resolved_cases,
+         FILTER (WHERE e.status IN ('saved_cfo','saved_lapse','resold_on','redraw_on','dd_reinstated','bp_saved')), 0)::text  AS resolved_amount,
+       COUNT(*) FILTER (WHERE e.status IN ('saved_cfo','saved_lapse','resold_on','redraw_on','dd_reinstated','bp_saved'))::text AS resolved_cases,
        COALESCE(SUM(e.saved_amount), 0)::text                          AS saved_amount_total,
        COALESCE(SUM(e.resold_amount), 0)::text                         AS resold_amount_total,
-       COUNT(*) FILTER (WHERE e.status = 'reinstated')::text           AS reinstated_cases,
+       COUNT(*) FILTER (WHERE e.status = 'dd_reinstated')::text        AS reinstated_cases,
 
        -- Urgent, Pending, Active all exclude historic OW so they
        -- reflect the current book we're actually working.
        COALESCE(SUM(e.effective_cb)
          FILTER (WHERE e.source = 'new_ow'
-                   AND e.status IN ('open','reinstated')
+                   AND e.status = 'open'
                    AND NOT e.is_historic_ow), 0)::text                  AS urgent_amount,
        COUNT(*) FILTER (WHERE e.source = 'new_ow'
-                          AND e.status IN ('open','reinstated')
+                          AND e.status = 'open'
                           AND NOT e.is_historic_ow)::text               AS urgent_cases,
 
        COALESCE(SUM(e.effective_cb)
@@ -118,14 +120,14 @@ export async function GET() {
          FILTER (WHERE e.is_historic_ow), 0)::text                      AS historic_ow_amount,
        COUNT(*) FILTER (WHERE e.is_historic_ow)::text                   AS historic_ow_cases,
 
-       -- Redraw: net = on - off across all cases in redraw status.
+       -- Redraw: net = on - off across all cases in either redraw status.
        COALESCE(SUM(e.effective_cb)
-         FILTER (WHERE e.status = 'redraw'), 0)::text                   AS redraw_amount,
-       COUNT(*) FILTER (WHERE e.status = 'redraw')::text                AS redraw_cases,
+         FILTER (WHERE e.status IN ('redraw_on','redraw_off')), 0)::text AS redraw_amount,
+       COUNT(*) FILTER (WHERE e.status IN ('redraw_on','redraw_off'))::text AS redraw_cases,
        COALESCE(SUM(e.redraw_off_amount)
-         FILTER (WHERE e.status = 'redraw'), 0)::text                   AS redraw_off_total,
+         FILTER (WHERE e.status IN ('redraw_on','redraw_off')), 0)::text AS redraw_off_total,
        COALESCE(SUM(e.redraw_on_amount)
-         FILTER (WHERE e.status = 'redraw'), 0)::text                   AS redraw_on_total
+         FILTER (WHERE e.status IN ('redraw_on','redraw_off')), 0)::text AS redraw_on_total
 
      FROM effective e
      LEFT JOIN activity a ON a.case_id = e.id`,

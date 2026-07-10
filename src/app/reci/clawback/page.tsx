@@ -43,7 +43,12 @@ interface MeResp {
 }
 
 type Bucket = "adviser" | "xstaff" | "legacy" | "needs_review";
-type Status = "open" | "saved" | "resold" | "dead" | "reinstated" | "redraw" | "closed";
+import {
+  CASE_STATUSES, STATUS_LABELS as V2_STATUS_LABELS, statusGroup,
+  type CaseStatus,
+} from "@/lib/reci/status";
+
+type Status = CaseStatus;
 
 interface CaseRow {
   id: number;
@@ -156,15 +161,7 @@ interface RecentUpload {
   rows_unmatched: number;
 }
 
-const STATUS_LABELS: Record<Status, string> = {
-  open: "Open",
-  saved: "Saved",
-  resold: "Resold",
-  dead: "Lost",
-  reinstated: "Reinstated",
-  redraw: "Redraw",
-  closed: "Closed",
-};
+const STATUS_LABELS: Record<Status, string> = V2_STATUS_LABELS;
 
 const BUCKET_LABELS: Record<Bucket, string> = {
   adviser: "Adviser",
@@ -794,6 +791,11 @@ export default function ClawbackPage() {
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
             <tr>
               <Th>Client</Th>
+              {/* Status sits up front (Poz 10 Jul): it was the last
+                  column and on narrower screens it scrolled out of
+                  view, leaving Bucket ("Adviser") looking like the
+                  status. */}
+              <Th>Status</Th>
               <Th>Postcode</Th>
               <Th>Policy No</Th>
               <Th>Master Agent</Th>
@@ -808,7 +810,6 @@ export default function ClawbackPage() {
               <Th>Agent</Th>
               <Th>Bucket</Th>
               <Th>Source</Th>
-              <Th>Status</Th>
             </tr>
           </thead>
           <tbody>
@@ -818,7 +819,7 @@ export default function ClawbackPage() {
               <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={16}>No cases match.</td></tr>
             ) : cases.map((c) => {
               const urgent = isUrgentNewOw(c.source, c.clawback_due, c.status);
-              const lost = c.status === "dead";
+              const lost = statusGroup(c.status) === "neg";
               return (
               <tr
                 key={c.id}
@@ -847,6 +848,7 @@ export default function ClawbackPage() {
                     </span>
                   )}
                 </Td>
+                <Td><StatusPill status={c.status} /></Td>
                 <Td>{c.postcode || "—"}</Td>
                 <Td><code className="text-xs">{c.policy_number}</code></Td>
                 <Td><code className="text-xs">{c.master_agent_no || "—"}</code></Td>
@@ -885,7 +887,6 @@ export default function ClawbackPage() {
                     <SourcePill source={c.source} />
                   )}
                 </Td>
-                <Td><StatusPill status={c.status} /></Td>
               </tr>
               );
             })}
@@ -1013,16 +1014,17 @@ function Td({ children, right, className, title }: { children: React.ReactNode; 
 }
 
 function StatusPill({ status }: { status: Status }) {
-  const cls: Record<Status, string> = {
-    open:       "bg-slate-100 text-slate-700",
-    saved:      "bg-emerald-100 text-emerald-800",
-    resold:     "bg-blue-100 text-blue-800",
-    dead:       "bg-red-100 text-red-800",
-    reinstated: "bg-amber-100 text-amber-800",
-    redraw:     "bg-purple-100 text-purple-800",
-    closed:     "bg-slate-200 text-slate-600",
-  };
-  return <span className={`inline-block rounded px-2 py-0.5 text-xs ${cls[status]}`}>{STATUS_LABELS[status]}</span>;
+  const group = statusGroup(status);
+  const cls =
+    group === "pos"   ? "bg-emerald-100 text-emerald-800" :
+    group === "neg"   ? "bg-red-100 text-red-800" :
+    group === "admin" ? "bg-slate-200 text-slate-600" :
+    "bg-slate-100 text-slate-700";
+  return (
+    <span className={`inline-block whitespace-nowrap rounded px-2 py-0.5 text-xs ${cls}`}>
+      {STATUS_LABELS[status] ?? status}
+    </span>
+  );
 }
 
 function SourcePill({ source }: { source: "old_ow" | "new_ow" | "other" | null }) {

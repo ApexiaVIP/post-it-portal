@@ -228,7 +228,7 @@ export default function ClawbackReportsPage() {
               amount={summary.resolved.amount}
               cases={summary.resolved.cases}
               accent="green"
-              href="/reci/clawback?status=saved"
+              href="/reci/clawback?status=positive"
               sub={`Saved ${gbp(summary.resolved.savedAmount)} · Resold ${gbp(summary.resolved.resoldAmount)}`}
             />
             <SummaryTile
@@ -236,7 +236,7 @@ export default function ClawbackReportsPage() {
               amount={summary.lost.amount}
               cases={summary.lost.cases}
               accent="rose"
-              href="/reci/clawback?status=dead"
+              href="/reci/clawback?status=negative"
               sub="Clawback went through"
             />
             <SummaryTile
@@ -252,7 +252,7 @@ export default function ClawbackReportsPage() {
               amount={Math.abs(summary.redraw.netTotal)}
               cases={summary.redraw.cases}
               accent={summary.redraw.netTotal >= 0 ? "green" : "amber"}
-              href="/reci/clawback?status=redraw"
+              href="/reci/clawback?status=redraw_on,redraw_off"
               sub={`Off ${gbp(summary.redraw.offTotal)} · On ${gbp(summary.redraw.onTotal)}${summary.redraw.netTotal < 0 ? " (net loss)" : ""}`}
             />
           </div>

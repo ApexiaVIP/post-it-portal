@@ -15,7 +15,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { fmtDate } from "./format";
 
-type Status = "open" | "saved" | "resold" | "dead" | "reinstated" | "redraw" | "closed";
+import {
+  CASE_STATUSES, STATUS_LABELS as V2_STATUS_LABELS,
+  POSITIVE_STATUSES, NEGATIVE_STATUSES, statusGroup,
+  lostStatusForWarning, savedStatusForWarning,
+  type CaseStatus,
+} from "@/lib/reci/status";
+
+type Status = CaseStatus;
 type Bucket = "adviser" | "xstaff" | "legacy" | "needs_review";
 type MoneyKind = "saved" | "resold" | "reinstated_cancelled";
 
@@ -76,24 +83,17 @@ interface HistoryRow {
   created_at: string;
 }
 
-const STATUS_LABELS: Record<Status, string> = {
-  open: "Open",
-  saved: "Saved",
-  resold: "Resold",
-  dead: "Lost",
-  reinstated: "Reinstated",
-  redraw: "Redraw",
-  closed: "Closed",
-};
-const STATUS_CLS: Record<Status, string> = {
-  open:       "bg-slate-100 text-slate-700",
-  saved:      "bg-emerald-100 text-emerald-800",
-  resold:     "bg-blue-100 text-blue-800",
-  dead:       "bg-red-100 text-red-800",
-  reinstated: "bg-amber-100 text-amber-800",
-  redraw:     "bg-purple-100 text-purple-800",
-  closed:     "bg-slate-200 text-slate-600",
-};
+const STATUS_LABELS: Record<Status, string> = V2_STATUS_LABELS;
+// Pill colours keyed by group rather than per status: green for On,
+// red for Off, neutral for Not worked / Closed.
+function statusCls(s: Status): string {
+  switch (statusGroup(s)) {
+    case "pos":   return "bg-emerald-100 text-emerald-800";
+    case "neg":   return "bg-red-100 text-red-800";
+    case "admin": return "bg-slate-200 text-slate-600";
+    default:      return "bg-slate-100 text-slate-700";
+  }
+}
 
 /**
  * Per-warning workflow guidance, pulled straight from Pauline's brief.
@@ -135,7 +135,7 @@ const WARNING_GUIDES: Record<string, WarningGuide> = {
       "The direct debit mandate must be reinstated to save this clawback. Once the client has confirmed the DD is back on, mark the case as Saved.",
     suggestions: [
       { panel: "contact", label: "Log call to client" },
-      { panel: "status",  label: "Mark as Saved (mandate reinstated)", prefillStatus: "saved", accent: "green" },
+      { panel: "status",  label: "Mark as DD Reinstated", prefillStatus: "dd_reinstated", accent: "green" },
     ],
   },
   "Cancelled from outset": {
@@ -767,7 +767,7 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm text-slate-600">
               Current status:{" "}
-              <span className={`ml-1 inline-block rounded px-2 py-0.5 text-xs font-medium ${STATUS_CLS[row.status]}`}>
+              <span className={`ml-1 inline-block rounded px-2 py-0.5 text-xs font-medium ${statusCls(row.status)}`}>
                 {STATUS_LABELS[row.status]}
               </span>
               {row.status_note && (
@@ -815,7 +815,7 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
                 <ActionBtn label="Add note" onClick={() => openPanel("note")} />
                 <ActionBtn label="Log contact" onClick={() => openPanel("contact")} />
                 <ActionBtn label="Record £ off" onClick={() => openPanel("money")} accent="green" />
-                {row.status !== "dead" && (
+                {statusGroup(row.status) !== "neg" && (
                   <ActionBtn
                     label="Mark as LOST"
                     onClick={() => openPanel("lost")}
@@ -890,8 +890,9 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
             busy={busy}
             clientName={row.client_name}
             clawbackDue={Number(row.effective_clawback_due ?? row.clawback_due ?? 0)}
+            defaultStatus={lostStatusForWarning(row.ebah_warning)}
             onCancel={() => setPanel(null)}
-            onSubmit={(note, lostReason) => patchStatus("dead", note, lostReason)}
+            onSubmit={(lostStatus, note, lostReason) => patchStatus(lostStatus, note, lostReason)}
           />
         )}
         {panel === "details" && (
@@ -1000,7 +1001,7 @@ function StatusForm({ current, prefill, busy, onCancel, onSubmit }: {
   const [redrawOff, setRedrawOff] = useState("");
   const [redrawOn,  setRedrawOn]  = useState("");
   const needsNote = newStatus !== current && newStatus !== "open";
-  const isRedraw  = newStatus === "redraw";
+  const isRedraw  = newStatus === "redraw_on" || newStatus === "redraw_off";
   const offN = Number(redrawOff);
   const onN  = Number(redrawOn);
   const redrawValid = !isRedraw || (
@@ -1025,9 +1026,20 @@ function StatusForm({ current, prefill, busy, onCancel, onSubmit }: {
           onChange={(e) => setNewStatus(e.target.value as Status)}
           className="rounded border border-slate-300 bg-white px-2 py-1.5"
         >
-          {(Object.keys(STATUS_LABELS) as Status[]).map((k) => (
-            <option key={k} value={k}>{STATUS_LABELS[k]}</option>
-          ))}
+          <option value="open">{STATUS_LABELS.open}</option>
+          <optgroup label="Positive (commission On / saved)">
+            {POSITIVE_STATUSES.map((k) => (
+              <option key={k} value={k}>{STATUS_LABELS[k]}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Negative (commission Off / lost)">
+            {NEGATIVE_STATUSES.map((k) => (
+              <option key={k} value={k}>{STATUS_LABELS[k]}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Admin">
+            <option value="closed">{STATUS_LABELS.closed}</option>
+          </optgroup>
         </select>
       </label>
 
@@ -1345,21 +1357,24 @@ const LOST_REASONS: { value: string; label: string; hint: string }[] = [
   { value: "other",          label: "Other",                      hint: "Use the note to explain." },
 ];
 
-function LostForm({ busy, clientName, clawbackDue, onCancel, onSubmit }: {
+function LostForm({ busy, clientName, clawbackDue, defaultStatus, onCancel, onSubmit }: {
   busy: boolean;
   clientName: string;
   clawbackDue: number;
+  /** Negative status pre-selected from the EBAH warning pair. */
+  defaultStatus: Status;
   onCancel: () => void;
-  onSubmit: (note: string, lostReason: string) => void;
+  onSubmit: (lostStatus: Status, note: string, lostReason: string) => void;
 }) {
   const [note, setNote] = useState("");
+  const [lostStatus, setLostStatus] = useState<Status>(defaultStatus);
   const [lostReason, setLostReason] = useState("");
-  const valid = note.trim().length > 0 && lostReason.length > 0;
+  const valid = note.trim().length > 0;
   const cb = clawbackDue.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2 });
   const activeHint = LOST_REASONS.find((r) => r.value === lostReason)?.hint;
   return (
     <form
-      onSubmit={(e) => { e.preventDefault(); if (valid) onSubmit(note.trim(), lostReason); }}
+      onSubmit={(e) => { e.preventDefault(); if (valid) onSubmit(lostStatus, note.trim(), lostReason); }}
       className="mx-5 mt-3 rounded border-2 border-red-300 bg-red-50 p-3 text-sm"
     >
       <div className="mb-2 flex items-start gap-2">
@@ -1371,21 +1386,35 @@ function LostForm({ busy, clientName, clawbackDue, onCancel, onSubmit }: {
           <div className="mt-1 text-xs text-red-800">
             This confirms the clawback of <strong>{cb}</strong> will happen. The case will
             stay on the dashboard for reporting but drop out of forecast alerts. A
-            resolution email goes to Guy and Poz.
+            resolution email goes to Poz.
           </div>
         </div>
       </div>
       <label className="mt-2 flex flex-col gap-1">
         <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
-          Lost category (required)
+          Lost status (pre-picked from the L&amp;G warning; change if needed)
+        </span>
+        <select
+          value={lostStatus}
+          onChange={(e) => setLostStatus(e.target.value as Status)}
+          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          autoFocus
+        >
+          {NEGATIVE_STATUSES.map((s) => (
+            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+          ))}
+        </select>
+      </label>
+      <label className="mt-2 flex flex-col gap-1">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+          Extra detail (optional)
         </span>
         <select
           value={lostReason}
           onChange={(e) => setLostReason(e.target.value)}
           className="rounded border border-slate-300 bg-white px-2 py-1.5"
-          autoFocus
         >
-          <option value="">Pick a reason...</option>
+          <option value="">Not specified</option>
           {LOST_REASONS.map((r) => (
             <option key={r.value} value={r.value}>{r.label}</option>
           ))}

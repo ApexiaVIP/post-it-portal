@@ -85,13 +85,17 @@ export async function GET(req: Request) {
        SELECT
          c.clawback_date,
          COALESCE(c.final_clawback_due, c.clawback_due)::numeric AS effective_cb,
+         -- V2 statuses (10 Jul 2026). This report predates the v2
+         -- Credit Control layout and is kept for continuity; the
+         -- credit report is the canonical categorised view now.
          CASE
-           WHEN c.status = 'resold'         THEN 'Resold'
-           WHEN c.status = 'reinstated'     THEN 'Reinstated'
-           WHEN c.status = 'dead' AND c.lost_reason = 'dead_client'    THEN 'Dead client'
-           WHEN c.status = 'dead' AND c.lost_reason = 'dead_contact'   THEN 'Dead contact'
-           WHEN c.status = 'dead' AND c.lost_reason = 'pitched_missed' THEN 'Lost'
-           WHEN c.status = 'dead'           THEN 'Lost'
+           WHEN c.status = 'resold_on'      THEN 'Resold'
+           WHEN c.status = 'dd_reinstated'  THEN 'Reinstated'
+           WHEN c.status = 'dead_client'    THEN 'Dead client'
+           WHEN c.status IN ('lost_cfo','lost_lapse','resold_off','redraw_off','dd_cancelled','bp_off','post_completion')
+                AND c.lost_reason = 'dead_contact' THEN 'Dead contact'
+           WHEN c.status IN ('lost_cfo','lost_lapse','resold_off','redraw_off','dd_cancelled','bp_off','post_completion')
+                THEN 'Lost'
            WHEN c.ebah_warning ILIKE '%cancelled from outset%' THEN 'CFO'
            WHEN c.ebah_warning ILIKE '%lapse%'                 THEN 'Lapsed'
            ELSE 'Other'
