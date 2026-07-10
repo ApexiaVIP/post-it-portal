@@ -43,8 +43,10 @@ export function sourceForMasterCode(code: string | null | undefined): SourceTag 
 
 /**
  * Convenience: a case is "urgent New OW" if it's tagged new_ow, still
- * carries a clawback, and isn't already saved / resold / closed.
- * Drives the red URGENT pill + row tint on the dashboard.
+ * carries a clawback, and hasn't been worked to an outcome yet.
+ * Drives the red URGENT pill + row tint on the dashboard. V2 statuses
+ * (10 Jul 2026): only 'open' still needs urgency; any worked status
+ * (positive, negative, closed) drops the flag.
  */
 export function isUrgentNewOw(
   source: SourceTag | string | null,
@@ -54,6 +56,5 @@ export function isUrgentNewOw(
   if (source !== "new_ow") return false;
   const cb = typeof clawbackDue === "string" ? Number(clawbackDue) : clawbackDue ?? 0;
   if (!(cb > 0)) return false;
-  if (status === "saved" || status === "resold" || status === "closed") return false;
-  return true;
+  return status === "open";
 }

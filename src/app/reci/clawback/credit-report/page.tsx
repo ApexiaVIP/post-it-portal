@@ -1,24 +1,22 @@
 "use client";
 
 /**
- * Credit Control report, restyled to Guy's mock-up (7 Jul 2026 feedback).
+ * Credit Control report, v2 statuses (Guy's spec, 10 Jul 2026).
  *
- * Key mock elements reproduced:
- *   - Colour key top-right (Not worked / DD booked / Resold / Dead
- *     number / Cancelled)
- *   - Whole rows tinted by status: white=open, light green=DD booked
- *     (reinstated) + saved, dark green + white text=resold, light
- *     blue=dead number (lost, dead contact), light red=cancelled
- *     (lost, other reasons)
- *   - Chip-style money footer per month (EXPOSURE black, OUTSTANDING
- *     white, DD BOOKED green, RESOLD dark green, DEAD NUMBER blue,
- *     CANCELLED red, SAVED, LOST)
- *   - "Completed months summary" table + three YTD cards (Lost
- *     commission red / Earned commission green / Saved commission
- *     dark), positioned directly beneath the current month so Guy
- *     doesn't scroll for the key figures
- *   - table-fixed with set column widths so long client names
- *     truncate (full name on hover) instead of shifting columns
+ * Reproduces Guy's v2 HTML mock:
+ *   - Colour key of all statuses top-right
+ *   - Rows tinted by group (green = On/positive, red = Off/negative,
+ *     white = not worked) with the exact status chip colours from the
+ *     mock
+ *   - Month footer: Total Off's above Total On's, each Off cell above
+ *     its On counterpart, Outstanding, Net position = exposure minus
+ *     On's (Guy-confirmed formula)
+ *   - Completed-months summary table (Negatives group / Positives
+ *     group / Net) + three YTD cards, positioned after the full
+ *     at-risk section
+ *   - Old Openwork subsections inside each month: every potential
+ *     clawback visible, clearly separated, with a running cumulative
+ *     exposure total UFN
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -47,49 +45,76 @@ interface CaseRow {
   last_action_at: string | null;
   stale: boolean;
   clawback_date: string | null;
+  historic_ow: boolean;
 }
 interface MonthTotals {
-  exposure: number; outstanding: number; ddBooked: number; resold: number;
-  deadNumber: number; cancelled: number; savedExplicit: number;
-  saved: number; lost: number; redrawNet: number;
-  earnedComm: number; savedComm: number;
-  staleCount: number; cases: number;
+  exposure: number;
+  outstanding: number;
+  byStatus: Record<string, number>;
+  other: number;
+  neg: number;
+  pos: number;
+  net: number;
+  staleCount: number;
+  cases: number;
 }
-interface MonthBlock { key: string; label: string; cases: CaseRow[]; totals: MonthTotals }
+interface MonthBlock {
+  key: string; label: string;
+  cases: CaseRow[]; totals: MonthTotals;
+  oldOw: CaseRow[]; oldOwExposure: number; oldOwRunning: number;
+}
 interface ReportResp {
   generatedAt: string;
   staleDays: number;
   scoped: boolean;
   forecast: MonthBlock[];
   completed: MonthBlock[];
-  historicMonths: { key: string; label: string; cases: number; cb: number }[];
+  oldOwGrandTotal: number;
 }
 
-/** Row tint + status pill styling per Guy's colour key. */
-function rowVisual(c: CaseRow): { row: string; pill: string; pillLabel: string } {
-  switch (c.status) {
-    case "reinstated":
-      return { row: "bg-emerald-50", pill: "bg-emerald-100 text-emerald-800 border border-emerald-300", pillLabel: "DD collection booked" };
-    case "saved":
-      return { row: "bg-emerald-50", pill: "bg-emerald-100 text-emerald-800 border border-emerald-300", pillLabel: "Saved" };
-    case "resold":
-      return { row: "bg-emerald-800 text-white", pill: "bg-emerald-950 text-white", pillLabel: "Resold" };
-    case "dead":
-      if (c.lost_reason === "dead_contact") {
-        return { row: "bg-blue-50", pill: "bg-blue-100 text-blue-800 border border-blue-300", pillLabel: "Dead number" };
-      }
-      return { row: "bg-red-50", pill: "bg-red-100 text-red-800 border border-red-300", pillLabel: "Cancelled" };
-    case "redraw":
-      return { row: "bg-purple-50", pill: "bg-purple-100 text-purple-800 border border-purple-300", pillLabel: "Redraw" };
-    case "closed":
-      return { row: "bg-slate-100", pill: "bg-slate-200 text-slate-600", pillLabel: "Closed" };
-    default:
-      return { row: "bg-white", pill: "bg-white text-slate-700 border border-slate-300", pillLabel: "Not worked" };
-  }
-}
+/** Guy's v2 status colours, lifted from his HTML mock. */
+const STATUS_VISUAL: Record<string, { label: string; bg: string; fg: string; bd?: string; group: "none" | "pos" | "neg" | "admin" }> = {
+  open:            { label: "Not worked",                        bg: "#ffffff", fg: "#475569", bd: "#cbd5e1", group: "none" },
+  saved_cfo:       { label: "Saved CFO",                         bg: "#dcfce7", fg: "#166534", group: "pos" },
+  saved_lapse:     { label: "Saved Lapse",                       bg: "#ccfbf1", fg: "#0f766e", group: "pos" },
+  resold_on:       { label: "Resold On",                         bg: "#166534", fg: "#ffffff", group: "pos" },
+  redraw_on:       { label: "Redraw On",                         bg: "#d9f99d", fg: "#3f6212", group: "pos" },
+  dd_reinstated:   { label: "DD Reinstated",                     bg: "#bbf7d0", fg: "#15803d", group: "pos" },
+  bp_saved:        { label: "BP Saved",                          bg: "#f0fdf4", fg: "#16a34a", bd: "#86efac", group: "pos" },
+  lost_cfo:        { label: "Lost CFO",                          bg: "#991b1b", fg: "#ffffff", group: "neg" },
+  lost_lapse:      { label: "Lost Lapse",                        bg: "#fee2e2", fg: "#b91c1c", group: "neg" },
+  resold_off:      { label: "Resold Off",                        bg: "#7f1d1d", fg: "#ffffff", group: "neg" },
+  redraw_off:      { label: "Redraw Off",                        bg: "#fecdd3", fg: "#9f1239", group: "neg" },
+  dd_cancelled:    { label: "DD Mandate Cancelled",              bg: "#fed7aa", fg: "#c2410c", group: "neg" },
+  bp_off:          { label: "Bounced Premium Off",               bg: "#fef3c7", fg: "#a16207", group: "neg" },
+  dead_client:     { label: "Dead Client - Claim Declined",      bg: "#334155", fg: "#ffffff", group: "neg" },
+  post_completion: { label: "Post Completion - Medical Decline", bg: "#ede9fe", fg: "#6d28d9", group: "neg" },
+  closed:          { label: "Closed",                            bg: "#e2e8f0", fg: "#475569", group: "admin" },
+};
+const NEG_COLS = ["lost_cfo","lost_lapse","resold_off","redraw_off","dd_cancelled","bp_off","other"] as const;
+const POS_COLS = ["saved_cfo","saved_lapse","resold_on","redraw_on","dd_reinstated","bp_saved"] as const;
+const COL_SHORT: Record<string, string> = {
+  lost_cfo: "Lost CFO", lost_lapse: "Lost Lapse", resold_off: "Resold Off",
+  redraw_off: "Redraw Off", dd_cancelled: "DD Cancelled", bp_off: "BP Off", other: "Other",
+  saved_cfo: "Saved CFO", saved_lapse: "Saved Lapse", resold_on: "Resold On",
+  redraw_on: "Redraw On", dd_reinstated: "DD Reinstated", bp_saved: "BP Saved",
+};
+const KEY_ORDER = [
+  "open","saved_cfo","saved_lapse","resold_on","redraw_on","dd_reinstated","bp_saved",
+  "lost_cfo","lost_lapse","resold_off","redraw_off","dd_cancelled","bp_off",
+  "dead_client","post_completion",
+];
 
+function rowTint(status: string): string {
+  const g = STATUS_VISUAL[status]?.group ?? "none";
+  return g === "pos" ? "#f0fdf4" : g === "neg" ? "#fef2f2" : "#ffffff";
+}
+function colValue(t: MonthTotals, col: string): number {
+  if (col === "other") return t.other;
+  return t.byStatus[col] ?? 0;
+}
 function gbp(n: number): string {
-  return n.toLocaleString("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return "£" + Math.round(n).toLocaleString("en-GB");
 }
 function gbp2(n: number | null): string {
   if (n === null) return "—";
@@ -109,13 +134,17 @@ function daysAgo(iso: string | null): string {
   return `${d}d`;
 }
 
-const KEY_ITEMS = [
-  { label: "Not worked",           cls: "bg-white border border-slate-300" },
-  { label: "DD collection booked", cls: "bg-emerald-200" },
-  { label: "Resold",               cls: "bg-emerald-800" },
-  { label: "Dead number",          cls: "bg-blue-200" },
-  { label: "Cancelled",            cls: "bg-red-200" },
-];
+function StatusChip({ status }: { status: string }) {
+  const v = STATUS_VISUAL[status] ?? { label: status, bg: "#e2e8f0", fg: "#475569", group: "none" as const };
+  return (
+    <span
+      className="inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold"
+      style={{ background: v.bg, color: v.fg, border: v.bd ? `1px solid ${v.bd}` : "1px solid transparent" }}
+    >
+      {v.label}
+    </span>
+  );
+}
 
 export default function CreditReportPage() {
   const [data, setData] = useState<ReportResp | null>(null);
@@ -143,36 +172,29 @@ export default function CreditReportPage() {
     ? [...data.forecast, ...data.completed].reduce((n, m) => n + m.totals.staleCount, 0)
     : 0;
 
-  // Year summary across completed months (mock: "Completed months
-  // summary, computed live from the case detail above").
+  // Year summary across completed months, v2 columns.
   const year = new Date().getFullYear();
   const completedThisYear = data
     ? data.completed.filter((m) => m.key.startsWith(String(year))).slice().reverse()
     : [];
-  const ytd = completedThisYear.reduce(
-    (acc, m) => ({
-      ddBooked:   acc.ddBooked + m.totals.ddBooked,
-      resold:     acc.resold + m.totals.resold,
-      deadNumber: acc.deadNumber + m.totals.deadNumber,
-      cancelled:  acc.cancelled + m.totals.cancelled,
-      lost:       acc.lost + m.totals.lost,
-      earned:     acc.earned + m.totals.earnedComm,
-      saved:      acc.saved + m.totals.savedComm,
-    }),
-    { ddBooked: 0, resold: 0, deadNumber: 0, cancelled: 0, lost: 0, earned: 0, saved: 0 },
-  );
+  const ytd: Record<string, number> = { exposure: 0, net: 0 };
+  for (const col of [...NEG_COLS, ...POS_COLS]) ytd[col] = 0;
+  for (const m of completedThisYear) {
+    ytd.exposure += m.totals.exposure;
+    ytd.net += m.totals.net;
+    for (const col of [...NEG_COLS, ...POS_COLS]) ytd[col] += colValue(m.totals, col);
+  }
+  const ytdNeg = NEG_COLS.reduce((n, c) => n + ytd[c], 0);
+  const ytdPos = POS_COLS.reduce((n, c) => n + ytd[c], 0);
 
   return (
-    <main className="mx-auto max-w-[1700px] px-4 py-4">
+    <main className="mx-auto max-w-[1750px] px-4 py-4">
       <PrintHeader
         title="Credit Control - Clawback Forecast & Recovery Report"
-        subtitle={`Cases with missed payments, cancelled DD mandates or cancelled policies · Generated ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`}
-        meta={[
-          { label: "Not worked", value: String(totalStale) },
-        ]}
+        subtitle={`v2 statuses · Generated ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`}
+        meta={[{ label: "Not worked", value: String(totalStale) }]}
       />
 
-      {/* Header block matching the mock: eyebrow, big title, colour key right */}
       <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-slate-900 pb-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-widest text-slate-500">
@@ -184,13 +206,8 @@ export default function CreditReportPage() {
             · Generated {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          {KEY_ITEMS.map((k) => (
-            <span key={k.label} className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700">
-              <span className={`inline-block h-3.5 w-3.5 rounded-sm ${k.cls}`} />
-              {k.label}
-            </span>
-          ))}
+        <div className="flex max-w-[560px] flex-wrap items-center gap-1.5 pt-1">
+          {KEY_ORDER.map((k) => <StatusChip key={k} status={k} />)}
         </div>
       </div>
 
@@ -230,100 +247,88 @@ export default function CreditReportPage() {
 
       {data && (
         <>
-          {/* Every at-risk month first (Poz 9 Jul: summary moves to the
-              END of the clawback-due section, not after month one). */}
           {data.forecast.map((m) => <MonthSection key={m.key} block={m} kind="forecast" />)}
 
-          {/* Months that look "missing" above are usually all Historic
-              Old OW (excluded from at-risk by design). Say so explicitly
-              so a gap like August never reads as lost data. */}
-          {data.historicMonths.length > 0 && (
-            <section className="mt-6 rounded border border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-700">
-              <strong>Not shown above (Historic Old OW, excluded from at-risk):</strong>{" "}
-              {data.historicMonths.map((m, i) => (
-                <span key={m.key}>
-                  {i > 0 && " · "}
-                  {m.label}: {m.cases} case{m.cases === 1 ? "" : "s"} ({gbp(m.cb)})
-                </span>
-              ))}
-              <span className="ml-1 text-slate-500">
-                These appear in the at-risk months only if promoted to actualised CB. Running total on the Reports page.
-              </span>
-            </section>
-          )}
-
-          {/* Year summary beneath the full at-risk section. */}
+          {/* Year summary after the full at-risk section (Poz 9 Jul). */}
           <section className="mt-8 break-inside-avoid">
             <h2 className="border-b-2 border-slate-900 pb-2 text-lg font-bold">
               Completed months — {year} summary
               <span className="ml-2 text-xs font-normal text-slate-500">computed live from the case detail below</span>
             </h2>
             <div className="mt-2 overflow-x-auto rounded border border-slate-200 bg-white">
-              <table className="w-full table-fixed text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
-                  <tr>
-                    <th className="w-[12%] px-3 py-2 text-left font-medium">Month</th>
-                    <th className="w-[12%] px-3 py-2 text-right font-medium text-emerald-700">DD booked</th>
-                    <th className="w-[12%] px-3 py-2 text-right font-medium text-emerald-800">Resold</th>
-                    <th className="w-[12%] px-3 py-2 text-right font-medium text-blue-700">Dead number</th>
-                    <th className="w-[12%] px-3 py-2 text-right font-medium text-red-700">Cancelled</th>
-                    <th className="w-[13%] px-3 py-2 text-right font-medium text-red-700">Lost comm.</th>
-                    <th className="w-[13%] px-3 py-2 text-right font-medium text-emerald-700">Earned comm.</th>
-                    <th className="w-[14%] px-3 py-2 text-right font-medium">Saved comm.</th>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-[9px] uppercase tracking-wider text-slate-600">
+                    <th rowSpan={2} className="px-2 py-2 text-left font-semibold">Month</th>
+                    <th rowSpan={2} className="px-2 py-2 text-right font-semibold">Exposure</th>
+                    <th colSpan={NEG_COLS.length} className="border-b border-slate-200 bg-red-50 px-2 py-1 text-center font-bold text-red-700">Negatives (Off)</th>
+                    <th colSpan={POS_COLS.length} className="border-b border-slate-200 bg-emerald-50 px-2 py-1 text-center font-bold text-emerald-700">Positives (On)</th>
+                    <th rowSpan={2} className="px-2 py-2 text-right font-semibold">Net position</th>
+                  </tr>
+                  <tr className="bg-slate-50 text-[9px] uppercase tracking-wider text-slate-600">
+                    {[...NEG_COLS, ...POS_COLS].map((c) => (
+                      <th key={c} className="px-2 py-1 text-right font-medium">{COL_SHORT[c]}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {completedThisYear.length === 0 ? (
-                    <tr><td colSpan={8} className="px-3 py-3 text-center text-slate-400">No completed months yet in {year}.</td></tr>
+                    <tr><td colSpan={NEG_COLS.length + POS_COLS.length + 3} className="px-3 py-3 text-center text-slate-400">No completed months yet in {year}.</td></tr>
                   ) : completedThisYear.map((m) => (
-                    <tr key={m.key} className="border-t border-slate-100">
-                      <td className="px-3 py-1.5 font-medium">{m.label.replace(String(year), "").trim()} {year}</td>
-                      <td className="px-3 py-1.5 text-right">{gbp(m.totals.ddBooked)}</td>
-                      <td className="px-3 py-1.5 text-right">{gbp(m.totals.resold)}</td>
-                      <td className="px-3 py-1.5 text-right">{gbp(m.totals.deadNumber)}</td>
-                      <td className="px-3 py-1.5 text-right">{gbp(m.totals.cancelled)}</td>
-                      <td className="px-3 py-1.5 text-right text-red-700">{gbp(m.totals.lost)}</td>
-                      <td className="px-3 py-1.5 text-right text-emerald-700">{gbp(m.totals.earnedComm)}</td>
-                      <td className="px-3 py-1.5 text-right">{gbp(m.totals.savedComm)}</td>
+                    <tr key={m.key} className="border-t border-slate-100 tabular-nums">
+                      <td className="px-2 py-1.5 text-left font-medium">{m.label}</td>
+                      <td className="px-2 py-1.5 text-right font-semibold">{gbp(m.totals.exposure)}</td>
+                      {NEG_COLS.map((c) => {
+                        const v = colValue(m.totals, c);
+                        return <td key={c} className="px-2 py-1.5 text-right text-red-700">{v ? gbp(v) : "—"}</td>;
+                      })}
+                      {POS_COLS.map((c) => {
+                        const v = colValue(m.totals, c);
+                        return <td key={c} className="px-2 py-1.5 text-right text-emerald-700">{v ? gbp(v) : "—"}</td>;
+                      })}
+                      <td className={`px-2 py-1.5 text-right font-bold ${m.totals.net > 0 ? "text-red-700" : "text-emerald-700"}`}>{gbp(m.totals.net)}</td>
                     </tr>
                   ))}
                   {completedThisYear.length > 0 && (
-                    <tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold">
-                      <td className="px-3 py-2">{year} YTD</td>
-                      <td className="px-3 py-2 text-right">{gbp(ytd.ddBooked)}</td>
-                      <td className="px-3 py-2 text-right">{gbp(ytd.resold)}</td>
-                      <td className="px-3 py-2 text-right">{gbp(ytd.deadNumber)}</td>
-                      <td className="px-3 py-2 text-right">{gbp(ytd.cancelled)}</td>
-                      <td className="px-3 py-2 text-right text-red-700">{gbp(ytd.lost)}</td>
-                      <td className="px-3 py-2 text-right text-emerald-700">{gbp(ytd.earned)}</td>
-                      <td className="px-3 py-2 text-right">{gbp(ytd.saved)}</td>
+                    <tr className="border-t-2 border-slate-900 bg-slate-50 font-bold tabular-nums">
+                      <td className="px-2 py-2 text-left">{year} YTD</td>
+                      <td className="px-2 py-2 text-right">{gbp(ytd.exposure)}</td>
+                      {NEG_COLS.map((c) => <td key={c} className="px-2 py-2 text-right text-red-700">{gbp(ytd[c])}</td>)}
+                      {POS_COLS.map((c) => <td key={c} className="px-2 py-2 text-right text-emerald-700">{gbp(ytd[c])}</td>)}
+                      <td className={`px-2 py-2 text-right ${ytd.net > 0 ? "text-red-700" : "text-emerald-700"}`}>{gbp(ytd.net)}</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
 
-            {/* Three YTD cards, mock colours */}
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="rounded bg-red-900 p-4 text-white">
-                <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Lost commission — {year} YTD</div>
-                <div className="mt-1 text-3xl font-bold tabular-nums">{gbp(ytd.lost)}</div>
-                <div className="mt-1 text-xs opacity-80">Dead numbers + cancellations</div>
+              <div className="rounded-lg p-4 text-white" style={{ background: "#7f1d1d" }}>
+                <div className="text-[10px] font-bold uppercase tracking-widest opacity-85">Negatives — {year} YTD</div>
+                <div className="mt-1 text-3xl font-extrabold tabular-nums">{gbp(ytdNeg)}</div>
+                <div className="mt-1 text-xs opacity-80">Lost CFO · Lost Lapse · Resold/Redraw Off · DD Cancelled · BP Off · Other</div>
               </div>
-              <div className="rounded bg-emerald-800 p-4 text-white">
-                <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Earned commission — {year} YTD</div>
-                <div className="mt-1 text-3xl font-bold tabular-nums">{gbp(ytd.earned)}</div>
-                <div className="mt-1 text-xs opacity-80">New commission from resold cases</div>
+              <div className="rounded-lg p-4 text-white" style={{ background: "#14532d" }}>
+                <div className="text-[10px] font-bold uppercase tracking-widest opacity-85">Positives — {year} YTD</div>
+                <div className="mt-1 text-3xl font-extrabold tabular-nums">{gbp(ytdPos)}</div>
+                <div className="mt-1 text-xs opacity-80">Saved CFO · Saved Lapse · Resold/Redraw On · DD Reinstated · BP Saved</div>
               </div>
-              <div className="rounded bg-slate-900 p-4 text-white">
-                <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Saved commission — {year} YTD</div>
-                <div className="mt-1 text-3xl font-bold tabular-nums">{gbp(ytd.saved)}</div>
-                <div className="mt-1 text-xs opacity-80">DD collections booked + resold clawback avoided</div>
+              <div className="rounded-lg p-4 text-white" style={{ background: "#0f172a" }}>
+                <div className="text-[10px] font-bold uppercase tracking-widest opacity-85">Net position — {year} YTD</div>
+                <div className="mt-1 text-3xl font-extrabold tabular-nums">{gbp(ytd.net)}</div>
+                <div className="mt-1 text-xs opacity-80">Exposure minus positives (closed months)</div>
               </div>
+            </div>
+
+            <div className="mt-3 rounded border border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-700">
+              <strong>Old Openwork exposure, running total UFN:</strong>{" "}
+              <span className="font-bold tabular-nums">{gbp(data.oldOwGrandTotal)}</span>
+              <span className="ml-2 text-slate-500">
+                Unrecovered Old OW clawback across all months. Individual cases are listed inside each month below; promote one with "Mark as actualised CB" if it hits the OW bank statement.
+              </span>
             </div>
           </section>
 
-          {/* Completed month detail */}
           {showCompleted && data.completed.length > 0 && (
             <>
               <h2 className="mt-10 border-b-2 border-slate-900 pb-2 text-lg font-bold">
@@ -339,12 +344,67 @@ export default function CreditReportPage() {
   );
 }
 
-function Chip({ label, value, cls }: { label: string; value: string; cls: string }) {
+function FootCell({ label, value, bg, fg, border, dim }: {
+  label: string; value: string; bg: string; fg: string; border?: string; dim?: boolean;
+}) {
   return (
-    <span className={`inline-flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs font-semibold ${cls}`}>
-      <span className="uppercase tracking-wide">{label}</span>
-      <span className="tabular-nums">{value}</span>
-    </span>
+    <div
+      className={`min-w-0 rounded px-2 py-1 ${dim ? "opacity-40" : ""}`}
+      style={{ background: bg, color: fg, border: border ? `1px solid ${border}` : undefined }}
+    >
+      <span className="block text-[8.5px] font-bold uppercase tracking-wider opacity-75">{label}</span>
+      <span className="text-[12.5px] font-bold tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function CaseTable({ rows, oldOw }: { rows: CaseRow[]; oldOw?: boolean }) {
+  return (
+    <table className="w-full table-fixed text-sm">
+      <thead className={`text-xs uppercase tracking-wide text-slate-600 ${oldOw ? "bg-amber-50" : "bg-slate-100"}`}>
+        <tr>
+          <th className="w-[13%] px-3 py-2 text-left font-medium">Client</th>
+          <th className="w-[9%] px-3 py-2 text-left font-medium">Policy</th>
+          <th className="w-[8%] px-3 py-2 text-left font-medium">Type</th>
+          <th className="w-[8%] px-3 py-2 text-left font-medium">Seller</th>
+          <th className="w-[12%] px-3 py-2 text-left font-medium">Trigger</th>
+          <th className="w-[7%] px-3 py-2 text-right font-medium">Prem /mo</th>
+          <th className="w-[8%] px-3 py-2 text-right font-medium">Clawback</th>
+          <th className="w-[16%] px-3 py-2 text-left font-medium">Status</th>
+          <th className="w-[5%] px-3 py-2 text-left font-medium">Idle</th>
+          <th className="w-[14%] px-3 py-2 text-left font-medium">Reason / notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((c) => (
+          <tr key={c.id} className="border-t border-slate-200" style={{ background: rowTint(c.status) }}>
+            <td className="truncate px-3 py-2 font-medium" title={c.client_name}>
+              <Link href={`/reci/clawback?q=${encodeURIComponent(c.policy_number)}`} className="hover:underline">
+                {surnameFirst(c)}
+              </Link>
+            </td>
+            <td className="truncate px-3 py-2 font-mono text-xs" title={c.policy_number}>{c.policy_number}</td>
+            <td className="truncate px-3 py-2" title={c.policy_type || ""}>{c.policy_type || "—"}</td>
+            <td className="truncate px-3 py-2" title={c.seller}>{c.seller}</td>
+            <td className="truncate px-3 py-2 text-slate-600" title={c.trigger || ""}>{c.trigger || "—"}</td>
+            <td className="px-3 py-2 text-right tabular-nums">{gbp2(c.net_premium)}</td>
+            <td className="px-3 py-2 text-right font-semibold tabular-nums">{gbp2(c.clawback)}</td>
+            <td className="px-3 py-2">
+              <StatusChip status={c.status} />
+              {c.stale && (
+                <span className="ml-1 inline-block rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
+                  Not worked
+                </span>
+              )}
+            </td>
+            <td className="px-3 py-2 text-xs text-slate-500">{daysAgo(c.last_action_at)}</td>
+            <td className="truncate px-3 py-2 text-xs text-slate-600" title={c.latest_note || ""}>
+              {c.latest_note || "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -370,68 +430,53 @@ function MonthSection({ block, kind }: { block: MonthBlock; kind: "forecast" | "
       </div>
 
       <div className="mt-2 overflow-x-auto rounded border border-slate-200 bg-white">
-        <table className="w-full table-fixed text-sm">
-          <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
-            <tr>
-              <th className="w-[13%] px-3 py-2 text-left font-medium">Client</th>
-              <th className="w-[9%] px-3 py-2 text-left font-medium">Policy</th>
-              <th className="w-[9%] px-3 py-2 text-left font-medium">Type</th>
-              <th className="w-[8%] px-3 py-2 text-left font-medium">Seller</th>
-              <th className="w-[13%] px-3 py-2 text-left font-medium">Trigger</th>
-              <th className="w-[7%] px-3 py-2 text-right font-medium">Prem /mo</th>
-              <th className="w-[8%] px-3 py-2 text-right font-medium">Clawback</th>
-              <th className="w-[14%] px-3 py-2 text-left font-medium">Status</th>
-              <th className="w-[5%] px-3 py-2 text-left font-medium">Idle</th>
-              <th className="w-[14%] px-3 py-2 text-left font-medium">Reason / notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {block.cases.map((c) => {
-              const v = rowVisual(c);
-              const muted = c.status === "resold" ? "text-emerald-100" : "text-slate-500";
-              return (
-                <tr key={c.id} className={`border-t border-slate-200 ${v.row}`}>
-                  <td className="truncate px-3 py-2 font-medium" title={c.client_name}>
-                    <Link href={`/reci/clawback?q=${encodeURIComponent(c.policy_number)}`} className="hover:underline">
-                      {surnameFirst(c)}
-                    </Link>
-                  </td>
-                  <td className="truncate px-3 py-2 font-mono text-xs" title={c.policy_number}>{c.policy_number}</td>
-                  <td className="truncate px-3 py-2" title={c.policy_type || ""}>{c.policy_type || "—"}</td>
-                  <td className="truncate px-3 py-2" title={c.seller}>{c.seller}</td>
-                  <td className={`truncate px-3 py-2 ${muted}`} title={c.trigger || ""}>{c.trigger || "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{gbp2(c.net_premium)}</td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums">{gbp2(c.clawback)}</td>
-                  <td className="px-3 py-2">
-                    <span className={`inline-block max-w-full truncate rounded-full px-2 py-0.5 text-xs font-medium ${v.pill}`}>
-                      {v.pillLabel}
-                    </span>
-                    {c.stale && (
-                      <span className="ml-1 inline-block rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
-                        Not worked
-                      </span>
-                    )}
-                  </td>
-                  <td className={`px-3 py-2 text-xs ${muted}`}>{daysAgo(c.last_action_at)}</td>
-                  <td className={`truncate px-3 py-2 text-xs ${muted}`} title={c.latest_note || ""}>
-                    {c.latest_note || "—"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        {block.cases.length > 0
+          ? <CaseTable rows={block.cases} />
+          : <div className="px-3 py-3 text-sm text-slate-400">No current-book cases this month.</div>}
 
-        <div className="flex flex-wrap gap-2 border-t-2 border-slate-300 bg-white px-3 py-2">
-          <Chip label="Exposure"    value={gbp(t.exposure)}    cls="border-slate-900 bg-slate-900 text-white" />
-          <Chip label="Outstanding" value={gbp(t.outstanding)} cls="border-slate-300 bg-white text-slate-800" />
-          <Chip label="DD booked"   value={gbp(t.ddBooked)}    cls="border-emerald-300 bg-emerald-50 text-emerald-800" />
-          <Chip label="Resold"      value={gbp(t.resold)}      cls="border-emerald-900 bg-emerald-800 text-white" />
-          <Chip label="Dead number" value={gbp(t.deadNumber)}  cls="border-blue-300 bg-blue-50 text-blue-800" />
-          <Chip label="Cancelled"   value={gbp(t.cancelled)}   cls="border-red-300 bg-red-50 text-red-800" />
-          <Chip label="Saved"       value={gbp(t.saved)}       cls="border-emerald-300 bg-white text-emerald-800" />
-          <Chip label="Lost"        value={gbp(t.lost)}        cls="border-red-300 bg-white text-red-800" />
+        {/* Month footer, Guy's layout: Total Off's row (each Off above
+            its On), then Total On's row, Outstanding + Net position. */}
+        <div className="border-t-2 border-slate-300 bg-white px-3 py-2">
+          <div className="grid grid-cols-9 gap-1.5">
+            <FootCell label="Total Off's" value={gbp(t.neg)} bg="#7f1d1d" fg="#ffffff" />
+            {NEG_COLS.map((c) => {
+              const v = colValue(t, c);
+              const ref = c === "other" ? STATUS_VISUAL.dead_client : STATUS_VISUAL[c];
+              return <FootCell key={c} label={COL_SHORT[c]} value={gbp(v)} bg={ref.bg} fg={ref.fg} dim={!v} />;
+            })}
+            <FootCell label="Outstanding" value={gbp(t.outstanding)} bg="#e2e8f0" fg="#334155" dim={!t.outstanding} />
+            <FootCell label="Total On's" value={gbp(t.pos)} bg="#14532d" fg="#ffffff" />
+            {POS_COLS.map((c) => {
+              const v = colValue(t, c);
+              const ref = STATUS_VISUAL[c];
+              return <FootCell key={c} label={COL_SHORT[c]} value={gbp(v)} bg={ref.bg} fg={ref.fg} border={ref.bd} dim={!v} />;
+            })}
+            <div />
+            <div className="min-w-0 rounded border-2 border-slate-900 bg-white px-2 py-1">
+              <span className="block text-[8.5px] font-bold uppercase tracking-wider text-slate-700">Net position</span>
+              <span className={`text-[12.5px] font-bold tabular-nums ${t.net > 0 ? "text-red-700" : "text-emerald-700"}`}>{gbp(t.net)}</span>
+            </div>
+          </div>
         </div>
+
+        {/* Old Openwork subsection: every potential clawback visible,
+            clearly separated, not expected to debit the account. */}
+        {block.oldOw.length > 0 && (
+          <>
+            <div className="flex items-baseline justify-between border-t-2 border-amber-300 bg-amber-50 px-3 py-2">
+              <div className="text-sm font-bold text-amber-900">
+                Old Openwork
+                <span className="ml-2 text-xs font-normal text-amber-800">
+                  not expected to debit the account · promote via &quot;Mark as actualised CB&quot; if it appears on the OW bank statement
+                </span>
+              </div>
+              <div className="font-mono text-xs text-amber-900">
+                {block.oldOw.length} case{block.oldOw.length === 1 ? "" : "s"} · {gbp(block.oldOwExposure)} · running total {gbp(block.oldOwRunning)}
+              </div>
+            </div>
+            <CaseTable rows={block.oldOw} oldOw />
+          </>
+        )}
       </div>
     </section>
   );

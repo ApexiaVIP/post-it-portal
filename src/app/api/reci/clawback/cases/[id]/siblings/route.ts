@@ -81,7 +81,7 @@ export async function GET(
           FROM clawback_cases c
          WHERE c.deleted_at IS NULL
            AND c.id <> ${id}
-           AND c.status NOT IN ('closed','dead')
+           AND c.status <> 'closed'
            AND LOWER(c.client_last_name) = LOWER(${lastName})
            AND c.client_dob = ${me.client_dob}::date
          ORDER BY c.policy_number ASC
@@ -97,7 +97,7 @@ export async function GET(
               FROM clawback_cases c
              WHERE c.deleted_at IS NULL
                AND c.id <> ${id}
-               AND c.status NOT IN ('closed','dead')
+               AND c.status <> 'closed'
                AND LOWER(c.client_last_name) = LOWER(${lastName})
                AND UPPER(c.postcode) = UPPER(${me.postcode})
              ORDER BY c.policy_number ASC

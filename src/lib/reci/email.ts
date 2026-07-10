@@ -453,13 +453,31 @@ function escapeHtml(s: string) {
 //   RECI_CANCELLATION_CC       = reused for management CC (Pauline / Jimmy)
 // ---------------------------------------------------------------------------
 
+// V2 statuses (10 Jul 2026) + legacy names so history strings in old
+// emails still render sensibly.
 const RESOLVED_STATUS_LABELS: Record<string, string> = {
+  open:            "Not worked",
+  saved_cfo:       "Saved CFO",
+  saved_lapse:     "Saved Lapse",
+  resold_on:       "Resold On",
+  redraw_on:       "Redraw On",
+  dd_reinstated:   "DD Reinstated",
+  bp_saved:        "BP Saved",
+  lost_cfo:        "Lost CFO",
+  lost_lapse:      "Lost Lapse",
+  resold_off:      "Resold Off",
+  redraw_off:      "Redraw Off",
+  dd_cancelled:    "DD Mandate Cancelled",
+  bp_off:          "Bounced Premium Off",
+  dead_client:     "Dead Client - Claim Declined",
+  post_completion: "Post Completion - Medical Decline",
+  closed:          "Closed",
+  // legacy
   saved:      "Saved",
   resold:     "Resold",
   dead:       "Lost",
   reinstated: "Reinstated",
-  closed:     "Closed",
-  open:       "Open",
+  redraw:     "Redraw",
 };
 
 function managementCc(): string[] {

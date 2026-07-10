@@ -1,32 +1,31 @@
 /**
  * GET /api/reci/clawback/credit-report
  *
- * Case-level Credit Control report, built to Guy's mock-up (6 Jul 2026).
- * The Reports page gives him per-seller totals; this gives the detail
- * evidence behind them: every case, grouped by the month its clawback
- * lands (clawback_date), split into
+ * Case-level Credit Control report, v2 statuses (Guy's spec, 10 Jul
+ * 2026). Cases grouped by the month the clawback lands (clawback_date),
+ * split into forecast months (current onwards + unscheduled) and
+ * completed months.
  *
- *   - forecast months (current month onwards, includes unscheduled)
- *   - completed months (past)
+ * Old Openwork cases (source='old_ow', not actualised) are INCLUDED
+ * per Guy's 10 Jul ask: every potential clawback visible, whoever it
+ * belongs to, whenever it's due, regardless of whether it will
+ * actually be debited. They render as a clearly-separated subsection
+ * inside each month, same sort order, and carry a running cumulative
+ * exposure total. They stay OUT of the month's worked totals so the
+ * Off/On numbers still describe money that genuinely moves.
  *
- * Each case row carries client, policy, seller, trigger (L&G warning),
- * monthly premium, CB £, status, the latest human note, and a stale
- * flag: an OPEN case with no note / contact / £ / status action in the
- * last `stale_days` days (query param, default 3) is "not worked" and
- * the UI paints it red.
- *
- * Historic Old OW cases (source=old_ow, not actualised) are excluded,
- * consistent with the executive summary: they'd inflate every historic
- * month with exposure that statistically never lands.
- *
- * Query params:
- *   stale_days  integer, default 3
+ * Stale rule: an OPEN, non-historic case with no note / contact / £ /
+ * status action in `stale_days` days (default 3) is "not worked".
+ * Historic Old OW cases are parked, never flagged stale.
  *
  * Auth: any clawback user; junior sellers see only their own cases.
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { getSession, isClawbackUser, clawbackAdviserScope } from "@/lib/auth";
+import {
+  NEGATIVE_STATUSES, POSITIVE_STATUSES, type CaseStatus,
+} from "@/lib/reci/status";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +52,47 @@ interface CaseRow {
   last_action_at: string | null;
   stale: boolean;
   clawback_date: string | null;
+  historic_ow: boolean;
+}
+
+/** Per-month money totals in Guy's v2 vocabulary. */
+export interface MonthTotals {
+  exposure: number;
+  outstanding: number;
+  /** £ per status key, e.g. lost_cfo, saved_lapse ... */
+  byStatus: Record<string, number>;
+  /** dead_client + post_completion combined ("Other" column). */
+  other: number;
+  neg: number;   // Total Off's
+  pos: number;   // Total On's
+  net: number;   // exposure - pos (Guy-confirmed formula)
+  staleCount: number;
+  cases: number;
+}
+
+function emptyTotals(): MonthTotals {
+  const byStatus: Record<string, number> = {};
+  for (const s of [...NEGATIVE_STATUSES, ...POSITIVE_STATUSES]) byStatus[s] = 0;
+  return {
+    exposure: 0, outstanding: 0, byStatus, other: 0,
+    neg: 0, pos: 0, net: 0, staleCount: 0, cases: 0,
+  };
+}
+
+function totalsFor(rows: CaseRow[]): MonthTotals {
+  const t = emptyTotals();
+  t.cases = rows.length;
+  for (const c of rows) {
+    t.exposure += c.clawback;
+    if (c.status === "open") t.outstanding += c.clawback;
+    if (c.status in t.byStatus) t.byStatus[c.status] += c.clawback;
+    if ((NEGATIVE_STATUSES as readonly string[]).includes(c.status)) t.neg += c.clawback;
+    if ((POSITIVE_STATUSES as readonly string[]).includes(c.status)) t.pos += c.clawback;
+    if (c.status === "dead_client" || c.status === "post_completion") t.other += c.clawback;
+    if (c.stale) t.staleCount++;
+  }
+  t.net = t.exposure - t.pos;
+  return t;
 }
 
 export async function GET(req: Request) {
@@ -82,6 +122,7 @@ export async function GET(req: Request) {
     last_action_at: string | null;
     created_at: string;
     clawback_date: string | null;
+    historic_ow: boolean;
   }>(
     `SELECT
         c.id, c.policy_number, c.provider,
@@ -104,7 +145,8 @@ export async function GET(req: Request) {
         ln.note                                       AS latest_note,
         la.last_action_at::text                       AS last_action_at,
         c.created_at::text                            AS created_at,
-        c.clawback_date::text                         AS clawback_date
+        c.clawback_date::text                         AS clawback_date,
+        (c.source = 'old_ow' AND c.ow_actualised_at IS NULL) AS historic_ow
      FROM clawback_cases c
      LEFT JOIN advisers a ON a.id = c.adviser_id
      LEFT JOIN LATERAL (
@@ -123,7 +165,6 @@ export async function GET(req: Request) {
          AND h.event_type IN ('note','contact_attempt','money_off','status_change')
      ) la ON true
      WHERE c.deleted_at IS NULL
-       AND NOT (c.source = 'old_ow' AND c.ow_actualised_at IS NULL)
        ${scopeWhere}
      ORDER BY c.clawback_date ASC NULLS LAST`,
     [],
@@ -136,6 +177,7 @@ export async function GET(req: Request) {
   const cases: CaseRow[] = r.rows.map((row) => {
     const lastTouch = row.last_action_at ?? row.created_at;
     const stale = row.status === "open"
+      && !row.historic_ow
       && (now - new Date(lastTouch).getTime()) > staleMs;
     return {
       id: row.id,
@@ -150,7 +192,7 @@ export async function GET(req: Request) {
       trigger: row.trigger,
       net_premium: num(row.net_premium),
       clawback: num(row.clawback) ?? 0,
-      status: row.status,
+      status: row.status as CaseStatus,
       lost_reason: row.lost_reason,
       redraw_off: num(row.redraw_off) ?? 0,
       redraw_on: num(row.redraw_on) ?? 0,
@@ -160,6 +202,7 @@ export async function GET(req: Request) {
       last_action_at: row.last_action_at,
       stale,
       clawback_date: row.clawback_date,
+      historic_ow: row.historic_ow,
     };
   });
 
@@ -180,89 +223,50 @@ export async function GET(req: Request) {
     return `${MONTHS[m - 1]} ${y}`;
   };
 
-  // Totals per month, in Guy's mock-up vocabulary:
-  //   ddBooked    = reinstated cases (DD collection back on) CB £
-  //   resold      = resold cases CB £ (the exposure that was recovered)
-  //   deadNumber  = lost cases with reason dead_contact CB £
-  //   cancelled   = lost cases with any other reason CB £
-  //   saved       = ddBooked + resold + explicitly-saved CB £
-  //   lost        = deadNumber + cancelled
-  //   earnedComm  = new commission booked from resells (resold_amount)
-  //   savedComm   = CB avoided (saved + reinstated + resold cases)
-  function totalsFor(rows: CaseRow[]) {
-    const t = {
-      exposure: 0, outstanding: 0, ddBooked: 0, resold: 0,
-      deadNumber: 0, cancelled: 0, savedExplicit: 0,
-      saved: 0, lost: 0, redrawNet: 0,
-      earnedComm: 0, savedComm: 0,
-      staleCount: 0, cases: rows.length,
-    };
-    for (const c of rows) {
-      t.exposure += c.clawback;
-      if (c.status === "open") t.outstanding += c.clawback;
-      if (c.status === "reinstated") t.ddBooked += c.clawback;
-      if (c.status === "resold") { t.resold += c.clawback; t.earnedComm += c.resold_amount; }
-      if (c.status === "saved") t.savedExplicit += c.clawback;
-      if (c.status === "redraw") t.redrawNet += c.redraw_on - c.redraw_off;
-      if (c.status === "dead") {
-        if (c.lost_reason === "dead_contact") t.deadNumber += c.clawback;
-        else t.cancelled += c.clawback;
-      }
-      if (c.stale) t.staleCount++;
-    }
-    t.saved = t.ddBooked + t.resold + t.savedExplicit;
-    t.lost = t.deadNumber + t.cancelled;
-    t.savedComm = t.saved;
-    return t;
-  }
-
-  // Sort within each month: seller asc, clawback desc (Guy's ordering).
+  // Guy's ordering: seller asc, clawback desc.
   const sortRows = (rows: CaseRow[]) =>
     rows.slice().sort((a, b) =>
       a.seller.localeCompare(b.seller) || b.clawback - a.clawback);
 
-  const forecast: { key: string; label: string; cases: CaseRow[]; totals: ReturnType<typeof totalsFor> }[] = [];
-  const completed: typeof forecast = [];
+  interface MonthBlock {
+    key: string; label: string;
+    cases: CaseRow[]; totals: MonthTotals;
+    oldOw: CaseRow[]; oldOwExposure: number; oldOwRunning: number;
+  }
+  const forecast: MonthBlock[] = [];
+  const completed: MonthBlock[] = [];
   const keys = Array.from(monthsMap.keys()).sort();
   for (const key of keys) {
-    const rows = sortRows(monthsMap.get(key)!);
-    const block = { key, label: monthLabel(key), cases: rows, totals: totalsFor(rows) };
+    const all = monthsMap.get(key)!;
+    const current = sortRows(all.filter((c) => !c.historic_ow));
+    const oldOw = sortRows(all.filter((c) => c.historic_ow));
+    const block: MonthBlock = {
+      key,
+      label: monthLabel(key),
+      cases: current,
+      totals: totalsFor(current),
+      oldOw,
+      oldOwExposure: oldOw.reduce((n, c) => n + c.clawback, 0),
+      oldOwRunning: 0, // filled below in chronological order
+    };
     if (key === "unscheduled" || key >= currentMonthKey) forecast.push(block);
     else completed.push(block);
   }
-  // Completed months newest first; forecast oldest (nearest) first with
-  // unscheduled at the end.
-  completed.reverse();
   forecast.sort((a, b) => {
     if (a.key === "unscheduled") return 1;
     if (b.key === "unscheduled") return -1;
     return a.key.localeCompare(b.key);
   });
-
-  // Historic Old OW cases are excluded from the month sections above,
-  // which can make a whole month disappear (Poz's "where's August?"
-  // question, 9 Jul 2026: every August case was historic OW). Return a
-  // per-month breakdown of what's excluded so the page can say so
-  // explicitly instead of silently skipping.
-  const histR = await sql.query<{ month: string; n: string; cb: string }>(
-    `SELECT to_char(c.clawback_date, 'YYYY-MM') AS month,
-            COUNT(*)::text AS n,
-            COALESCE(SUM(COALESCE(c.final_clawback_due, c.clawback_due)), 0)::text AS cb
-     FROM clawback_cases c
-     WHERE c.deleted_at IS NULL
-       AND c.source = 'old_ow' AND c.ow_actualised_at IS NULL
-       AND c.clawback_date IS NOT NULL
-       ${scopeWhere}
-     GROUP BY 1
-     ORDER BY 1`,
-    [],
-  );
-  const historicMonths = histR.rows.map((r) => ({
-    key: r.month,
-    label: monthLabel(r.month),
-    cases: Number(r.n) || 0,
-    cb: Number(r.cb) || 0,
-  }));
+  // Running Old OW exposure accumulates chronologically (completed
+  // first, then forecast) so each month shows the total unrecovered
+  // Old OW clawback up to and including that month, UFN per Poz.
+  let running = 0;
+  const chronological = [...completed, ...forecast];
+  for (const block of chronological) {
+    running += block.oldOwExposure;
+    block.oldOwRunning = running;
+  }
+  completed.reverse(); // newest first for display
 
   return NextResponse.json({
     generatedAt: new Date().toISOString(),
@@ -270,6 +274,6 @@ export async function GET(req: Request) {
     scoped: typeof scope === "number",
     forecast,
     completed,
-    historicMonths,
+    oldOwGrandTotal: running,
   });
 }

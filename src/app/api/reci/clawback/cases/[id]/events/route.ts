@@ -20,6 +20,7 @@ import { NextResponse } from "next/server";
 import { db, sql } from "@vercel/postgres";
 import { getSession, isClawbackUser, getEditableAdviserId } from "@/lib/auth";
 import { sendClawbackResolvedEmail } from "@/lib/reci/email";
+import { savedStatusForWarning } from "@/lib/reci/status";
 
 export const dynamic = "force-dynamic";
 
@@ -80,9 +81,10 @@ export async function POST(
       id: number; adviser_id: number | null; agent_bucket: string;
       status: string; client_name: string; policy_number: string;
       postcode: string | null; ebah_agent_name: string;
+      ebah_warning: string | null;
     }>(
       `SELECT id, adviser_id, agent_bucket, status, client_name, policy_number,
-              postcode, ebah_agent_name
+              postcode, ebah_agent_name, ebah_warning
          FROM clawback_cases WHERE id = $1`,
       [id],
     );
@@ -180,11 +182,13 @@ export async function POST(
       // Per Pauline: logging £ saved or £ resold should flip the
       // case status to match, so the assigned CAM sees the case is
       // off their active queue without needing a second click. Only
-      // flips from active states (open / reinstated). Doesn't touch
-      // lost / closed / already-saved / already-resold cases.
-      const ACTIVE = new Set(["open", "reinstated"]);
-      const targetStatus = moneyKind === "saved" ? "saved"
-                         : moneyKind === "resold" ? "resold"
+      // flips from the unworked state; doesn't touch cases already in
+      // a worked status. V2 statuses: £resold -> Resold On; £saved ->
+      // the saved status matching the EBAH warning pair (Saved CFO /
+      // Saved Lapse / DD Reinstated / BP Saved).
+      const ACTIVE = new Set(["open"]);
+      const targetStatus = moneyKind === "saved" ? savedStatusForWarning(prev.ebah_warning)
+                         : moneyKind === "resold" ? "resold_on"
                          : null;
       if (targetStatus && ACTIVE.has(prev.status)) {
         await client.query(
