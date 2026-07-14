@@ -223,6 +223,22 @@ export default function ClawbackPage() {
   // Backfill Notify (admin only). State only -- runner defined after load().
   const [backfillBusy, setBackfillBusy] = useState(false);
 
+  // Bulk assign (admin only): checkbox-select rows, hand them to a
+  // seller in one hit. Built for Poz's Xstaff allocation workflow.
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkSelected, setBulkSelected] = useState<Set<number>>(new Set());
+  const [bulkTarget, setBulkTarget] = useState<string>("");
+  const [bulkN, setBulkN] = useState<string>("50");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkAdvisers, setBulkAdvisers] = useState<{ id: number; name: string }[] | null>(null);
+  useEffect(() => {
+    if (!bulkMode || bulkAdvisers !== null) return;
+    fetch("/api/reci/clawback/advisers", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setBulkAdvisers(Array.isArray(j?.advisers) ? j.advisers : []))
+      .catch(() => setBulkAdvisers([]));
+  }, [bulkMode, bulkAdvisers]);
+
   // Capabilities from /api/me. Drive what's editable / uploadable / notifiable.
   const [me, setMe] = useState<MeResp | null>(null);
   const sellerSortApplied = useRef(false);
@@ -359,6 +375,35 @@ export default function ClawbackPage() {
   }, [cases]);
 
   // Backfill Notify runner (placed here so it can close over load()).
+  // Bulk-assign runner (after load() so it can refresh the list).
+  const runBulkAssign = useCallback(async () => {
+    const ids = Array.from(bulkSelected);
+    const adviserId = Number(bulkTarget);
+    if (ids.length === 0 || !Number.isFinite(adviserId) || adviserId <= 0) return;
+    const name = bulkAdvisers?.find((a) => a.id === adviserId)?.name ?? "the seller";
+    if (!confirm(`Assign ${ids.length} case${ids.length === 1 ? "" : "s"} to ${name}?`)) return;
+    setBulkBusy(true);
+    try {
+      const r = await fetch("/api/reci/clawback/bulk-assign", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ case_ids: ids, adviser_id: adviserId }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        alert(`Bulk assign failed: ${j.error || r.statusText}`);
+        return;
+      }
+      alert(`${j.reassigned} case${j.reassigned === 1 ? "" : "s"} assigned to ${j.adviser}${j.skipped ? ` (${j.skipped} skipped)` : ""}.`);
+      setBulkSelected(new Set());
+      await load();
+    } catch (e) {
+      alert(`Bulk assign failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [bulkSelected, bulkTarget, bulkAdvisers, load]);
+
   const runBackfillNotify = useCallback(async () => {
     setBackfillBusy(true);
     try {
@@ -692,6 +737,20 @@ export default function ClawbackPage() {
           >
             {moreOpen ? "Hide more" : "More filters"}
           </button>
+          {me?.isClawbackAdmin && (
+            <button
+              type="button"
+              onClick={() => { setBulkMode((v) => !v); setBulkSelected(new Set()); }}
+              className={`rounded border px-2 py-1 text-xs font-medium ${
+                bulkMode
+                  ? "border-indigo-500 bg-indigo-600 text-white"
+                  : "border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+              }`}
+              title="Select cases and assign them to a seller in one go"
+            >
+              {bulkMode ? "Exit bulk assign" : "Bulk assign"}
+            </button>
+          )}
           {(statusFilter || bucketFilter || agentFilter || warningFilter || cbDueFrom || cbDueTo || cbMin || cbMax || masterAgentNo || agentNo || surname || sourceFilter || search || sort !== "client_asc") && (
             <button
               type="button"
@@ -785,11 +844,81 @@ export default function ClawbackPage() {
         </div>
       )}
 
+      {/* Bulk-assign bar: pick rows below (or grab the first N of the
+          current sort/filter), choose a seller, assign. */}
+      {bulkMode && (
+        <section className="mt-4 flex flex-wrap items-center gap-3 rounded border-2 border-indigo-300 bg-indigo-50 p-2 text-sm">
+          <span className="font-semibold text-indigo-900">
+            {bulkSelected.size} selected
+          </span>
+          <label className="flex items-center gap-1">
+            <span className="text-xs text-slate-600">Select first</span>
+            <input
+              type="number"
+              min={1}
+              max={500}
+              value={bulkN}
+              onChange={(e) => setBulkN(e.target.value)}
+              className="w-16 rounded border border-slate-300 px-1.5 py-1 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const n = Math.max(1, Math.min(500, Number(bulkN) || 0));
+                setBulkSelected(new Set(cases.slice(0, n).map((c) => c.id)));
+              }}
+              className="rounded border border-indigo-300 bg-white px-2 py-1 text-xs text-indigo-800 hover:bg-indigo-100"
+              title="Selects the top N rows in the current sort and filter"
+            >
+              of current view
+            </button>
+          </label>
+          <button
+            type="button"
+            onClick={() => setBulkSelected(new Set())}
+            className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-indigo-100"
+          >
+            Clear
+          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-slate-600">Assign to</span>
+            <select
+              value={bulkTarget}
+              onChange={(e) => setBulkTarget(e.target.value)}
+              className="rounded border border-slate-300 px-2 py-1 text-sm"
+            >
+              <option value="">Pick a seller...</option>
+              {(bulkAdvisers ?? []).map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={bulkBusy || bulkSelected.size === 0 || !bulkTarget}
+              onClick={() => void runBulkAssign()}
+              className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {bulkBusy ? "Assigning..." : `Assign ${bulkSelected.size || ""}`}
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* Cases table */}
       <section className="mt-4 overflow-x-auto rounded border border-slate-200 bg-white">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
             <tr>
+              {bulkMode && (
+                <th className="px-2 py-2">
+                  <input
+                    type="checkbox"
+                    checked={cases.length > 0 && bulkSelected.size === cases.length}
+                    onChange={(e) => setBulkSelected(e.target.checked ? new Set(cases.map((c) => c.id)) : new Set())}
+                    title="Select all visible"
+                  />
+                </th>
+              )}
               <Th>Client</Th>
               {/* Status sits up front (Poz 10 Jul): it was the last
                   column and on narrower screens it scrolled out of
@@ -813,9 +942,9 @@ export default function ClawbackPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={15}>Loading...</td></tr>
+              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={bulkMode ? 16 : 15}>Loading...</td></tr>
             ) : cases.length === 0 ? (
-              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={15}>No cases match.</td></tr>
+              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={bulkMode ? 16 : 15}>No cases match.</td></tr>
             ) : cases.map((c) => {
               const urgent = isUrgentNewOw(c.source, c.clawback_due, c.status);
               const lost = statusGroup(c.status) === "neg";
@@ -830,6 +959,21 @@ export default function ClawbackPage() {
                 }`}
                 title={lost ? "LOST case -- click to open" : urgent ? "URGENT New OW case -- click to open" : "Click to open case detail"}
               >
+                {bulkMode && (
+                  <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={bulkSelected.has(c.id)}
+                      onChange={(e) => {
+                        setBulkSelected((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(c.id); else next.delete(c.id);
+                          return next;
+                        });
+                      }}
+                    />
+                  </td>
+                )}
                 <Td title={c.client_name}>
                   {/* Render surname-first when we have a parsed last
                       name, so the column reads alphabetically by eye
