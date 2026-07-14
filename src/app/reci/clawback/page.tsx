@@ -934,7 +934,7 @@ export default function ClawbackPage() {
               <Th right>Premium</Th>
               <Th right>CB Due £</Th>
               <Th>CB Date</Th>
-              <Th>Last called</Th>
+              <Th>Last contacted</Th>
               <Th>Agent</Th>
               <Th>Bucket</Th>
               <Th>Source</Th>
@@ -1011,11 +1011,7 @@ export default function ClawbackPage() {
                   )}
                 </Td>
                 <Td>{fmtDate(c.clawback_date)}</Td>
-                <Td className="whitespace-nowrap">
-                  {c.last_called_at
-                    ? fmtDate(c.last_called_at.slice(0, 10))
-                    : <span className="text-slate-400">never</span>}
-                </Td>
+                <Td className="whitespace-nowrap"><LastContactedCell status={c.status} lastCalledAt={c.last_called_at} /></Td>
                 <Td className="whitespace-nowrap" title={c.ebah_agent_name}>
                   {c.adviser_name ? <strong>{c.adviser_name}</strong> : "Ex Staff"}
                 </Td>
@@ -1153,6 +1149,46 @@ function Th({ children, right }: { children: React.ReactNode; right?: boolean })
 }
 function Td({ children, right, className, title }: { children: React.ReactNode; right?: boolean; className?: string; title?: string }) {
   return <td title={title} className={`px-3 py-2 ${right ? "text-right" : ""} ${className || ""}`}>{children}</td>;
+}
+
+/**
+ * "Last contacted" cell, same rules as the Credit Control report so
+ * the lads and Guy read identical signals (Poz, 15 Jul 2026). Fed by
+ * the Log contact button. Banded for OPEN cases only: 1-4 days green,
+ * 5-8 amber, 8+ red, never = red. Worked cases show a plain date
+ * with no chase flag. Hover for the exact date + time of the call.
+ */
+function LastContactedCell({ status, lastCalledAt }: { status: Status; lastCalledAt: string | null }) {
+  const open = status === "open";
+  if (!lastCalledAt) {
+    if (!open) return <span className="text-slate-400">—</span>;
+    return (
+      <span className="inline-block rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-800">
+        never
+      </span>
+    );
+  }
+  const d = Math.floor((Date.now() - new Date(lastCalledAt).getTime()) / 86400000);
+  const label = d <= 0 ? "today" : `${d}d ago`;
+  const stamp = new Date(lastCalledAt).toLocaleString("en-GB", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+  if (!open) {
+    return <span className="text-xs text-slate-500" title={stamp}>{label}</span>;
+  }
+  const cls =
+    d <= 4 ? "bg-emerald-100 text-emerald-800" :
+    d <= 8 ? "bg-amber-100 text-amber-800" :
+    "bg-red-100 text-red-800";
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ${cls}`}
+      title={`Last contact: ${stamp}`}
+    >
+      {label}
+    </span>
+  );
 }
 
 function StatusPill({ status }: { status: Status }) {
