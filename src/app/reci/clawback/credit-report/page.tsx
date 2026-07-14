@@ -43,6 +43,7 @@ interface CaseRow {
   resold_amount: number;
   latest_note: string | null;
   last_action_at: string | null;
+  last_contact_at: string | null;
   stale: boolean;
   clawback_date: string | null;
   historic_ow: boolean;
@@ -127,11 +128,52 @@ function surnameFirst(c: CaseRow): string {
   }
   return c.client_name;
 }
-function daysAgo(iso: string | null): string {
-  if (!iso) return "never";
-  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-  if (d <= 0) return "today";
-  return `${d}d`;
+function daysSince(iso: string): number {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+}
+function fmtStamp(iso: string): string {
+  return new Date(iso).toLocaleString("en-GB", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+
+/**
+ * "Last contacted" cell per Guy's spec (14 Jul 2026). Shows when the
+ * client was last dialled/texted/emailed (contact_attempt entries),
+ * with the exact date + time, banded for OPEN cases only:
+ *   1-4 days green, 5-8 amber, 8+ red, never = red.
+ * Worked cases show the plain date with no chase flag: a Resold or
+ * Lost case can't be "idle".
+ */
+function LastContacted({ c }: { c: CaseRow }) {
+  const open = c.status === "open";
+  if (!c.last_contact_at) {
+    if (!open) return <span className="text-slate-400">—</span>;
+    return (
+      <span className="inline-block rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-800">
+        never
+      </span>
+    );
+  }
+  const d = daysSince(c.last_contact_at);
+  const label = d <= 0 ? "today" : `${d}d ago`;
+  const stamp = fmtStamp(c.last_contact_at);
+  if (!open) {
+    return <span className="whitespace-nowrap text-xs text-slate-500" title={stamp}>{label}</span>;
+  }
+  const cls =
+    d <= 4 ? "bg-emerald-100 text-emerald-800" :
+    d <= 8 ? "bg-amber-100 text-amber-800" :
+    "bg-red-100 text-red-800";
+  return (
+    <span
+      className={`inline-block whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold ${cls}`}
+      title={`Last contact: ${stamp}`}
+    >
+      {label}
+    </span>
+  );
 }
 
 function StatusChip({ status }: { status: string }) {
@@ -148,7 +190,6 @@ function StatusChip({ status }: { status: string }) {
 
 export default function CreditReportPage() {
   const [data, setData] = useState<ReportResp | null>(null);
-  const [staleDays, setStaleDays] = useState(3);
   const [showCompleted, setShowCompleted] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -156,7 +197,7 @@ export default function CreditReportPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const r = await fetch(`/api/reci/clawback/credit-report?stale_days=${staleDays}`, { cache: "no-store" });
+      const r = await fetch(`/api/reci/clawback/credit-report`, { cache: "no-store" });
       if (!r.ok) throw new Error(`fetch failed (${r.status})`);
       setData(await r.json());
     } catch (e) {
@@ -164,7 +205,7 @@ export default function CreditReportPage() {
     } finally {
       setLoading(false);
     }
-  }, [staleDays]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -217,16 +258,12 @@ export default function CreditReportPage() {
           <Link href="/reci/clawback/reports" className="rounded border border-slate-300 px-3 py-1 text-slate-700 hover:bg-slate-50">Reports</Link>
           <PrintButton />
         </div>
-        <label className="flex items-center gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Flag as not worked after</span>
-          <select
-            value={staleDays}
-            onChange={(e) => setStaleDays(Number(e.target.value))}
-            className="rounded border border-slate-300 px-2 py-1"
-          >
-            {[1,2,3,4,5,7,10,14].map((d) => <option key={d} value={d}>{d} day{d === 1 ? "" : "s"}</option>)}
-          </select>
-        </label>
+        <span className="text-xs text-slate-500">
+          <span className="mr-1 inline-block rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">Not worked</span>
+          = open and never actioned ·
+          <span className="mx-1 font-semibold">Last contacted</span>
+          bands: <span className="font-semibold text-emerald-700">1-4d</span> · <span className="font-semibold text-amber-700">5-8d</span> · <span className="font-semibold text-red-700">8+d</span> (open cases only)
+        </span>
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={showCompleted} onChange={(e) => setShowCompleted(e.target.checked)} />
           <span>Show completed month detail</span>
@@ -370,9 +407,9 @@ function CaseTable({ rows, oldOw }: { rows: CaseRow[]; oldOw?: boolean }) {
           <th className="w-[12%] px-3 py-2 text-left font-medium">Trigger</th>
           <th className="w-[7%] px-3 py-2 text-right font-medium">Prem /mo</th>
           <th className="w-[8%] px-3 py-2 text-right font-medium">Clawback</th>
-          <th className="w-[16%] px-3 py-2 text-left font-medium">Status</th>
-          <th className="w-[5%] px-3 py-2 text-left font-medium">Idle</th>
-          <th className="w-[14%] px-3 py-2 text-left font-medium">Reason / notes</th>
+          <th className="w-[14%] px-3 py-2 text-left font-medium">Status</th>
+          <th className="w-[8%] px-3 py-2 text-left font-medium">Last contacted</th>
+          <th className="w-[13%] px-3 py-2 text-left font-medium">Reason / notes</th>
         </tr>
       </thead>
       <tbody>
@@ -397,7 +434,7 @@ function CaseTable({ rows, oldOw }: { rows: CaseRow[]; oldOw?: boolean }) {
                 </span>
               )}
             </td>
-            <td className="px-3 py-2 text-xs text-slate-500">{daysAgo(c.last_action_at)}</td>
+            <td className="px-3 py-2"><LastContacted c={c} /></td>
             <td className="truncate px-3 py-2 text-xs text-slate-600" title={c.latest_note || ""}>
               {c.latest_note || "—"}
             </td>
