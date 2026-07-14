@@ -14,9 +14,16 @@
  * exposure total. They stay OUT of the month's worked totals so the
  * Off/On numbers still describe money that genuinely moves.
  *
- * Stale rule: an OPEN, non-historic case with no note / contact / £ /
- * status action in `stale_days` days (default 3) is "not worked".
- * Historic Old OW cases are parked, never flagged stale.
+ * Worked/idle rules (reworked per Poz + Guy, 14 Jul 2026):
+ *   - "Not worked" = an OPEN, non-historic case with ZERO human
+ *     actions ever (no note, contact, £ entry or status change).
+ *     Once an adviser has attempted contact or noted the case it
+ *     counts as worked even if unresolved, and a case in any worked
+ *     status can never be Not Worked.
+ *   - last_contact_at = the most recent contact_attempt, surfaced as
+ *     "Last contacted" with Guy's bands (1-4 / 5-8 / 8+ days) applied
+ *     to open cases only. Historic Old OW cases are parked: never
+ *     flagged.
  *
  * Auth: any clawback user; junior sellers see only their own cases.
  */
@@ -50,6 +57,7 @@ interface CaseRow {
   resold_amount: number;
   latest_note: string | null;
   last_action_at: string | null;
+  last_contact_at: string | null;
   stale: boolean;
   clawback_date: string | null;
   historic_ow: boolean;
@@ -120,6 +128,8 @@ export async function GET(req: Request) {
     saved_amount: string; resold_amount: string;
     latest_note: string | null;
     last_action_at: string | null;
+    last_contact_at: string | null;
+    action_count: string;
     created_at: string;
     clawback_date: string | null;
     historic_ow: boolean;
@@ -144,6 +154,8 @@ export async function GET(req: Request) {
         c.resold_amount::text                         AS resold_amount,
         ln.note                                       AS latest_note,
         la.last_action_at::text                       AS last_action_at,
+        la.action_count::text                         AS action_count,
+        lc.last_contact_at::text                      AS last_contact_at,
         c.created_at::text                            AS created_at,
         c.clawback_date::text                         AS clawback_date,
         (c.source = 'old_ow' AND c.ow_actualised_at IS NULL) AS historic_ow
@@ -159,26 +171,32 @@ export async function GET(req: Request) {
        LIMIT 1
      ) ln ON true
      LEFT JOIN LATERAL (
-       SELECT MAX(h.created_at) AS last_action_at
+       SELECT MAX(h.created_at) AS last_action_at,
+              COUNT(*)          AS action_count
        FROM clawback_history h
        WHERE h.case_id = c.id
          AND h.event_type IN ('note','contact_attempt','money_off','status_change')
      ) la ON true
+     LEFT JOIN LATERAL (
+       SELECT MAX(h.created_at) AS last_contact_at
+       FROM clawback_history h
+       WHERE h.case_id = c.id AND h.event_type = 'contact_attempt'
+     ) lc ON true
      WHERE c.deleted_at IS NULL
        ${scopeWhere}
      ORDER BY c.clawback_date ASC NULLS LAST`,
     [],
   );
 
-  const now = Date.now();
-  const staleMs = staleDays * 24 * 60 * 60 * 1000;
   const num = (v: string | null) => (v === null ? null : Number(v) || 0);
 
   const cases: CaseRow[] = r.rows.map((row) => {
-    const lastTouch = row.last_action_at ?? row.created_at;
+    // "Not worked" = open, live book, and NOBODY has ever actioned it.
+    // A contact attempt, note, £ entry or status change counts as
+    // worked even while the case stays open (Poz + Guy, 14 Jul 2026).
     const stale = row.status === "open"
       && !row.historic_ow
-      && (now - new Date(lastTouch).getTime()) > staleMs;
+      && (Number(row.action_count) || 0) === 0;
     return {
       id: row.id,
       policy_number: row.policy_number,
@@ -200,6 +218,7 @@ export async function GET(req: Request) {
       resold_amount: num(row.resold_amount) ?? 0,
       latest_note: row.latest_note,
       last_action_at: row.last_action_at,
+      last_contact_at: row.last_contact_at,
       stale,
       clawback_date: row.clawback_date,
       historic_ow: row.historic_ow,

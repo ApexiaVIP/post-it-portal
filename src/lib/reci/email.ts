@@ -894,7 +894,10 @@ export async function sendStaleCaseDigest(
   const finalCc = buildCc(cc, [], to);
 
   const totalCb = cases.reduce((n, c) => n + c.clawback, 0);
-  const subject = `[RECI Clawback] ${cases.length} case${cases.length === 1 ? "" : "s"} not worked in ${staleDays}+ days (${totalCb.toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })} exposure)`;
+  // Vocabulary per Poz 14 Jul: "not worked" is reserved for cases
+  // nobody has ever touched; this digest covers open cases that have
+  // gone quiet, so it says "no activity".
+  const subject = `[RECI Clawback] ${cases.length} open case${cases.length === 1 ? "" : "s"} with no activity for ${staleDays}+ days (${totalCb.toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })} exposure)`;
 
   // Group by seller for both bodies.
   const bySeller = new Map<string, StaleDigestCase[]>();

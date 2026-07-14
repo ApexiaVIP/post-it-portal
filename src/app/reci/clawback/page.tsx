@@ -801,7 +801,6 @@ export default function ClawbackPage() {
               <Th>Master Agent</Th>
               <Th>Agent No</Th>
               <Th>Provider</Th>
-              <Th>Type</Th>
               <Th>Warning</Th>
               <Th right>Premium</Th>
               <Th right>CB Due £</Th>
@@ -814,9 +813,9 @@ export default function ClawbackPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={16}>Loading...</td></tr>
+              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={15}>Loading...</td></tr>
             ) : cases.length === 0 ? (
-              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={16}>No cases match.</td></tr>
+              <tr><td className="px-3 py-6 text-center text-slate-400" colSpan={15}>No cases match.</td></tr>
             ) : cases.map((c) => {
               const urgent = isUrgentNewOw(c.source, c.clawback_due, c.status);
               const lost = statusGroup(c.status) === "neg";
@@ -854,7 +853,6 @@ export default function ClawbackPage() {
                 <Td><code className="text-xs">{c.master_agent_no || "—"}</code></Td>
                 <Td><code className="text-xs">{c.agent_no || "—"}</code></Td>
                 <Td className="uppercase">{c.provider}</Td>
-                <Td className="max-w-[220px] truncate" title={c.policy_type || ""}>{c.policy_type || "—"}</Td>
                 <Td><WarningPill warning={c.ebah_warning} /></Td>
                 <Td right>{gbp(c.net_premium)}</Td>
                 <Td right className="font-medium">
@@ -874,8 +872,8 @@ export default function ClawbackPage() {
                     ? fmtDate(c.last_called_at.slice(0, 10))
                     : <span className="text-slate-400">never</span>}
                 </Td>
-                <Td className="max-w-[200px] truncate" title={c.ebah_agent_name}>
-                  {c.adviser_name ? <strong>{c.adviser_name}</strong> : c.ebah_agent_name}
+                <Td className="whitespace-nowrap" title={c.ebah_agent_name}>
+                  {c.adviser_name ? <strong>{c.adviser_name}</strong> : "Ex Staff"}
                 </Td>
                 <Td><BucketPill bucket={c.agent_bucket} /></Td>
                 <Td>
