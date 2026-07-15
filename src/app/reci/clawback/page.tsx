@@ -851,28 +851,34 @@ export default function ClawbackPage() {
           <span className="font-semibold text-indigo-900">
             {bulkSelected.size} selected
           </span>
-          <label className="flex items-center gap-1">
-            <span className="text-xs text-slate-600">Select first</span>
-            <input
-              type="number"
-              min={1}
-              max={500}
-              value={bulkN}
-              onChange={(e) => setBulkN(e.target.value)}
-              className="w-16 rounded border border-slate-300 px-1.5 py-1 text-sm"
-            />
+          {/* NOTE: the button must NOT sit inside the input's <label>.
+              A click inside a label gets re-dispatched to the input,
+              which on some browsers (Safari) swallowed the button
+              press entirely -- Poz clicked and nothing ticked. */}
+          <div className="flex items-center gap-1">
+            <label className="flex items-center gap-1">
+              <span className="text-xs text-slate-600">Select first</span>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={bulkN}
+                onChange={(e) => setBulkN(e.target.value)}
+                className="w-16 rounded border border-slate-300 px-1.5 py-1 text-sm"
+              />
+            </label>
             <button
               type="button"
               onClick={() => {
                 const n = Math.max(1, Math.min(500, Number(bulkN) || 0));
                 setBulkSelected(new Set(cases.slice(0, n).map((c) => c.id)));
               }}
-              className="rounded border border-indigo-300 bg-white px-2 py-1 text-xs text-indigo-800 hover:bg-indigo-100"
-              title="Selects the top N rows in the current sort and filter"
+              className="rounded border border-indigo-400 bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-900 hover:bg-indigo-200"
+              title="Ticks the top rows of the table as currently filtered and sorted"
             >
-              of current view
+              Tick top {Math.max(1, Math.min(500, Number(bulkN) || 0))} rows
             </button>
-          </label>
+          </div>
           <button
             type="button"
             onClick={() => setBulkSelected(new Set())}
