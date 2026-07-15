@@ -95,6 +95,7 @@ async function dispatchMail(opts: {
   subject: string;
   text: string;
   html: string;
+  attachments?: { filename: string; content: Buffer }[];
 }): Promise<{ sent: boolean; reason?: string }> {
   const transporter = getTransporter();
   if (!transporter) {
@@ -121,6 +122,7 @@ async function dispatchMail(opts: {
       subject: opts.subject,
       text: opts.text,
       html: opts.html,
+      attachments: opts.attachments,
     });
     // `info.response` is the SMTP server's 250 acknowledgement string.
     // `info.accepted` / `info.rejected` are arrays of addresses.
@@ -958,5 +960,32 @@ export async function sendStaleCaseDigest(
     fromName: "RECI Clawback",
     to, cc: finalCc,
     subject, text, html,
+  });
+}
+
+/**
+ * POST IT workbook email, relayed from the post-it-automation GitHub
+ * Action (15 Jul 2026). The Action generates the xlsx and hands it to
+ * the portal via /api/post-it-email; the portal sends it through the
+ * same Purelymail transport as every other email, so all outbound
+ * mail lives in one place with one set of credentials.
+ */
+export async function sendPostItWorkbookEmail(i: {
+  recipients: string[];
+  subject: string;
+  body: string;
+  filename: string;
+  xlsxBase64: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const content = Buffer.from(i.xlsxBase64, "base64");
+  return dispatchMail({
+    label: "post-it-workbook",
+    fromName: "Top Quote POST IT",
+    to: i.recipients,
+    cc: [],
+    subject: i.subject,
+    text: i.body,
+    html: `<pre style="font-family:inherit;white-space:pre-wrap">${escapeHtml(i.body)}</pre>`,
+    attachments: [{ filename: i.filename, content }],
   });
 }
