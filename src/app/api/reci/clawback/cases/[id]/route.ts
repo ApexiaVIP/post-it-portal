@@ -19,6 +19,7 @@ import { sql, db } from "@vercel/postgres";
 import { getSession, isClawbackUser, isClawbackAdmin, getEditableAdviserId } from "@/lib/auth";
 import { sendClawbackResolvedEmail } from "@/lib/reci/email";
 import { isCaseStatus } from "@/lib/reci/status";
+import { exitActiveJourneys } from "@/lib/reci/journey-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -156,6 +157,12 @@ export async function PATCH(
       );
     }
 
+    // Any status change exits an active nurture journey (Guy's doc:
+    // "exit any journey immediately" on resolution either way).
+    if (newStatus !== prev.status) {
+      await exitActiveJourneys(client, id, `case status changed to ${newStatus}`, session.username!);
+    }
+
     await client.query("COMMIT");
 
     // Email Guy + Poz when the case is resolved. Don't block the API response
@@ -226,6 +233,7 @@ export async function DELETE(
   if (r.rowCount === 0) {
     return NextResponse.json({ error: "case not found or already deleted" }, { status: 404 });
   }
+  await exitActiveJourneys(sql, id, "case deleted", session.username!);
   await sql`
     INSERT INTO clawback_history (case_id, event_type, note, actor)
     VALUES (${id}, 'note', ${'Case deleted (soft) by ' + session.username + (reason ? ': ' + reason : '')}, ${session.username})

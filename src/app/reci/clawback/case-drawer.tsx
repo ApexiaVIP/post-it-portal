@@ -12,7 +12,7 @@
  * and then reloads the case + history. The parent <ClawbackPage /> is
  * told via onChange so the table + summary tiles refresh in sync.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fmtDate } from "./format";
 
 import {
@@ -21,6 +21,10 @@ import {
   lostStatusForWarning, savedStatusForWarning,
   type CaseStatus,
 } from "@/lib/reci/status";
+import {
+  JOURNEYS, SUPPRESSION_CHECKS, isJourneyKey,
+  type JourneyKey,
+} from "@/lib/reci/journeys";
 
 type Status = CaseStatus;
 type Bucket = "adviser" | "xstaff" | "legacy" | "needs_review";
@@ -762,6 +766,16 @@ export function CaseDrawer({ row, canEdit, needsGate, ownerLabel, canNotify, can
             </section>
           );
         })()}
+
+        {/* Client nurture journey (Guy's v2 doc): start/stop + progress.
+            Behind the same junior gate as the other actions; viewers
+            still see an active journey's progress. */}
+        <JourneySection
+          caseId={row.id}
+          caseStatus={row.status}
+          canAct={canEdit && unlocked}
+          onChanged={() => { void loadHistory(); }}
+        />
 
         <section className="mt-5 px-5">
           <div className="flex items-center justify-between gap-3">
@@ -1749,6 +1763,9 @@ function HistoryRowView({ h }: { h: HistoryRow }) {
     case "email_sent":
       line = <>Email sent</>;
       break;
+    case "journey":
+      line = <>Nurture journey</>;
+      break;
     default:
       line = <>{h.event_type}</>;
   }
@@ -1763,5 +1780,290 @@ function HistoryRowView({ h }: { h: HistoryRow }) {
       )}
       <div className="mt-0.5 text-xs text-slate-500">by {h.actor}</div>
     </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Client nurture journey band (Guy's v2 doc, 16 Jul 2026). Shows an
+// active journey's progress to everyone; lets editors start one (with
+// the human suppression checklist) or stop one. All scheduling and
+// sending happens server-side; this is purely the control surface.
+// ---------------------------------------------------------------------------
+
+interface JourneySendRow {
+  step_key: string;
+  channel: "email" | "sms";
+  scheduled_for: string;
+  status: "pending" | "sent" | "failed" | "skipped";
+  sent_at: string | null;
+  detail: string | null;
+}
+interface JourneyInfo {
+  latest: {
+    id: number; journey: string; status: string; started_by: string;
+    started_at: string; ended_at: string | null; ended_reason: string | null;
+  } | null;
+  sends: JourneySendRow[];
+  suggested: string;
+  phoneConfigured: boolean;
+}
+
+function stepLabel(journey: string, stepKey: string): string {
+  if (!isJourneyKey(journey)) return stepKey;
+  const step = JOURNEYS[journey].steps.find((s) => s.key === stepKey);
+  return step ? `${step.label} — ${step.purpose}` : stepKey;
+}
+
+function sendStatusCls(s: JourneySendRow["status"]): string {
+  switch (s) {
+    case "sent":    return "bg-emerald-100 text-emerald-800";
+    case "failed":  return "bg-red-100 text-red-800";
+    case "skipped": return "bg-amber-100 text-amber-800";
+    default:        return "bg-slate-100 text-slate-600";
+  }
+}
+
+function JourneySection({ caseId, caseStatus, canAct, onChanged }: {
+  caseId: number;
+  caseStatus: Status;
+  canAct: boolean;
+  onChanged: () => void;
+}) {
+  const [info, setInfo] = useState<JourneyInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [choice, setChoice] = useState<JourneyKey>("a");
+  const choiceTouched = useRef(false);
+  const [checks, setChecks] = useState<boolean[]>(() => SUPPRESSION_CHECKS.map(() => false));
+  const [expanded, setExpanded] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/reci/clawback/cases/${caseId}/journey`, { cache: "no-store" });
+      if (!r.ok) { setInfo(null); return; }
+      const j: JourneyInfo = await r.json();
+      setInfo(j);
+      // Default the picker to the suggested journey until the user
+      // picks one themselves.
+      if (!choiceTouched.current && isJourneyKey(j.suggested)) setChoice(j.suggested);
+    } catch {
+      setInfo(null);
+    }
+  }, [caseId]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function start() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/reci/clawback/cases/${caseId}/journey`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ journey: choice }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        setMsg(`Failed: ${j.error || r.statusText}`);
+      } else {
+        const bits: string[] = [`Journey ${choice.toUpperCase()} started.`];
+        if (j.tick && j.tick.sent > 0) bits.push(`First ${j.tick.sent === 1 ? "step" : `${j.tick.sent} steps`} sent just now.`);
+        else bits.push("Day-0 steps go out at the next sending window.");
+        for (const w of j.warnings || []) bits.push(w + ".");
+        setMsg(bits.join(" "));
+        setChecks(SUPPRESSION_CHECKS.map(() => false));
+        await load();
+        onChanged();
+      }
+    } catch (e) {
+      setMsg(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stop() {
+    if (!window.confirm("Stop this journey? Remaining steps will not be sent.")) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/reci/clawback/cases/${caseId}/journey`, { method: "DELETE" });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        setMsg(`Failed: ${j.error || r.statusText}`);
+      } else {
+        setMsg("Journey stopped.");
+        await load();
+        onChanged();
+      }
+    } catch (e) {
+      setMsg(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!info) return null;
+  const active = info.latest && info.latest.status === "active" ? info.latest : null;
+  const journeyName = (k: string) => (isJourneyKey(k) ? JOURNEYS[k].name : k.toUpperCase());
+
+  // Nothing to show viewers when there's no active journey.
+  if (!active && !canAct) return null;
+
+  return (
+    <section className="mx-5 mt-4 rounded border border-indigo-200 bg-indigo-50 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-indigo-800">
+          Client nurture journey
+        </div>
+        {active && canAct && (
+          <button
+            type="button"
+            onClick={stop}
+            disabled={busy}
+            className="rounded border border-red-400 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+          >
+            Stop journey
+          </button>
+        )}
+      </div>
+
+      {msg && <div className="mt-2 rounded bg-indigo-100 px-2 py-1.5 text-xs text-indigo-900">{msg}</div>}
+
+      {active ? (
+        <>
+          <div className="mt-2 text-sm text-slate-700">
+            <strong>{journeyName(active.journey)}</strong>
+            <span className="ml-2 text-xs text-slate-500">
+              started by {active.started_by} on {new Date(active.started_at).toLocaleDateString("en-GB")}
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-slate-600">
+            {info.sends.filter((s) => s.status === "sent").length} of {info.sends.length} steps sent
+            {(() => {
+              const next = info.sends.find((s) => s.status === "pending");
+              return next
+                ? <> · next: {stepLabel(active.journey, next.step_key).split(" — ")[0]} ({next.channel}) on {new Date(next.scheduled_for).toLocaleDateString("en-GB")}</>
+                : null;
+            })()}
+          </div>
+          <ol className="mt-2 space-y-1">
+            {info.sends.map((s) => (
+              <li key={s.step_key} className="flex items-center justify-between gap-2 rounded border border-indigo-100 bg-white px-2 py-1 text-xs">
+                <span className="min-w-0 truncate text-slate-700">
+                  <span className="mr-1 uppercase text-slate-400">{s.channel}</span>
+                  {stepLabel(active.journey, s.step_key)}
+                </span>
+                <span className="flex items-center gap-2 whitespace-nowrap">
+                  <span className="text-slate-500">
+                    {s.sent_at
+                      ? new Date(s.sent_at).toLocaleDateString("en-GB")
+                      : new Date(s.scheduled_for).toLocaleDateString("en-GB")}
+                  </span>
+                  <span className={`rounded px-1.5 py-0.5 font-medium ${sendStatusCls(s.status)}`} title={s.detail || undefined}>
+                    {s.status}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : caseStatus !== "open" ? (
+        <div className="mt-2 text-xs text-slate-600">
+          Journeys only run on Not worked cases.
+          {info.latest && (
+            <> Last journey: {journeyName(info.latest.journey)}, {info.latest.status}
+            {info.latest.ended_reason ? ` (${info.latest.ended_reason})` : ""}.</>
+          )}
+        </div>
+      ) : !expanded ? (
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <div className="text-xs text-slate-600">
+            Automated email + SMS sequence to win the client back. Suggested for this case:{" "}
+            <strong>{journeyName(info.suggested)}</strong>.
+            {info.latest && (
+              <span className="ml-1 text-slate-500">
+                (previous journey {info.latest.journey.toUpperCase()} {info.latest.status})
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="whitespace-nowrap rounded border border-indigo-400 bg-white px-3 py-1 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
+          >
+            Start journey…
+          </button>
+        </div>
+      ) : (
+        <div className="mt-2">
+          {!info.phoneConfigured && (
+            <div className="mb-2 rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              The TopQuote phone number isn&apos;t configured yet (TOPQUOTE_PHONE), so journeys can&apos;t start. Ask Jimmy.
+            </div>
+          )}
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-medium uppercase tracking-wide text-slate-500">Journey</span>
+            <select
+              value={choice}
+              onChange={(e) => { choiceTouched.current = true; if (isJourneyKey(e.target.value)) setChoice(e.target.value); }}
+              className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+            >
+              {(Object.keys(JOURNEYS) as JourneyKey[]).map((k) => (
+                <option key={k} value={k}>
+                  {JOURNEYS[k].name}{k === info.suggested ? " (suggested for this warning)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="mt-2 rounded border border-indigo-100 bg-white p-2 text-xs text-slate-600">
+            <div className="font-medium text-slate-700">{JOURNEYS[choice].trigger}</div>
+            <ol className="mt-1 space-y-0.5">
+              {JOURNEYS[choice].steps.map((s) => (
+                <li key={s.key}>
+                  Day {s.day} · <span className="uppercase">{s.channel}</span> · {s.label}: {s.purpose}
+                </li>
+              ))}
+            </ol>
+            <div className="mt-1 text-slate-500">
+              Day 0 is today. The journey stops automatically the moment the case status changes.
+            </div>
+          </div>
+          <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2">
+            <div className="text-xs font-medium text-amber-900">Before starting, confirm:</div>
+            <div className="mt-1 space-y-1">
+              {SUPPRESSION_CHECKS.map((c, i) => (
+                <label key={c} className="flex items-start gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={checks[i]}
+                    onChange={() => setChecks((prev) => prev.map((v, j) => (j === i ? !v : v)))}
+                    className="mt-0.5"
+                  />
+                  <span>{c}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={start}
+              disabled={busy || !info.phoneConfigured || checks.some((v) => !v)}
+              className="rounded border border-indigo-600 bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {busy ? "Starting…" : `Start journey ${choice.toUpperCase()}`}
+            </button>
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              disabled={busy}
+              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

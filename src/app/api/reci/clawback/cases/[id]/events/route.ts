@@ -21,6 +21,7 @@ import { db, sql } from "@vercel/postgres";
 import { getSession, isClawbackUser, getEditableAdviserId } from "@/lib/auth";
 import { sendClawbackResolvedEmail } from "@/lib/reci/email";
 import { savedStatusForWarning } from "@/lib/reci/status";
+import { exitActiveJourneys } from "@/lib/reci/journey-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -206,6 +207,9 @@ export async function POST(
           [id, prev.status, targetStatus, `Auto-flipped from £${moneyKind} entry`, session.username],
         );
         autoStatusChange = { from: prev.status, to: targetStatus };
+        // The money means the case is resolved, so any running nurture
+        // journey stops here too.
+        await exitActiveJourneys(client, id, `case status changed to ${targetStatus} (£${moneyKind} logged)`, session.username!);
       }
     }
 

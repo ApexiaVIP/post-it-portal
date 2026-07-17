@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { runNightlyBackup } from "@/lib/reci/backup";
 import { sendStaleCaseDigest, type StaleDigestCase } from "@/lib/reci/email";
+import { processDueJourneySends, type JourneyTickResult } from "@/lib/reci/journey-engine";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -142,6 +143,18 @@ export async function GET(req: Request) {
     }
   }
 
+  // Nurture journey sends: checked on EVERY invocation (the engine
+  // applies its own channel windows and no-ops in seconds when nothing
+  // is due). Non-fatal: a journey failure must never block the POST IT
+  // dispatch below.
+  let journeys: JourneyTickResult | { error: string } | null = null;
+  try {
+    journeys = await processDueJourneySends();
+  } catch (e) {
+    console.error("[cron] journey tick failed:", e);
+    journeys = { error: e instanceof Error ? e.message : String(e) };
+  }
+
   const nowMin = londonMinutesNow();
   const target = matchingTarget(nowMin);
 
@@ -152,6 +165,7 @@ export async function GET(req: Request) {
       reason: "no target in window",
       nowMin,
       staleDigest,
+      journeys,
     });
   }
 
@@ -175,6 +189,7 @@ export async function GET(req: Request) {
     githubStatus: result.status,
     githubBody: result.body,
     staleDigest,
+    journeys,
   }, { status: result.ok ? 200 : 502 });
 }
 
