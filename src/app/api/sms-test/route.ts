@@ -45,7 +45,7 @@ export async function GET(req: Request) {
     apiKey: shape(key),
     from: { ...shape(from), value: from },
     url: process.env.WEBEX_SMS_URL || "(default) https://api.webexinteract.com/v1/sms",
-    authStylePinned: process.env.WEBEX_SMS_AUTH || "(auto-discover)",
+    auth: "X-AUTH-KEY header (per docs.webexinteract.com)",
   });
 }
 
