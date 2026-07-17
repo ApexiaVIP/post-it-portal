@@ -57,27 +57,49 @@ export async function sendSms(to: string, text: string, label: string): Promise<
     content: text,
     content_type: "text",
   };
-  console.error(`[sms:${label}] sending`, { url, from, to: dest, chars: text.length });
-  try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15_000),
-    });
-    let body: unknown = null;
-    try { body = await r.json(); } catch { body = await r.text().catch(() => null); }
-    console.error(`[sms:${label}] response`, { status: r.status, body });
-    if (!r.ok) {
-      return { sent: false, status: r.status, providerResponse: body, reason: `provider returned ${r.status}` };
-    }
-    return { sent: true, status: r.status, providerResponse: body };
-  } catch (e) {
-    const reason = e instanceof Error ? e.message : String(e);
-    console.error(`[sms:${label}] FAILED`, { reason });
-    return { sent: false, reason };
+
+  // Webex's messaging products disagree on the auth header (Interact
+  // wants x-api-key, Connect wants `key`, some gateways want a Bearer).
+  // On an auth rejection we fall through to the next style and log the
+  // one that worked, so the first live test discovers the right shape
+  // without a redeploy per guess. WEBEX_SMS_AUTH pins a single style
+  // ("x-api-key" | "bearer" | "key") once known.
+  const ALL_STYLES: [string, Record<string, string>][] = [
+    ["x-api-key", { "x-api-key": apiKey }],
+    ["bearer",    { Authorization: `Bearer ${apiKey}` }],
+    ["key",       { key: apiKey }],
+  ];
+  const pinned = (process.env.WEBEX_SMS_AUTH || "").trim().toLowerCase();
+  const styles = pinned ? ALL_STYLES.filter(([name]) => name === pinned) : ALL_STYLES;
+  if (styles.length === 0) {
+    return { sent: false, reason: `unknown WEBEX_SMS_AUTH style: ${pinned}` };
   }
+
+  console.error(`[sms:${label}] sending`, { url, from, to: dest, chars: text.length });
+  let last: SmsResult = { sent: false, reason: "no auth style attempted" };
+  for (const [styleName, authHeaders] of styles) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15_000),
+      });
+      let body: unknown = null;
+      try { body = await r.json(); } catch { body = await r.text().catch(() => null); }
+      console.error(`[sms:${label}] response (auth=${styleName})`, { status: r.status, body });
+      if (r.ok) {
+        return { sent: true, status: r.status, providerResponse: { authStyle: styleName, body } };
+      }
+      last = { sent: false, status: r.status, providerResponse: { authStyle: styleName, body }, reason: `provider returned ${r.status}` };
+      // Only auth rejections justify trying the next header style.
+      if (r.status !== 401 && r.status !== 403) return last;
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      console.error(`[sms:${label}] FAILED (auth=${styleName})`, { reason });
+      last = { sent: false, reason };
+      return last;
+    }
+  }
+  return last;
 }
