@@ -14,7 +14,7 @@
  */
 import { NextResponse } from "next/server";
 import { sql, db } from "@vercel/postgres";
-import { getSession, isClawbackUser, getEditableAdviserId } from "@/lib/auth";
+import { getSession, isClawbackUser, getEditableAdviserId, canRunJourneys } from "@/lib/auth";
 import { JOURNEYS, isJourneyKey, journeyForWarning } from "@/lib/reci/journeys";
 import { processDueJourneySends } from "@/lib/reci/journey-engine";
 import { normaliseUkMobile } from "@/lib/reci/sms";
@@ -24,6 +24,11 @@ export const dynamic = "force-dynamic";
 async function authAndScope(idRaw: string) {
   const session = await getSession();
   if (!isClawbackUser(session.username)) return { error: "forbidden", status: 403 as const };
+  // Poz-only while the process beds in. The drawer band simply doesn't
+  // render for anyone this rejects (the GET 403s and the UI hides).
+  if (!canRunJourneys(session.username)) {
+    return { error: "journeys are limited to Poz for now", status: 403 as const };
+  }
   const editable = await getEditableAdviserId(session.username);
   if (editable === undefined) return { error: "forbidden", status: 403 as const };
   const id = Number(idRaw);
