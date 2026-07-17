@@ -989,3 +989,52 @@ export async function sendPostItWorkbookEmail(i: {
     attachments: [{ filename: i.filename, content }],
   });
 }
+
+/**
+ * Nurture journey email to a CLIENT (16 Jul 2026, Guy's journey doc).
+ * The only email in the system sent to policyholders rather than staff,
+ * so the From name is forced to the client-facing brand ("TopQuote")
+ * rather than SMTP_FROM_NAME, and there is no CC. Body is the plain
+ * text from the journey template; the HTML variant just preserves the
+ * line breaks. Never include commission figures in journey copy.
+ */
+export async function sendJourneyClientEmail(i: {
+  to: string;
+  subject: string;
+  body: string;
+  label: string; // e.g. "journey-a1_email"
+}): Promise<{ sent: boolean; reason?: string }> {
+  const transporter = getTransporter();
+  if (!transporter) {
+    console.error(`[reci-email:${i.label}] no SMTP creds; aborting`);
+    return { sent: false, reason: "no SMTP credentials" };
+  }
+  const addr = process.env.SMTP_USER || process.env.GMAIL_USER || "";
+  const envelope = {
+    label: i.label,
+    from: `"TopQuote" <${addr}>`,
+    to: i.to,
+    subject: i.subject,
+  };
+  console.error(`[reci-email:${i.label}] sending`, envelope);
+  try {
+    const info = await transporter.sendMail({
+      from: envelope.from,
+      to: i.to,
+      subject: i.subject,
+      text: i.body,
+      html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;white-space:pre-wrap">${escapeHtml(i.body)}</div>`,
+    });
+    console.error(`[reci-email:${i.label}] sent`, {
+      messageId: info.messageId,
+      response: info.response,
+      accepted: info.accepted,
+      rejected: info.rejected,
+    });
+    return { sent: true };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    console.error(`[reci-email:${i.label}] FAILED`, { reason, envelope });
+    return { sent: false, reason };
+  }
+}
