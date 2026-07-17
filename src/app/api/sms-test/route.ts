@@ -19,6 +19,36 @@ import { sendSms, normaliseUkMobile } from "@/lib/reci/sms";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * GET: config fingerprint for debugging credential paste problems.
+ * Never returns the key itself, only its shape (length, whitespace,
+ * accidental quotes). The from/sender ID isn't a secret so it shows
+ * in full.
+ */
+export async function GET(req: Request) {
+  const tokenOk = verifyApiToken(req.headers.get("authorization"));
+  const session = await getSession();
+  const sessionOk = isClawbackUser(session.username) && isClawbackAdmin(session.username);
+  if (!tokenOk && !sessionOk) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  const key = process.env.WEBEX_SMS_API_KEY ?? "";
+  const from = process.env.WEBEX_SMS_FROM ?? "";
+  const shape = (v: string) => ({
+    set: v.length > 0,
+    length: v.length,
+    hasLeadingOrTrailingWhitespace: v !== v.trim(),
+    containsQuotes: /["']/.test(v),
+    containsNewline: /[\r\n]/.test(v),
+  });
+  return NextResponse.json({
+    apiKey: shape(key),
+    from: { ...shape(from), value: from },
+    url: process.env.WEBEX_SMS_URL || "(default) https://api.webexinteract.com/v1/sms",
+    authStylePinned: process.env.WEBEX_SMS_AUTH || "(auto-discover)",
+  });
+}
+
 export async function POST(req: Request) {
   // Admin session OR the machine API token (so the first live test can
   // be driven from the CLI while the team watches the phone).
