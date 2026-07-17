@@ -181,6 +181,14 @@ export function isClawbackAdmin(username: string | null | undefined): boolean {
   if (!username) return false;
   return CLAWBACK_USERNAMES.includes(username.toLowerCase());
 }
+// Client nurture journeys are restricted to Poz while the process beds
+// in (Jimmy, 17 Jul 2026: "ONLY available for Poz right now"). Env-driven
+// so widening it to sellers later is a Vercel env change, not a deploy.
+const JOURNEY_USERNAMES = parseList(process.env.JOURNEY_USERNAMES ?? "pauline,poz");
+export function canRunJourneys(username: string | null | undefined): boolean {
+  if (!username) return false;
+  return JOURNEY_USERNAMES.includes(username.toLowerCase());
+}
 export function isSeniorSeller(username: string | null | undefined): boolean {
   if (!username) return false;
   return RECI_SENIOR_SELLER_USERNAMES.includes(username.toLowerCase());
