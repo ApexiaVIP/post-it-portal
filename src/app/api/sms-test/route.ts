@@ -1,10 +1,15 @@
 /**
- * POST /api/reci/clawback/test-sms
+ * POST /api/sms-test
  *
- * Admin-only smoke test for the Webex Interact SMS adapter (16 Jul
- * 2026, first live test with Guy + Poz in the room). Sends a short
- * test message to the given number and returns the raw provider
- * response so payload-shape problems are visible immediately.
+ * Smoke test for the Webex Interact SMS adapter (16 Jul 2026, first
+ * live test with Guy + Poz in the room). Sends a short test message to
+ * the given number and returns the raw provider response so payload
+ * shape problems are visible immediately.
+ *
+ * Lives OUTSIDE /api/reci on purpose: the middleware cookie-gates that
+ * whole tree, which would block the machine-token auth this route
+ * supports (same pattern as /api/post-it-email). Auth is enforced
+ * below: clawback admin session OR the portal API bearer token.
  *
  * Body: { to: string, text?: string }
  */
