@@ -24,6 +24,10 @@ export const dynamic = "force-dynamic";
  * Never returns the key itself, only its shape (length, whitespace,
  * accidental quotes). The from/sender ID isn't a secret so it shows
  * in full.
+ *
+ * With ?optout=<number>: queries Webex Interact's opt-out register for
+ * that number instead (a number that ever replied STOP is silently
+ * suppressed on send, submissions still say "queued"). Read-only.
  */
 export async function GET(req: Request) {
   const tokenOk = verifyApiToken(req.headers.get("authorization"));
@@ -32,6 +36,22 @@ export async function GET(req: Request) {
   if (!tokenOk && !sessionOk) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+
+  const optout = new URL(req.url).searchParams.get("optout");
+  if (optout) {
+    const apiKey = process.env.WEBEX_SMS_API_KEY;
+    if (!apiKey) return NextResponse.json({ error: "WEBEX_SMS_API_KEY not configured" }, { status: 500 });
+    const dest = normaliseUkMobile(optout);
+    if (!dest) return NextResponse.json({ error: `unusable number: ${optout}` }, { status: 400 });
+    const r = await fetch(
+      `https://api.webexinteract.com/contacts/v1/optouts?number=${encodeURIComponent(dest)}`,
+      { headers: { "X-AUTH-KEY": apiKey }, signal: AbortSignal.timeout(15_000) },
+    );
+    const body = await r.json().catch(() => null);
+    console.error(`[sms-test] optout check`, { number: dest, status: r.status, body });
+    return NextResponse.json({ number: dest, status: r.status, result: body }, { status: r.ok ? 200 : 502 });
+  }
+
   const key = process.env.WEBEX_SMS_API_KEY ?? "";
   const from = process.env.WEBEX_SMS_FROM ?? "";
   const shape = (v: string) => ({
