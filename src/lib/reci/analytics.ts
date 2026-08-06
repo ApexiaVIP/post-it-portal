@@ -50,6 +50,12 @@ export interface ByAdviserRow {
   adviser_name: string;
   count: number;
   commission: number;
+  /**
+   * Commission excluding cancelled deals. The league table charts THIS
+   * (Poz, 6 Aug 2026): ranking advisers on gross written commission was
+   * inflating bars with £ that later cancelled.
+   */
+  liveCommission: number;
   paidCommission: number;
   cancelled: number;
   cancelledByReason: Record<CancellationReason, { count: number; commission: number }>;
@@ -143,6 +149,25 @@ function toNum(x: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * ISO-8601 week number of a date string. Used to bucket cancellations by
+ * the week they HAPPENED (cancelled_at), not the week the deal was sold:
+ * plotting a July cancellation against a week-5 sale rewrote history on
+ * the Weekly Trend chart (Poz, 6 Aug 2026). Returns null on missing or
+ * unparseable dates so callers can fall back to the sale week (the 2026
+ * CSV seed rows have no cancellation timestamp).
+ */
+function isoWeekOf(dateStr: string | null): number | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = utc.getUTCDay() || 7; // Mon=1..Sun=7
+  utc.setUTCDate(utc.getUTCDate() + 4 - day); // nearest Thursday
+  const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+  return Math.ceil(((utc.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
 function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult {
   let dealsCount = 0;
   let commissionSum = 0;
@@ -206,7 +231,7 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
 
     const adv = adviserAcc.get(d.adviser_id) ?? {
       adviser_id: d.adviser_id, adviser_name: d.adviser_name,
-      count: 0, commission: 0, paidCommission: 0, cancelled: 0,
+      count: 0, commission: 0, liveCommission: 0, paidCommission: 0, cancelled: 0,
       cancelledByReason: {
         npw:       { count: 0, commission: 0 },
         postponed: { count: 0, commission: 0 },
@@ -216,6 +241,7 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
     };
     adv.count += 1;
     adv.commission += c;
+    if (d.status !== "cancelled") adv.liveCommission += c;
     if (d.status === "paid")      adv.paidCommission += c;
     if (d.status === "cancelled") {
       adv.cancelled += 1;
@@ -230,9 +256,21 @@ function aggregate(rows: DealRow[], filters: AnalyticsFilters): AnalyticsResult 
     };
     tr.count += 1;
     tr.commission += c;
-    if (d.status === "paid")      tr.paidCommission += c;
-    if (d.status === "cancelled") tr.cancellations += 1;
+    if (d.status === "paid") tr.paidCommission += c;
     trendAcc.set(d.week, tr);
+
+    // Cancellations trend by the week the cancellation HAPPENED, falling
+    // back to the sale week for legacy rows with no cancelled_at. May
+    // create a trend row for a week with no sales; count/commission stay 0
+    // there, which is correct.
+    if (d.status === "cancelled") {
+      const cw = isoWeekOf(d.cancelled_at) ?? d.week;
+      const ctr = trendAcc.get(cw) ?? {
+        week: cw, count: 0, commission: 0, paidCommission: 0, cancellations: 0,
+      };
+      ctr.cancellations += 1;
+      trendAcc.set(cw, ctr);
+    }
   }
 
   const byReason: ByReasonRow[] = CANCELLATION_REASONS.map((r) => ({
