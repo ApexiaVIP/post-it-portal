@@ -25,7 +25,8 @@ type ByReasonRow = { reason: CancellationReason; label: string; count: number; c
 type ByWeekStatusRow = { week: number; status: DealStatus; count: number; commission: number };
 type ByAdviserRow = {
   adviser_id: number; adviser_name: string;
-  count: number; commission: number; paidCommission: number; cancelled: number;
+  count: number; commission: number; liveCommission: number;
+  paidCommission: number; cancelled: number;
   cancelledByReason: Record<CancellationReason, { count: number; commission: number }>;
 };
 type TrendRow = { week: number; count: number; commission: number; paidCommission: number; cancellations: number };
@@ -90,7 +91,9 @@ const TREND_METRIC_LABELS: Record<TrendMetric, string> = {
   commission:     "Commission £",
   paidCommission: "Paid Commission £",
   count:          "Deals",
-  cancellations:  "Cancellations",
+  // Bucketed by the week the cancellation happened (cancelled_at), not
+  // the sale week; legacy rows without a date fall back to sale week.
+  cancellations:  "Cancellations (by cancel date)",
 };
 
 function gbp(n: number): string {
@@ -288,10 +291,13 @@ export default function AnalyticsPage() {
     return { groups, grand };
   }, [data]);
 
+  // League table ranks on liveCommission (excludes cancelled deals) per
+  // Poz 6 Aug: gross written commission was inflating bars with £ that
+  // later cancelled.
   const leagueData = useMemo(() => {
     const rows = (data?.byAdviser ?? []).slice();
     rows.sort((a, b) => (leagueMetric === "commission"
-      ? b.commission - a.commission
+      ? b.liveCommission - a.liveCommission
       : b.count - a.count));
     return rows;
   }, [data, leagueMetric]);
@@ -611,7 +617,7 @@ export default function AnalyticsPage() {
             action={
               <Toggle
                 options={[
-                  { value: "commission", label: "Commission £" },
+                  { value: "commission", label: "Commission £ (excl cancelled)" },
                   { value: "count",      label: "Deals" },
                 ]}
                 value={leagueMetric}
@@ -644,7 +650,7 @@ export default function AnalyticsPage() {
                         : [String(value), "Deals"]
                     }
                   />
-                  <Bar dataKey={leagueMetric} fill="#0f172a" />
+                  <Bar dataKey={leagueMetric === "commission" ? "liveCommission" : "count"} fill="#0f172a" />
                 </BarChart>
               </ResponsiveContainer>
             )}
