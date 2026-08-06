@@ -194,14 +194,35 @@ export default function AnalyticsPage() {
 
   // Force landscape A4 for printing this page (the Deals table is wide). Only
   // affects prints while this route is mounted; cleaned up on unmount so it
-  // doesn't bleed into other pages.
+  // doesn't bleed into other pages. The weeks-print-mode rules power the
+  // scoped "print the week-by-week view only" button (Poz 6 Aug): in that
+  // mode everything tagged not-weeks-print hides and the print-only
+  // week-by-status table shows instead.
   useEffect(() => {
     const style = document.createElement("style");
     style.setAttribute("data-analytics-print", "1");
-    style.textContent = "@media print { @page { size: A4 landscape; margin: 8mm; } }";
+    style.textContent = [
+      "@media print { @page { size: A4 landscape; margin: 8mm; } }",
+      ".weeks-print-block { display: none; }",
+      "@media print {",
+      "  .weeks-print-mode .not-weeks-print { display: none !important; }",
+      "  .weeks-print-mode .weeks-print-block { display: block; }",
+      "}",
+    ].join("\n");
     document.head.appendChild(style);
     return () => { style.remove(); };
   }, []);
+
+  // Scoped print: flip the mode class on, open the dialog once React has
+  // committed, flip it back off after the dialog closes.
+  const [weeksOnlyPrint, setWeeksOnlyPrint] = useState(false);
+  useEffect(() => {
+    if (!weeksOnlyPrint) return;
+    const done = () => setWeeksOnlyPrint(false);
+    window.addEventListener("afterprint", done);
+    const t = setTimeout(() => window.print(), 50);
+    return () => { clearTimeout(t); window.removeEventListener("afterprint", done); };
+  }, [weeksOnlyPrint]);
 
   const toggleInArray = <T,>(arr: T[], v: T): T[] =>
     arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
@@ -260,6 +281,31 @@ export default function AnalyticsPage() {
       map.set(r.week, w);
     }
     return Array.from(map.values()).sort((a, b) => a.week - b.week);
+  }, [data]);
+
+  // Table form of the same data for the scoped weeks printout: counts per
+  // status plus a deals total and commission total per week, and a grand
+  // total row.
+  const weekTable = useMemo(() => {
+    const map = new Map<number, { week: number; counts: Record<string, number>; total: number; commission: number }>();
+    for (const r of data?.byWeekStatus ?? []) {
+      const row = map.get(r.week) ?? { week: r.week, counts: {}, total: 0, commission: 0 };
+      row.counts[r.status] = (row.counts[r.status] ?? 0) + r.count;
+      row.total += r.count;
+      row.commission += r.commission;
+      map.set(r.week, row);
+    }
+    const rows = Array.from(map.values()).sort((a, b) => a.week - b.week);
+    const grand = rows.reduce(
+      (acc, r) => {
+        for (const s of DEAL_STATUSES) acc.counts[s] = (acc.counts[s] ?? 0) + (r.counts[s] ?? 0);
+        acc.total += r.total;
+        acc.commission += r.commission;
+        return acc;
+      },
+      { counts: {} as Record<string, number>, total: 0, commission: 0 },
+    );
+    return { rows, grand };
   }, [data]);
 
   // Deals detail grouped by adviser, ordered by the advisers list (which the
@@ -331,7 +377,7 @@ export default function AnalyticsPage() {
   }, [filters, data, cancelledInScope]);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className={`min-h-screen bg-slate-50 text-slate-900${weeksOnlyPrint ? " weeks-print-mode" : ""}`}>
       <header className="no-print border-b bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
@@ -352,6 +398,50 @@ export default function AnalyticsPage() {
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
         <PrintHeader title="RECI Analytics" meta={printMeta} />
+
+        {/* Paper-only table for the scoped "Print weeks" button: the
+            week-by-week deal counts per status that the stacked chart
+            shows on screen, with totals. Hidden on screen; shown in
+            print only while weeks-print-mode is set. */}
+        <section className="weeks-print-block">
+          <h2 className="mb-2 text-sm font-semibold text-slate-700">Deals per week by status</h2>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-400 text-xs uppercase tracking-wide text-slate-600">
+                <th className="px-2 py-1.5 text-left">Week</th>
+                {DEAL_STATUSES.map((s) => (
+                  <th key={s} className="px-2 py-1.5 text-right">{STATUS_LABELS[s]}</th>
+                ))}
+                <th className="px-2 py-1.5 text-right">Total deals</th>
+                <th className="px-2 py-1.5 text-right">Commission £</th>
+              </tr>
+            </thead>
+            <tbody>
+              {weekTable.rows.map((r) => (
+                <tr key={r.week} className="border-b border-slate-200">
+                  <td className="px-2 py-1 font-medium tabular-nums">{r.week}</td>
+                  {DEAL_STATUSES.map((s) => (
+                    <td key={s} className="px-2 py-1 text-right tabular-nums">
+                      {r.counts[s] ?? ""}
+                    </td>
+                  ))}
+                  <td className="px-2 py-1 text-right font-semibold tabular-nums">{r.total}</td>
+                  <td className="px-2 py-1 text-right tabular-nums">{gbp(r.commission)}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-slate-500 font-semibold">
+                <td className="px-2 py-1.5">Total</td>
+                {DEAL_STATUSES.map((s) => (
+                  <td key={s} className="px-2 py-1.5 text-right tabular-nums">
+                    {weekTable.grand.counts[s] ?? 0}
+                  </td>
+                ))}
+                <td className="px-2 py-1.5 text-right tabular-nums">{weekTable.grand.total}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{gbp(weekTable.grand.commission)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
         {/* Filter bar */}
         <section className="no-print rounded-lg border bg-white p-4 shadow-sm">
           <div className="grid gap-4 md:grid-cols-4">
@@ -479,7 +569,7 @@ export default function AnalyticsPage() {
 
         {/* Cancel-reason summary (totals) + per-adviser breakdown */}
         {data && data.totals.cancelledCount > 0 && (
-          <section className="space-y-4">
+          <section className="not-weeks-print space-y-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {CANCELLATION_REASONS.map((r) => {
                 const row = data.byReason.find((x) => x.reason === r);
@@ -590,7 +680,10 @@ export default function AnalyticsPage() {
               </ResponsiveContainer>
             )}
           </ChartCard>
-          <ChartCard title="Deals per Week by Status">
+          <ChartCard
+            title="Deals per Week by Status"
+            action={<PrintButton label="Print weeks" onClick={() => setWeeksOnlyPrint(true)} />}
+          >
             {weekStackData.length === 0 ? (
               <Empty msg="No deals in current filter." />
             ) : (
@@ -708,7 +801,7 @@ export default function AnalyticsPage() {
 
         {/* Deals detail — every filtered deal, with status + narrative notes.
             This is the section that prints. */}
-        <section className="rounded-lg border bg-white shadow-sm">
+        <section className="not-weeks-print rounded-lg border bg-white shadow-sm">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <h2 className="text-sm font-semibold text-slate-700">
               Deals

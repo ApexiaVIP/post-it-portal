@@ -13,11 +13,11 @@
  */
 import { useEffect, useState } from "react";
 
-export function PrintButton({ label = "Print" }: { label?: string }) {
+export function PrintButton({ label = "Print", onClick }: { label?: string; onClick?: () => void }) {
   return (
     <button
       type="button"
-      onClick={() => window.print()}
+      onClick={onClick ?? (() => window.print())}
       className="no-print inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
       aria-label="Print this report"
       title="Print this report"
