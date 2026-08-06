@@ -4,16 +4,16 @@
  * Business Tracker — per-adviser weekly commission breakdown by status, with
  * percentages of weekly total. Matches the printed report Pauline uses.
  *
+ * Layout since Poz's 6 Aug 2026 amendments: totals FIRST (Overall total with
+ * a weekly-average row, then the per-adviser per-status summary with £ +
+ * deal counts + weekly averages), then quarter subtotals and week blocks in
+ * REVERSE order — current week at the top, Week 1 at the bottom — so Guy
+ * sees the overall position without scrolling. Every £ cell also shows the
+ * deal count underneath.
+ *
  * Filter bar at top: Year, Scope (Week / Month / Quarter / Year), and a
  * multi-select adviser pill row. If no advisers are selected, the page shows
- * all advisers that have data in scope, stacked one block per adviser.
- *
- * Each block:
- *   Adviser name
- *   12-column table: WEEK | PAID £ | % | ON RISK NYP £ | % | IN PROC £ | %
- *                  | NYS £ | % | CANCELLED £ | % | TOTAL £
- *   Rows: each week in scope.
- *   TOTAL row at the bottom of the block: sum across the weeks.
+ * all advisers that have data in scope.
  *
  * Force landscape A4 for print (the 12-column table is wide).
  */
@@ -30,6 +30,12 @@ interface BizWeekRow {
   not_yet_submitted: number;
   cancelled: number;
   total: number;
+  paid_n: number;
+  on_risk_nyp_n: number;
+  in_processing_n: number;
+  not_yet_submitted_n: number;
+  cancelled_n: number;
+  total_n: number;
 }
 interface BizAdviserRollup {
   adviser_id: number;
@@ -260,6 +266,12 @@ function PivotedView({ data }: { data: Resp }) {
     not_yet_submitted: a.not_yet_submitted + b.not_yet_submitted,
     cancelled:         a.cancelled + b.cancelled,
     total:             a.total + b.total,
+    paid_n:              a.paid_n + b.paid_n,
+    on_risk_nyp_n:       a.on_risk_nyp_n + b.on_risk_nyp_n,
+    in_processing_n:     a.in_processing_n + b.in_processing_n,
+    not_yet_submitted_n: a.not_yet_submitted_n + b.not_yet_submitted_n,
+    cancelled_n:         a.cancelled_n + b.cancelled_n,
+    total_n:             a.total_n + b.total_n,
   });
 
   // Build the per-week sections.
@@ -289,9 +301,13 @@ function PivotedView({ data }: { data: Resp }) {
     arr.push(s);
     sectionsByQuarter.set(q, arr);
   }
-  const quarterEntries = Array.from(sectionsByQuarter.entries()).sort((a, b) => a[0] - b[0]);
+  // Reverse order since Poz 6 Aug: newest quarter first, newest week first
+  // inside it, with all the totals blocks ABOVE the weeks so Guy lands on
+  // the overall position instead of scrolling to it.
+  const quarterEntries = Array.from(sectionsByQuarter.entries()).sort((a, b) => b[0] - a[0]);
   const showQuarterSubtotals = quarterEntries.length > 1;
   const showAdviserTotals    = data.advisers.length > 1;
+  const weeksWithData = sections.length;
 
   if (sections.length === 0) {
     return (
@@ -303,21 +319,6 @@ function PivotedView({ data }: { data: Resp }) {
 
   return (
     <>
-      {quarterEntries.map(([q, qSections]) => (
-        <Fragment key={q}>
-          {qSections.map((s) => (
-            <WeekBlock key={s.week} week={s.week} rows={s.rows} weekTotal={s.weekTotal} />
-          ))}
-          {showQuarterSubtotals && (
-            <QuarterBlock q={q} sections={qSections} advisers={data.advisers} sumRows={sumRows} />
-          )}
-        </Fragment>
-      ))}
-
-      {showAdviserTotals && (
-        <AdviserTotalsBlock advisers={data.advisers} />
-      )}
-
       <section className="rounded-lg border bg-slate-900 text-white shadow-sm print-keep">
         <div className="border-b border-slate-700 px-3 py-2 text-sm font-bold uppercase tracking-wide">
           Overall total
@@ -327,10 +328,26 @@ function PivotedView({ data }: { data: Resp }) {
             <ColGroup />
             <tbody>
               <Row label="OVERALL" row={grand} kind="grand" />
+              <Row label={`Avg/week (${weeksWithData} wks)`} row={averageOf(grand, weeksWithData)} kind="grandAvg" />
             </tbody>
           </table>
         </div>
       </section>
+
+      {showAdviserTotals && (
+        <AdviserTotalsBlock advisers={data.advisers} weeksWithData={weeksWithData} />
+      )}
+
+      {quarterEntries.map(([q, qSections]) => (
+        <Fragment key={q}>
+          {showQuarterSubtotals && (
+            <QuarterBlock q={q} sections={qSections} advisers={data.advisers} sumRows={sumRows} />
+          )}
+          {qSections.slice().sort((a, b) => b.week - a.week).map((s) => (
+            <WeekBlock key={s.week} week={s.week} rows={s.rows} weekTotal={s.weekTotal} />
+          ))}
+        </Fragment>
+      ))}
     </>
   );
 }
@@ -396,6 +413,7 @@ function QuarterBlock({ q, sections, advisers, sumRows }: {
               <Row key={r.adviser_id} label={r.adviser_name} row={r.row} kind="adviser" />
             ))}
             <Row label={`Q${q} total`} row={qTotal} kind="weekTotal" />
+            <Row label={`Avg/week (${sections.length} wks)`} row={averageOf(qTotal, sections.length)} kind="avg" />
           </tbody>
         </table>
       </div>
@@ -403,7 +421,7 @@ function QuarterBlock({ q, sections, advisers, sumRows }: {
   );
 }
 
-function AdviserTotalsBlock({ advisers }: { advisers: BizAdviserRollup[] }) {
+function AdviserTotalsBlock({ advisers, weeksWithData }: { advisers: BizAdviserRollup[]; weeksWithData: number }) {
   return (
     <section className="rounded-lg border-2 border-slate-400 bg-white shadow-sm print-keep">
       <h2 className="border-b-2 border-slate-400 bg-slate-200 px-3 py-2 text-sm font-bold uppercase tracking-wide text-slate-800">
@@ -430,7 +448,10 @@ function AdviserTotalsBlock({ advisers }: { advisers: BizAdviserRollup[] }) {
           </thead>
           <tbody>
             {advisers.map((a) => (
-              <Row key={a.adviser_id} label={a.adviser_name} row={a.total} kind="adviser" />
+              <Fragment key={a.adviser_id}>
+                <Row label={a.adviser_name} row={a.total} kind="adviser" />
+                <Row label="Avg/week" row={averageOf(a.total, weeksWithData)} kind="avg" />
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -500,42 +521,96 @@ function ColGroup() {
 }
 
 function emptyRow(week: number): BizWeekRow {
-  return { week, paid: 0, on_risk_nyp: 0, in_processing: 0, not_yet_submitted: 0, cancelled: 0, total: 0 };
+  return {
+    week, paid: 0, on_risk_nyp: 0, in_processing: 0, not_yet_submitted: 0, cancelled: 0, total: 0,
+    paid_n: 0, on_risk_nyp_n: 0, in_processing_n: 0, not_yet_submitted_n: 0, cancelled_n: 0, total_n: 0,
+  };
+}
+
+/** Divide every £ and count in a row by `div` for the weekly-average rows. */
+function averageOf(row: BizWeekRow, div: number): BizWeekRow {
+  const d = div > 0 ? div : 1;
+  return {
+    week: 0,
+    paid: row.paid / d, on_risk_nyp: row.on_risk_nyp / d,
+    in_processing: row.in_processing / d, not_yet_submitted: row.not_yet_submitted / d,
+    cancelled: row.cancelled / d, total: row.total / d,
+    paid_n: row.paid_n / d, on_risk_nyp_n: row.on_risk_nyp_n / d,
+    in_processing_n: row.in_processing_n / d, not_yet_submitted_n: row.not_yet_submitted_n / d,
+    cancelled_n: row.cancelled_n / d, total_n: row.total_n / d,
+  };
+}
+
+/** Count formatter: whole numbers normally, 1 decimal on average rows. */
+function fmtCount(n: number, isAvg: boolean): string {
+  if (isAvg) return (Math.round(n * 10) / 10).toFixed(1);
+  return String(Math.round(n));
 }
 
 function Row({ row, label, kind }: {
   row: BizWeekRow;
   label: string;
-  kind: "adviser" | "weekTotal" | "grand";
+  kind: "adviser" | "weekTotal" | "grand" | "avg" | "grandAvg";
 }) {
   const bg =
     kind === "grand"     ? "bg-slate-900 text-white text-sm font-bold" :
+    kind === "grandAvg"  ? "bg-slate-800 text-slate-300 text-[11px]" :
     kind === "weekTotal" ? "bg-amber-50 font-semibold" :
+    kind === "avg"       ? "bg-slate-50 text-slate-500 text-[11px]" :
     "";
   const labelClass =
     kind === "grand"     ? "uppercase tracking-wide" :
+    kind === "grandAvg"  ? "uppercase tracking-wide text-[10px]" :
     kind === "weekTotal" ? "uppercase tracking-wide text-amber-800 text-[11px]" :
+    kind === "avg"       ? "uppercase tracking-wide text-[10px]" :
     "font-medium text-slate-700";
   const cellBorder =
-    kind === "grand"     ? "border-slate-700" :
+    kind === "grand" || kind === "grandAvg" ? "border-slate-700" :
     kind === "weekTotal" ? "border-amber-200" :
     "border-slate-100";
   const isData = kind === "adviser";
+  const isAvg  = kind === "avg" || kind === "grandAvg";
   const dim = (n: number) => (isData && n === 0 ? "text-slate-300" : "");
+  const countClass =
+    kind === "grand" || kind === "grandAvg" ? "text-slate-400" : "text-slate-400";
+
+  // The five status columns + total, each rendered as £ with the deal
+  // count underneath (Poz 6 Aug: "add the number of deals... it is
+  // currently just a monetary value").
+  const cells: { c: number; n: number }[] = [
+    { c: row.paid,              n: row.paid_n },
+    { c: row.on_risk_nyp,      n: row.on_risk_nyp_n },
+    { c: row.in_processing,    n: row.in_processing_n },
+    { c: row.not_yet_submitted, n: row.not_yet_submitted_n },
+    { c: row.cancelled,        n: row.cancelled_n },
+  ];
+
   return (
     <tr className={`${bg} print-keep`}>
       <td className={`border-b border-r ${cellBorder} px-2 py-1 whitespace-nowrap ${labelClass}`}>{label}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.paid)}`}>{gbp(row.paid)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.paid)}`}>{pct(row.paid, row.total)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.on_risk_nyp)}`}>{gbp(row.on_risk_nyp)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.on_risk_nyp)}`}>{pct(row.on_risk_nyp, row.total)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.in_processing)}`}>{gbp(row.in_processing)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.in_processing)}`}>{pct(row.in_processing, row.total)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.not_yet_submitted)}`}>{gbp(row.not_yet_submitted)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.not_yet_submitted)}`}>{pct(row.not_yet_submitted, row.total)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.cancelled)}`}>{gbp(row.cancelled)}</td>
-      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(row.cancelled)}`}>{pct(row.cancelled, row.total)}</td>
-      <td className={`border-b ${cellBorder} px-2 py-1 text-right tabular-nums ${kind === "adviser" ? "font-medium" : ""}`}>{gbp(row.total)}</td>
+      {cells.map((cell, i) => (
+        <Fragment key={i}>
+          <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(cell.c)}`}>
+            <div>{gbp(cell.c)}</div>
+            {(cell.n > 0 || isAvg) && (
+              <div className={`text-[10px] leading-tight ${countClass}`}>
+                {fmtCount(cell.n, isAvg)} {Math.round(cell.n) === 1 && !isAvg ? "deal" : "deals"}
+              </div>
+            )}
+          </td>
+          <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${dim(cell.c)}`}>
+            {pct(cell.c, row.total)}
+          </td>
+        </Fragment>
+      ))}
+      <td className={`border-b ${cellBorder} px-2 py-1 text-right tabular-nums ${kind === "adviser" ? "font-medium" : ""}`}>
+        <div>{gbp(row.total)}</div>
+        {(row.total_n > 0 || isAvg) && (
+          <div className={`text-[10px] leading-tight font-normal ${countClass}`}>
+            {fmtCount(row.total_n, isAvg)} {Math.round(row.total_n) === 1 && !isAvg ? "deal" : "deals"}
+          </div>
+        )}
+      </td>
     </tr>
   );
 }

@@ -319,6 +319,14 @@ export interface BizWeekRow {
   cancelled: number;       // includes status='cancelled' AND status='clawback' so it
                            // matches the long-standing 5-column Business Tracker layout
   total: number;
+  // Deal counts alongside the £ figures (Poz 6 Aug: "it is currently just
+  // a monetary value"). Sums of no_of_deals, same bucketing as the £.
+  paid_n: number;
+  on_risk_nyp_n: number;
+  in_processing_n: number;
+  not_yet_submitted_n: number;
+  cancelled_n: number;
+  total_n: number;
 }
 
 export interface BizAdviserRollup {
@@ -341,17 +349,20 @@ function emptyBizRow(week: number): BizWeekRow {
     week,
     paid: 0, on_risk_nyp: 0, in_processing: 0,
     not_yet_submitted: 0, cancelled: 0, total: 0,
+    paid_n: 0, on_risk_nyp_n: 0, in_processing_n: 0,
+    not_yet_submitted_n: 0, cancelled_n: 0, total_n: 0,
   };
 }
 
-function addToBiz(row: BizWeekRow, status: DealStatus, c: number): void {
-  if (status === "paid")              row.paid += c;
-  else if (status === "on_risk_nyp")  row.on_risk_nyp += c;
-  else if (status === "in_processing") row.in_processing += c;
-  else if (status === "not_yet_submitted") row.not_yet_submitted += c;
-  else if (status === "cancelled")    row.cancelled += c;
-  else if (status === "clawback")     row.cancelled += c;
+function addToBiz(row: BizWeekRow, status: DealStatus, c: number, n: number): void {
+  if (status === "paid")              { row.paid += c;              row.paid_n += n; }
+  else if (status === "on_risk_nyp")  { row.on_risk_nyp += c;      row.on_risk_nyp_n += n; }
+  else if (status === "in_processing") { row.in_processing += c;   row.in_processing_n += n; }
+  else if (status === "not_yet_submitted") { row.not_yet_submitted += c; row.not_yet_submitted_n += n; }
+  else if (status === "cancelled")    { row.cancelled += c;        row.cancelled_n += n; }
+  else if (status === "clawback")     { row.cancelled += c;        row.cancelled_n += n; }
   row.total = row.paid + row.on_risk_nyp + row.in_processing + row.not_yet_submitted + row.cancelled;
+  row.total_n = row.paid_n + row.on_risk_nyp_n + row.in_processing_n + row.not_yet_submitted_n + row.cancelled_n;
 }
 
 export async function businessTrackerByAdviser(
@@ -401,7 +412,8 @@ export async function businessTrackerByAdviser(
     let row = advWeekMap.get(d.week);
     if (!row) { row = emptyBizRow(d.week); advWeekMap.set(d.week, row); }
     const c = Number(d.commission ?? 0) || 0;
-    addToBiz(row, d.status, c);
+    const n = Number(d.no_of_deals ?? 0) || 0;
+    addToBiz(row, d.status, c, n);
   }
 
   // Build the result ordered by adviser sort_order.
@@ -425,6 +437,12 @@ export async function businessTrackerByAdviser(
         not_yet_submitted: acc.not_yet_submitted + r.not_yet_submitted,
         cancelled:         acc.cancelled + r.cancelled,
         total:             acc.total + r.total,
+        paid_n:              acc.paid_n + r.paid_n,
+        on_risk_nyp_n:       acc.on_risk_nyp_n + r.on_risk_nyp_n,
+        in_processing_n:     acc.in_processing_n + r.in_processing_n,
+        not_yet_submitted_n: acc.not_yet_submitted_n + r.not_yet_submitted_n,
+        cancelled_n:         acc.cancelled_n + r.cancelled_n,
+        total_n:             acc.total_n + r.total_n,
       }),
       emptyBizRow(0),
     );
