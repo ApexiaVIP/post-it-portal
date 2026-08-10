@@ -533,6 +533,13 @@ export default function ClawbackPage() {
             </button>
           )}
           <a
+            href="/reci/cases"
+            className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-800 hover:bg-indigo-100"
+            title="Cancelled + in-processing deals workspace"
+          >
+            My Cases
+          </a>
+          <a
             href="/reci/clawback/activity"
             className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
           >

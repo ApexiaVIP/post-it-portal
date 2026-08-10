@@ -157,7 +157,7 @@ function toNum(x: unknown): number {
  * unparseable dates so callers can fall back to the sale week (the 2026
  * CSV seed rows have no cancellation timestamp).
  */
-function isoWeekOf(dateStr: string | null): number | null {
+export function isoWeekOf(dateStr: string | null): number | null {
   if (!dateStr) return null;
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return null;
