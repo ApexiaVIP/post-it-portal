@@ -135,3 +135,29 @@ export interface DealHistory {
   new_commission: number | null;
   note: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Adviser cases workspace (Poz, 6 Aug 2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * Call-log outcome options shown in the dropdown. The API accepts any
+ * short string (rows store free text), so adding an option here is all
+ * it takes to extend the list — no migration, and old rows keep their
+ * original wording.
+ */
+export const CALL_OUTCOMES = [
+  "Message left",
+  "Discussed call back",
+  "Spoke to client",
+  "No answer",
+  "Number unavailable",
+  "Other",
+] as const;
+
+export const RESOLD_OUTCOMES = ["resold", "pm"] as const;
+export type ResoldOutcome = (typeof RESOLD_OUTCOMES)[number];
+export const RESOLD_OUTCOME_LABELS: Record<ResoldOutcome, string> = {
+  resold: "Resold",
+  pm:     "P&M (pitch and miss)",
+};

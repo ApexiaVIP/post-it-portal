@@ -325,10 +325,14 @@ export function canAccessPath(username: string | null | undefined, pathname: str
   if (pathname.startsWith("/api/auth"))       return true;
   if (pathname === "/api/me")                 return true;
   // Sellers / viewers can reach /reci/clawback even if their primary role
-  // is data-entry or none.
+  // is data-entry or none. Same crowd gets the adviser cases workspace
+  // (/reci/cases, Poz 6 Aug 2026) — per-adviser scoping happens in the
+  // API, not here.
   if (isClawbackUser(username) && (
         pathname.startsWith("/reci/clawback")
-     || pathname.startsWith("/api/reci/clawback"))) {
+     || pathname.startsWith("/api/reci/clawback")
+     || pathname.startsWith("/reci/cases")
+     || pathname.startsWith("/api/reci/cases"))) {
     return true;
   }
   return false;
