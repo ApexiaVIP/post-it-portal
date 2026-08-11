@@ -19,8 +19,14 @@ export async function GET(req: Request) {
   const today = londonDateIso();
   const dates = datesInWeekUpTo(today);
 
-  // Load today (daily row on sheet).
-  const todayData = await loadManualDataFor(today);
+  // Today's data is captured from the SAME read the weekly loop does
+  // (dates always ends with today). It used to be a separate load, and
+  // on 10 Aug 2026 that first read hit a transient KV failure that the
+  // store silently swallowed: every evening POST IT email showed zero
+  // deals/quotes/fact finds in the daily rows while the weekly rows,
+  // read moments later, were correct. One shared read makes that
+  // divergence structurally impossible.
+  let todayData = emptyManualData();
 
   // Sum across this week for the weekly row.
   const weekDaily = Object.fromEntries(
@@ -32,6 +38,7 @@ export async function GET(req: Request) {
   let latestBy = "";
   for (const d of dates) {
     const dd = await loadManualDataFor(d);
+    if (d === today) todayData = dd;
     for (const a of ADVISERS) {
       for (const f of ADVISER_FIELDS) {
         weekDaily[a][f.key] += Number(dd.daily[a]?.[f.key] || 0);
