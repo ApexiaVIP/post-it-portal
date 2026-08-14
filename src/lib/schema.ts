@@ -1,7 +1,7 @@
 // Shape of the manual data captured by the portal.
 // Data is stored per-date so admins can back-fill past days.
 
-export const ADVISERS = ["Tan", "Hayder", "Gurdaht", "Atikur", "Jack"] as const;
+export const ADVISERS = ["Tan", "Hayder", "Gurdaht", "Atikur", "Jack", "Ben", "Josh"] as const;
 export type Adviser = (typeof ADVISERS)[number];
 
 export const ADVISER_FIELDS = [
