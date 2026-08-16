@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ADVISERS, ADVISER_FIELDS, RIC_FIELDS,
+  ADVISERS, ADVISER_FIELDS,
   type ManualData, emptyManualData, londonDateIso, datesInWeekUpTo,
 } from "@/lib/schema";
 
@@ -40,10 +40,6 @@ export default function AdminPage() {
         },
       };
     });
-  }, []);
-
-  const setRic = useCallback((field: string, value: number) => {
-    setData((d) => d ? { ...d, ric: { ...d.ric, [field]: value } } : d);
   }, []);
 
   const resetAll = useCallback(() => {
@@ -231,35 +227,10 @@ export default function AdminPage() {
         </table>
       </section>
 
-      <section className="bg-white shadow rounded-lg">
-        <h2 className="text-lg font-medium p-4 border-b">Customer Service – Ric ({date})</h2>
-        <div className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {RIC_FIELDS.map((f) => (
-            <label key={f.key} className="block text-sm">
-              <span className="block mb-1 font-medium">
-                {f.label} <span className="ml-1 font-mono text-slate-400 text-xs">({f.cell})</span>
-              </span>
-              <input
-                type="number" min={0} inputMode="numeric"
-                className="w-full rounded border border-slate-300 px-2 py-1 text-right tabular-nums"
-                value={data.ric[f.key] ?? 0}
-                onChange={(e) => setRic(f.key, Number(e.target.value) || 0)}
-              />
-            </label>
-          ))}
-          <label className="block text-sm col-span-2 md:col-span-3 lg:col-span-4">
-            <span className="block mb-1 font-medium">
-              Comments <span className="font-mono text-slate-400 text-xs">(N22)</span>
-            </span>
-            <input
-              type="text" maxLength={500}
-              className="w-full rounded border border-slate-300 px-2 py-1"
-              value={data.ricComments}
-              onChange={(e) => setData((d) => (d ? { ...d, ricComments: e.target.value } : d))}
-            />
-          </label>
-        </div>
-      </section>
+      {/* Customer Service - Ric section hidden 13 Aug 2026 (Poz): Ric
+          left the business months ago and nothing is recorded here.
+          The ric fields stay in the data model + API for old dates, so
+          restoring the section is just un-hiding this block. */}
 
       <footer className="text-xs text-slate-500">
         Data is stored per-date. Change the date picker to edit past days. Weekly totals on each POST IT email sum Mon–today automatically.
