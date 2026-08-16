@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  ADVISERS, ADVISER_FIELDS, RIC_FIELDS, londonDateIso,
+  ADVISERS, ADVISER_FIELDS, londonDateIso,
 } from "@/lib/schema";
 import { PrintButton, PrintHeader } from "@/components/print";
 
@@ -244,11 +244,9 @@ export default function DashboardPage() {
           <AdviserSection title="Daily" dateLabel={snap.date + " " + snap.target} auto={snap.daily_auto} manual={snap.daily_manual} />
           <AdviserSection title="Weekly Total" dateLabel={`week of ${snap.date}`} auto={snap.weekly_auto} manual={snap.weekly_manual} />
 
-          <RicSection
-            daily_auto={snap.ric_daily_auto}
-            manual={snap.ric_manual}
-            comments={snap.ric_comments}
-          />
+          {/* RicSection hidden 13 Aug 2026 (Poz): Ric left the business,
+              nothing is recorded there. Snapshot data still carries the
+              ric fields, so restoring is just un-hiding this block. */}
 
           <AuditSection snap={snap} />
 
@@ -506,31 +504,6 @@ function AdviserSection({ title, dateLabel, auto, manual }: {
           </tr>
         </tbody>
       </table>
-    </section>
-  );
-}
-
-function RicSection({ daily_auto, manual, comments }: {
-  daily_auto: { talk_time_mmss: number; total_calls: number; hellos: number };
-  manual: Record<string, number>;
-  comments: string;
-}) {
-  return (
-    <section className="bg-white shadow rounded-lg">
-      <h2 className="text-lg font-medium p-4 border-b">Customer Service — Ric</h2>
-      <div className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 text-sm">
-        <Stat label="Talk Time" value={fmtDur(daily_auto.talk_time_mmss)} />
-        <Stat label="No. Calls" value={String(daily_auto.total_calls)} />
-        {RIC_FIELDS.map(f => (
-          <Stat key={f.key} label={f.label} value={String(manual?.[f.key] ?? 0)} />
-        ))}
-      </div>
-      {comments && (
-        <div className="px-4 pb-4 text-sm">
-          <span className="text-slate-500">Comments: </span>
-          <span>{comments}</span>
-        </div>
-      )}
     </section>
   );
 }
