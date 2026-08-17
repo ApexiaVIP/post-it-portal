@@ -1,7 +1,9 @@
 // Shape of the manual data captured by the portal.
 // Data is stored per-date so admins can back-fill past days.
 
-export const ADVISERS = ["Tan", "Hayder", "Gurdaht", "Atikur", "Jack", "Ben", "Josh"] as const;
+// Jack removed from POST IT 13 Aug 2026 (Poz): moved to Xstaff in June,
+// stays on the RECI boards / Business Tracker for his completed business.
+export const ADVISERS = ["Tan", "Hayder", "Gurdaht", "Atikur", "Ben", "Josh"] as const;
 export type Adviser = (typeof ADVISERS)[number];
 
 export const ADVISER_FIELDS = [
