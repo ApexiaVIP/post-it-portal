@@ -629,21 +629,54 @@ export default function ClawbackPage() {
         <Tile label="Written off £" value={summary ? gbp(summary.total_written_off) : "—"} accent="red" />
       </section>
 
-      {/* Reconciliation line: shows where every pound of CB due sits so
-          the tiles visibly add up (Jimmy, 13 Aug 2026: "doesn't add up
-          to 76k?"). Residue = £ still on resolved/closed cases where
-          less was recovered than the CB. */}
-      {summary && (
-        <div className="mt-2 text-xs text-slate-500">
-          CB due {gbp(summary.total_clawback_due)} = active {gbp(summary.total_active_at_risk)}
-          {" + "}written off {gbp(summary.total_written_off)}
-          {" + "}parked historic OW {gbp(summary.total_parked_ow)}
-          {" + "}recovered {gbp(summary.total_recovered)}
-          {" + "}left on resolved cases {gbp(Math.max(0,
-            summary.total_clawback_due - summary.total_active_at_risk - summary.total_written_off
-            - summary.total_parked_ow - summary.total_recovered))}
-        </div>
-      )}
+      {/* Where the clawback sits (Jimmy, 13 Aug 2026): every pound of
+          CB due in exactly one pot, shown as a stacked bar + a tile per
+          pot. Follows the current filters like the tiles above. */}
+      {summary && summary.total_clawback_due > 0 && (() => {
+        const residue = Math.max(0,
+          summary.total_clawback_due - summary.total_active_at_risk - summary.total_written_off
+          - summary.total_parked_ow - summary.total_recovered);
+        const pots = [
+          { label: "Active at risk", amount: summary.total_active_at_risk, color: "bg-amber-500",  text: "text-amber-800",  hint: "Open cases, still winnable" },
+          { label: "Written off",    amount: summary.total_written_off,    color: "bg-red-500",    text: "text-red-700",    hint: "Lost, net of anything recovered" },
+          { label: "Parked (old OW)",amount: summary.total_parked_ow,      color: "bg-slate-400",  text: "text-slate-600",  hint: "Historic Old OW, not actualised" },
+          { label: "Recovered",      amount: summary.total_recovered,      color: "bg-emerald-500",text: "text-emerald-700",hint: "£ saved + resold against cases" },
+          { label: "Left on resolved",amount: residue,                     color: "bg-blue-400",   text: "text-blue-700",   hint: "Resolved for less than the full CB" },
+        ];
+        const total = summary.total_clawback_due;
+        return (
+          <section className="mt-3 rounded border border-slate-200 bg-white p-3">
+            <div className="mb-2 flex items-baseline justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Where the clawback sits
+              </span>
+              <span className="text-xs text-slate-500">CB due {gbp(total)}</span>
+            </div>
+            <div className="flex h-4 w-full overflow-hidden rounded">
+              {pots.filter((p) => p.amount > 0).map((p) => (
+                <div
+                  key={p.label}
+                  className={p.color}
+                  style={{ width: `${(p.amount / total) * 100}%` }}
+                  title={`${p.label}: ${gbp(p.amount)} (${Math.round((p.amount / total) * 100)}%)`}
+                />
+              ))}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
+              {pots.map((p) => (
+                <div key={p.label} className="flex items-start gap-1.5" title={p.hint}>
+                  <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-sm ${p.color}`} />
+                  <span className="min-w-0 text-xs">
+                    <span className="block text-slate-500">{p.label}</span>
+                    <span className={`font-semibold tabular-nums ${p.text}`}>{gbp(p.amount)}</span>
+                    <span className="ml-1 text-slate-400">{total > 0 ? Math.round((p.amount / total) * 100) : 0}%</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Bucket breakdown. Everyone now sees every case across the team
           (June 2026 access rebuild) so this row is useful to all tiers --
