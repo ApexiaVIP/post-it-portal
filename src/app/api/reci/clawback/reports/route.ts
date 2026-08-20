@@ -19,6 +19,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { getSession, isClawbackUser, clawbackAdviserScope } from "@/lib/auth";
+import { statusGroup } from "@/lib/reci/status";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,8 @@ interface BucketRow {
   saved: number;
   resold: number;
   net: number;
+  active: number;
+  written_off: number;
   cases: number;
 }
 
@@ -73,6 +76,10 @@ export async function GET(req: Request) {
         clawback_due: string | null;
         saved_amount: string | null;
         resold_amount: string | null;
+        status: string;
+        source: string | null;
+        ow_actualised_at: string | null;
+        net_at_risk: string | null;
       }>`
         SELECT
           c.adviser_id,
@@ -81,7 +88,11 @@ export async function GET(req: Request) {
           c.clawback_date::text AS clawback_date,
           COALESCE(c.final_clawback_due, c.clawback_due)::text AS clawback_due,
           c.saved_amount::text AS saved_amount,
-          c.resold_amount::text AS resold_amount
+          c.resold_amount::text AS resold_amount,
+          c.status,
+          c.source,
+          c.ow_actualised_at::text AS ow_actualised_at,
+          c.net_at_risk::text AS net_at_risk
         FROM clawback_cases c
         LEFT JOIN advisers a ON a.id = c.adviser_id
         WHERE c.deleted_at IS NULL
@@ -96,6 +107,10 @@ export async function GET(req: Request) {
         clawback_due: string | null;
         saved_amount: string | null;
         resold_amount: string | null;
+        status: string;
+        source: string | null;
+        ow_actualised_at: string | null;
+        net_at_risk: string | null;
       }>`
         SELECT
           c.adviser_id,
@@ -104,7 +119,11 @@ export async function GET(req: Request) {
           c.clawback_date::text AS clawback_date,
           COALESCE(c.final_clawback_due, c.clawback_due)::text AS clawback_due,
           c.saved_amount::text AS saved_amount,
-          c.resold_amount::text AS resold_amount
+          c.resold_amount::text AS resold_amount,
+          c.status,
+          c.source,
+          c.ow_actualised_at::text AS ow_actualised_at,
+          c.net_at_risk::text AS net_at_risk
         FROM clawback_cases c
         LEFT JOIN advisers a ON a.id = c.adviser_id
         WHERE c.deleted_at IS NULL
@@ -128,7 +147,7 @@ export async function GET(req: Request) {
       b = {
         key: key as BucketRow["key"],
         adviser_id: row.adviser_id,
-        gross: 0, saved: 0, resold: 0, net: 0, cases: 0,
+        gross: 0, saved: 0, resold: 0, net: 0, active: 0, written_off: 0, cases: 0,
       };
       periodEntry.buckets.set(key, b);
     }
@@ -146,6 +165,12 @@ export async function GET(req: Request) {
     b.saved  += saved;
     b.resold += resold;
     b.cases  += 1;
+    // Active at risk / written off per seller (Poz 13 Aug 2026): the
+    // agent columns should fall as cases resolve, same as the headline.
+    const nar = parseAmt(r.net_at_risk);
+    const isHistoricOw = r.source === "old_ow" && r.ow_actualised_at === null;
+    if (r.status === "open" && !isHistoricOw) b.active += nar;
+    if (statusGroup(r.status) === "neg")      b.written_off += nar;
   }
   // Net = Gross - Saved (per Poz's brief; resold goes alongside as a separate
   // line so Guy can see replacement-sale activity but it doesn't reduce Gross).
@@ -169,10 +194,12 @@ export async function GET(req: Request) {
   for (const p of periods) {
     for (const b of p.buckets) {
       let o = overall.get(b.key);
-      if (!o) { o = { ...b, gross: 0, saved: 0, resold: 0, net: 0, cases: 0 }; overall.set(b.key, o); }
+      if (!o) { o = { ...b, gross: 0, saved: 0, resold: 0, net: 0, active: 0, written_off: 0, cases: 0 }; overall.set(b.key, o); }
       o.gross  += b.gross;
       o.saved  += b.saved;
       o.resold += b.resold;
+      o.active += b.active;
+      o.written_off += b.written_off;
       o.cases  += b.cases;
     }
   }
