@@ -170,7 +170,7 @@ export async function GET(req: Request) {
     const nar = parseAmt(r.net_at_risk);
     const isHistoricOw = r.source === "old_ow" && r.ow_actualised_at === null;
     if (r.status === "open" && !isHistoricOw) b.active += nar;
-    if (statusGroup(r.status) === "neg")      b.written_off += nar;
+    if (statusGroup(r.status) === "neg" && !isHistoricOw) b.written_off += nar;
   }
   // Net = Gross - Saved (per Poz's brief; resold goes alongside as a separate
   // line so Guy can see replacement-sale activity but it doesn't reduce Gross).

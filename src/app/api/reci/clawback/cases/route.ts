@@ -35,7 +35,9 @@ import { NEGATIVE_STATUSES, OTHER_NEGATIVE_STATUSES } from "@/lib/reci/status";
 const NEG_STATUS_SQL = [...NEGATIVE_STATUSES, ...OTHER_NEGATIVE_STATUSES]
   .map((s) => `'${s}'`).join(",");
 // Active = still winnable: open, and not a historic Old OW parked case.
-const ACTIVE_CASE_SQL = `c.status = 'open' AND NOT (c.source = 'old_ow' AND c.ow_actualised_at IS NULL)`;
+// IS NOT TRUE (not plain NOT) so cases with source = NULL count as
+// active: NOT (NULL AND ...) is NULL, which silently dropped them.
+const ACTIVE_CASE_SQL = `c.status = 'open' AND (c.source = 'old_ow' AND c.ow_actualised_at IS NULL) IS NOT TRUE`;
 
 export const dynamic = "force-dynamic";
 
@@ -241,8 +243,22 @@ export async function GET(req: Request) {
         -- statuses (net of anything recovered on the way down).
         COALESCE(SUM(c.net_at_risk) FILTER (WHERE ${ACTIVE_CASE_SQL}), 0)::float
                                                                             AS total_active_at_risk,
-        COALESCE(SUM(c.net_at_risk) FILTER (WHERE c.status IN (${NEG_STATUS_SQL})), 0)::float
-                                                                            AS total_written_off
+        -- Written off excludes parked historic OW so the buckets
+        -- partition cleanly (a historic lost case sits in Parked until
+        -- Poz actualises it, then moves into the live buckets).
+        COALESCE(SUM(c.net_at_risk)
+          FILTER (WHERE c.status IN (${NEG_STATUS_SQL})
+                    AND (c.source = 'old_ow' AND c.ow_actualised_at IS NULL) IS NOT TRUE), 0)::float
+                                                                            AS total_written_off,
+        -- Reconciliation extras so the tiles visibly sum to CB due:
+        -- parked historic OW exposure + £ actually recovered (capped at
+        -- each case's CB so over-recovery doesn't distort the sum).
+        COALESCE(SUM(c.net_at_risk)
+          FILTER (WHERE (c.source = 'old_ow' AND c.ow_actualised_at IS NULL) IS TRUE), 0)::float
+                                                                            AS total_parked_ow,
+        COALESCE(SUM(LEAST(c.saved_amount + c.resold_amount,
+                           COALESCE(c.final_clawback_due, c.clawback_due))), 0)::float
+                                                                            AS total_recovered
      FROM clawback_cases c
      ${whereSql}`,
     params.slice(0, params.length - 1), // drop the trailing limit param

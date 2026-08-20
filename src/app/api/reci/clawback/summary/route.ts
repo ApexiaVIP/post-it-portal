@@ -63,7 +63,9 @@ export async function GET() {
               -- yet. Excluded from current at-risk buckets so Guy's
               -- headline figures aren't inflated by exposure that
               -- statistically never lands.
-              (c.source = 'old_ow' AND c.ow_actualised_at IS NULL) AS is_historic_ow
+              -- IS TRUE so a NULL source reads as "not historic" instead
+              -- of NULL (which silently fell out of every NOT filter).
+              ((c.source = 'old_ow' AND c.ow_actualised_at IS NULL) IS TRUE) AS is_historic_ow
        FROM clawback_cases c
        WHERE c.deleted_at IS NULL ${scopeWhere}
      ),
