@@ -652,8 +652,11 @@ export default function ClawbackPage() {
               <div className="text-xs uppercase tracking-wide text-slate-500">
                 {b.agent_bucket === "adviser" && b.adviser_name ? b.adviser_name : BUCKET_LABELS[b.agent_bucket]}
               </div>
-              <div className="text-lg font-semibold">{gbp(b.clawback_due)}</div>
-              <div className="text-xs text-slate-500">{b.cases} cases · active {gbp(b.active_at_risk)}</div>
+              {/* Big number = ACTIVE at risk (Poz 13 Aug: the agent
+                  figures must fall as their cases resolve); gross CB
+                  drops to the subline. */}
+              <div className="text-lg font-semibold text-amber-800">{gbp(b.active_at_risk)}</div>
+              <div className="text-xs text-slate-500">{b.cases} cases · CB due {gbp(b.clawback_due)}</div>
             </button>
           ))}
         </section>

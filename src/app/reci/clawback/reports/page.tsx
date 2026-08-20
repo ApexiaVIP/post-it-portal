@@ -41,6 +41,8 @@ interface BucketRow {
   saved: number;
   resold: number;
   net: number;
+  active: number;
+  written_off: number;
   cases: number;
 }
 
@@ -152,10 +154,12 @@ export default function ClawbackReportsPage() {
       saved:  acc.saved  + b.saved,
       resold: acc.resold + b.resold,
       net:    acc.net    + b.net,
+      active: acc.active + b.active,
+      written_off: acc.written_off + b.written_off,
       cases:  acc.cases  + b.cases,
     }),
-    { gross: 0, saved: 0, resold: 0, net: 0, cases: 0 },
-  ) || { gross: 0, saved: 0, resold: 0, net: 0, cases: 0 };
+    { gross: 0, saved: 0, resold: 0, net: 0, active: 0, written_off: 0, cases: 0 },
+  ) || { gross: 0, saved: 0, resold: 0, net: 0, active: 0, written_off: 0, cases: 0 };
 
   return (
     <main className="mx-auto max-w-[1600px] px-4 py-4">
@@ -168,7 +172,8 @@ export default function ClawbackReportsPage() {
           { label: "Cases",       value: String(overallTotals.cases) },
           { label: "Gross issued", value: gbp(overallTotals.gross) },
           { label: "Saved",        value: gbp(overallTotals.saved) },
-          { label: "Net",          value: gbp(overallTotals.net) },
+          { label: "Active at risk", value: gbp(overallTotals.active) },
+          { label: "Written off",  value: gbp(overallTotals.written_off) },
         ]}
       />
 
@@ -344,9 +349,11 @@ function PeriodSection({ period }: { period: PeriodBlock }) {
       saved:  acc.saved  + b.saved,
       resold: acc.resold + b.resold,
       net:    acc.net    + b.net,
+      active: acc.active + b.active,
+      written_off: acc.written_off + b.written_off,
       cases:  acc.cases  + b.cases,
     }),
-    { gross: 0, saved: 0, resold: 0, net: 0, cases: 0 },
+    { gross: 0, saved: 0, resold: 0, net: 0, active: 0, written_off: 0, cases: 0 },
   );
   return (
     <section className="mt-4 break-inside-avoid rounded border border-slate-200 bg-white">
@@ -363,7 +370,7 @@ function PeriodSection({ period }: { period: PeriodBlock }) {
 
 function SellerTable({ rows, totals }: {
   rows: BucketRow[];
-  totals: { gross: number; saved: number; resold: number; net: number; cases: number };
+  totals: { gross: number; saved: number; resold: number; net: number; active: number; written_off: number; cases: number };
 }) {
   return (
     <table className="w-full text-sm">
@@ -375,11 +382,13 @@ function SellerTable({ rows, totals }: {
           <th className="px-3 py-2 text-right font-medium">Saved £</th>
           <th className="px-3 py-2 text-right font-medium">Resold £</th>
           <th className="px-3 py-2 text-right font-medium" title="Gross issued minus Saved minus Resold. Negative = profit on the swap.">Net position £</th>
+          <th className="px-3 py-2 text-right font-medium bg-amber-50" title="Open cases only, net of £ recovered, historic OW excluded. Falls as cases resolve either way.">Active at risk £</th>
+          <th className="px-3 py-2 text-right font-medium" title="CB sitting on Lost statuses, net of anything recovered before the loss.">Written off £</th>
         </tr>
       </thead>
       <tbody>
         {rows.length === 0 ? (
-          <tr><td className="px-3 py-3 text-center text-slate-400" colSpan={6}>No cases.</td></tr>
+          <tr><td className="px-3 py-3 text-center text-slate-400" colSpan={8}>No cases.</td></tr>
         ) : rows.map((b) => (
           <tr key={b.key} className="border-t border-slate-100">
             <td className="px-3 py-2 font-medium">{b.key}</td>
@@ -387,8 +396,14 @@ function SellerTable({ rows, totals }: {
             <td className="px-3 py-2 text-right">{gbp(b.gross)}</td>
             <td className="px-3 py-2 text-right text-emerald-700">{b.saved > 0 ? gbp(b.saved) : "—"}</td>
             <td className="px-3 py-2 text-right text-blue-700">{b.resold > 0 ? gbp(b.resold) : "—"}</td>
-            <td className={`px-3 py-2 text-right font-medium ${b.net < 0 ? "text-emerald-700" : b.net > 0 ? "text-amber-700" : ""}`}>
+            <td className={`px-3 py-2 text-right ${b.net < 0 ? "text-emerald-700" : ""}`}>
               {b.net < 0 ? `+${gbp(-b.net)}` : gbp(b.net)}
+            </td>
+            <td className={`px-3 py-2 text-right font-semibold bg-amber-50/60 ${b.active > 0 ? "text-amber-800" : "text-slate-400"}`}>
+              {b.active > 0 ? gbp(b.active) : "—"}
+            </td>
+            <td className={`px-3 py-2 text-right ${b.written_off > 0 ? "text-red-700" : "text-slate-400"}`}>
+              {b.written_off > 0 ? gbp(b.written_off) : "—"}
             </td>
           </tr>
         ))}
@@ -401,6 +416,8 @@ function SellerTable({ rows, totals }: {
           <td className={`px-3 py-2 text-right ${totals.net < 0 ? "text-emerald-700" : ""}`}>
             {totals.net < 0 ? `+${gbp(-totals.net)}` : gbp(totals.net)}
           </td>
+          <td className="px-3 py-2 text-right text-amber-800">{gbp(totals.active)}</td>
+          <td className="px-3 py-2 text-right text-red-700">{gbp(totals.written_off)}</td>
         </tr>
       </tbody>
     </table>
