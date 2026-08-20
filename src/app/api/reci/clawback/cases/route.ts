@@ -28,6 +28,14 @@ import { sql, db } from "@vercel/postgres";
 import { getSession, isClawbackUser, isClawbackAdmin, clawbackAdviserScope } from "@/lib/auth";
 import { sendClawbackNotifyEmail } from "@/lib/reci/email";
 import { sourceForMasterCode } from "@/lib/reci/clawback-source";
+import { NEGATIVE_STATUSES, OTHER_NEGATIVE_STATUSES } from "@/lib/reci/status";
+
+// SQL literal for every "Off" status, built from the canonical taxonomy
+// so a future status lands in the written-off bucket automatically.
+const NEG_STATUS_SQL = [...NEGATIVE_STATUSES, ...OTHER_NEGATIVE_STATUSES]
+  .map((s) => `'${s}'`).join(",");
+// Active = still winnable: open, and not a historic Old OW parked case.
+const ACTIVE_CASE_SQL = `c.status = 'open' AND NOT (c.source = 'old_ow' AND c.ow_actualised_at IS NULL)`;
 
 export const dynamic = "force-dynamic";
 
@@ -226,7 +234,15 @@ export async function GET(req: Request) {
         COALESCE(SUM(c.clawback_due), 0)::float                             AS total_clawback_due_provider,
         COALESCE(SUM(c.saved_amount), 0)::float                             AS total_saved,
         COALESCE(SUM(c.resold_amount), 0)::float                            AS total_resold,
-        COALESCE(SUM(c.net_at_risk), 0)::float                              AS total_net_at_risk
+        COALESCE(SUM(c.net_at_risk), 0)::float                              AS total_net_at_risk,
+        -- Active at risk / Written off split (Poz 13 Aug 2026): the
+        -- headline should FALL as cases resolve either way. Active =
+        -- open cases still winnable; Written off = CB sitting on Off
+        -- statuses (net of anything recovered on the way down).
+        COALESCE(SUM(c.net_at_risk) FILTER (WHERE ${ACTIVE_CASE_SQL}), 0)::float
+                                                                            AS total_active_at_risk,
+        COALESCE(SUM(c.net_at_risk) FILTER (WHERE c.status IN (${NEG_STATUS_SQL})), 0)::float
+                                                                            AS total_written_off
      FROM clawback_cases c
      ${whereSql}`,
     params.slice(0, params.length - 1), // drop the trailing limit param
@@ -257,7 +273,9 @@ export async function GET(req: Request) {
           COUNT(*)::int                                                       AS cases,
           COALESCE(SUM(COALESCE(c.final_clawback_due, c.clawback_due)), 0)::float
                                                                               AS clawback_due,
-          COALESCE(SUM(c.net_at_risk), 0)::float                              AS net_at_risk
+          COALESCE(SUM(c.net_at_risk), 0)::float                              AS net_at_risk,
+          COALESCE(SUM(c.net_at_risk) FILTER (WHERE ${ACTIVE_CASE_SQL}), 0)::float
+                                                                              AS active_at_risk
        FROM clawback_cases c
        LEFT JOIN advisers a ON a.id = c.adviser_id
        WHERE c.deleted_at IS NULL${scopeAndC}

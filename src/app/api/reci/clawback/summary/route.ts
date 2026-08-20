@@ -41,6 +41,7 @@ export async function GET() {
   // each tile from the same scan.
   const r = await sql.query<{
     total_amount: string; total_cases: string;
+    active_at_risk_amount: string; active_at_risk_cases: string;
     lost_amount: string; lost_cases: string;
     resolved_amount: string; resolved_cases: string;
     saved_amount_total: string; resold_amount_total: string;
@@ -55,6 +56,7 @@ export async function GET() {
     `WITH effective AS (
        SELECT c.id, c.status, c.source, c.ow_actualised_at,
               COALESCE(c.final_clawback_due, c.clawback_due)::numeric AS effective_cb,
+              c.net_at_risk,
               c.saved_amount, c.resold_amount,
               c.redraw_off_amount, c.redraw_on_amount,
               -- Historic Old OW = old_ow source that Poz hasn't actualised
@@ -75,6 +77,13 @@ export async function GET() {
      SELECT
        COALESCE(SUM(e.effective_cb), 0)::text                          AS total_amount,
        COUNT(*)::text                                                  AS total_cases,
+
+       -- Active at risk: the headline since 13 Aug 2026 (Poz). Open
+       -- cases only, net of £ recovered, historic OW excluded -- the
+       -- number that FALLS as cases resolve either way.
+       COALESCE(SUM(e.net_at_risk)
+         FILTER (WHERE e.status = 'open' AND NOT e.is_historic_ow), 0)::text AS active_at_risk_amount,
+       COUNT(*) FILTER (WHERE e.status = 'open' AND NOT e.is_historic_ow)::text AS active_at_risk_cases,
 
        -- Negatives (Off statuses) = lost. Positives (On statuses) =
        -- resolved. V2 taxonomy, 10 Jul 2026.
@@ -149,6 +158,7 @@ export async function GET() {
     scoped: typeof scope === "number",
     onBooks:    { amount: totalAmount,                    cases: int(row.total_cases) },
     netExposure,
+    activeAtRisk: { amount: num(row.active_at_risk_amount), cases: int(row.active_at_risk_cases) },
     lost:       { amount: num(row.lost_amount),           cases: int(row.lost_cases) },
     resolved:   {
       amount: num(row.resolved_amount),
