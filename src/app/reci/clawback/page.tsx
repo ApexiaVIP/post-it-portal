@@ -139,6 +139,8 @@ interface Summary {
   total_net_at_risk: number;
   total_active_at_risk: number;
   total_written_off: number;
+  total_parked_ow: number;
+  total_recovered: number;
 }
 
 interface BucketRow {
@@ -626,6 +628,22 @@ export default function ClawbackPage() {
         <Tile label="Active at risk £" value={summary ? gbp(summary.total_active_at_risk) : "—"} accent="amber" />
         <Tile label="Written off £" value={summary ? gbp(summary.total_written_off) : "—"} accent="red" />
       </section>
+
+      {/* Reconciliation line: shows where every pound of CB due sits so
+          the tiles visibly add up (Jimmy, 13 Aug 2026: "doesn't add up
+          to 76k?"). Residue = £ still on resolved/closed cases where
+          less was recovered than the CB. */}
+      {summary && (
+        <div className="mt-2 text-xs text-slate-500">
+          CB due {gbp(summary.total_clawback_due)} = active {gbp(summary.total_active_at_risk)}
+          {" + "}written off {gbp(summary.total_written_off)}
+          {" + "}parked historic OW {gbp(summary.total_parked_ow)}
+          {" + "}recovered {gbp(summary.total_recovered)}
+          {" + "}left on resolved cases {gbp(Math.max(0,
+            summary.total_clawback_due - summary.total_active_at_risk - summary.total_written_off
+            - summary.total_parked_ow - summary.total_recovered))}
+        </div>
+      )}
 
       {/* Bucket breakdown. Everyone now sees every case across the team
           (June 2026 access rebuild) so this row is useful to all tiers --
