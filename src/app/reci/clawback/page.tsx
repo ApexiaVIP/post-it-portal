@@ -137,6 +137,8 @@ interface Summary {
   total_saved: number;
   total_resold: number;
   total_net_at_risk: number;
+  total_active_at_risk: number;
+  total_written_off: number;
 }
 
 interface BucketRow {
@@ -146,6 +148,7 @@ interface BucketRow {
   cases: number;
   clawback_due: number;
   net_at_risk: number;
+  active_at_risk: number;
 }
 
 interface RecentUpload {
@@ -494,7 +497,8 @@ export default function ClawbackPage() {
           { label: "Total cases", value: String(summary.total_cases) },
           { label: "Total CB due", value: gbp(summary.total_clawback_due) },
           { label: "Saved", value: gbp(summary.total_saved) },
-          { label: "Net at risk", value: gbp(summary.total_net_at_risk) },
+          { label: "Active at risk", value: gbp(summary.total_active_at_risk) },
+          { label: "Written off", value: gbp(summary.total_written_off) },
         ] : []}
       />
 
@@ -611,12 +615,16 @@ export default function ClawbackPage() {
       </section>
       )}
 
-      {/* Summary tiles */}
-      <section className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      {/* Summary tiles. Active at risk is THE headline since 13 Aug 2026
+          (Poz): open cases only, so it falls as cases resolve either way.
+          Written off shows where the lost CB went instead of it silently
+          inflating the headline. */}
+      <section className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
         <Tile label="Cases in view" value={summary ? summary.total_cases.toString() : "—"} />
         <Tile label="Clawback due £" value={summary ? gbp(summary.total_clawback_due) : "—"} />
         <Tile label="Saved £" value={summary ? gbp(summary.total_saved) : "—"} accent="green" />
-        <Tile label="Net at risk £" value={summary ? gbp(summary.total_net_at_risk) : "—"} accent="amber" />
+        <Tile label="Active at risk £" value={summary ? gbp(summary.total_active_at_risk) : "—"} accent="amber" />
+        <Tile label="Written off £" value={summary ? gbp(summary.total_written_off) : "—"} accent="red" />
       </section>
 
       {/* Bucket breakdown. Everyone now sees every case across the team
@@ -645,7 +653,7 @@ export default function ClawbackPage() {
                 {b.agent_bucket === "adviser" && b.adviser_name ? b.adviser_name : BUCKET_LABELS[b.agent_bucket]}
               </div>
               <div className="text-lg font-semibold">{gbp(b.clawback_due)}</div>
-              <div className="text-xs text-slate-500">{b.cases} cases · net {gbp(b.net_at_risk)}</div>
+              <div className="text-xs text-slate-500">{b.cases} cases · active {gbp(b.active_at_risk)}</div>
             </button>
           ))}
         </section>
@@ -1135,10 +1143,11 @@ export default function ClawbackPage() {
   );
 }
 
-function Tile({ label, value, accent }: { label: string; value: string; accent?: "green" | "amber" }) {
+function Tile({ label, value, accent }: { label: string; value: string; accent?: "green" | "amber" | "red" }) {
   const color =
     accent === "green" ? "border-emerald-200 bg-emerald-50" :
     accent === "amber" ? "border-amber-200 bg-amber-50" :
+    accent === "red"   ? "border-red-200 bg-red-50" :
     "border-slate-200 bg-white";
   return (
     <div className={`rounded border p-3 ${color}`}>

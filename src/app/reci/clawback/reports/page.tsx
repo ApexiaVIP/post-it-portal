@@ -22,6 +22,7 @@ interface SummaryResp {
   scoped: boolean;
   onBooks:  { amount: number; cases: number };
   netExposure: number;
+  activeAtRisk: { amount: number; cases: number };
   lost:     { amount: number; cases: number };
   resolved: { amount: number; cases: number; savedAmount: number; resoldAmount: number; reinstatedCases: number };
   urgent:   { amount: number; cases: number };
@@ -192,12 +193,20 @@ export default function ClawbackReportsPage() {
           </h2>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
             <SummaryTile
+              label="Active at risk"
+              amount={summary.activeAtRisk.amount}
+              cases={summary.activeAtRisk.cases}
+              accent="amber"
+              href="/reci/clawback?status=open"
+              sub="The headline: open cases, net of £ recovered"
+            />
+            <SummaryTile
               label="On the books"
               amount={summary.onBooks.amount}
               cases={summary.onBooks.cases}
               accent="slate"
               href="/reci/clawback"
-              sub={`Net exposure: ${gbp(summary.netExposure)}`}
+              sub={`All-time gross · net exposure ${gbp(summary.netExposure)}`}
             />
             <SummaryTile
               label="Urgent"
