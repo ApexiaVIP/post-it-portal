@@ -63,8 +63,13 @@ export async function ingestEbahFile(
 ): Promise<IngestSummary> {
   const parsed = parseEbahXlsx(buf);
   if (parsed.rows.length === 0) {
-    throw new Error("EBAH file contained no parseable rows");
+    // Surface the parser's own diagnosis (e.g. "layout not recognised,
+    // headers seen: ...") so a shape-shifted L&G export is rejected with
+    // a message Poz can forward, not a silent mis-parse.
+    const reason = parsed.errors[0]?.reason;
+    throw new Error(reason ? `EBAH rejected: ${reason}` : "EBAH file contained no parseable rows");
   }
+  const present = new Set(parsed.columnsPresent);
   // EBAH sometimes lists the same policy twice with two different warning
   // states (e.g. Bounced DD + Death claim for the same client). Pauline's
   // rule: keep the LAST occurrence we see in the file. We dedupe here so
@@ -183,7 +188,15 @@ export async function ingestEbahFile(
     const reportYear = parsed.reportDate ? Number(parsed.reportDate.slice(0, 4)) : new Date().getUTCFullYear();
     const reportWeek = parsed.reportDate ? isoWeek(parsed.reportDate) : null;
 
-    interface UpdateOp { id: number; row: EbahRow; mapping: { bucket: Bucket; adviser_id: number | null }; diffs: Diff[]; }
+    interface UpdateOp {
+      id: number; row: EbahRow;
+      mapping: { bucket: Bucket; adviser_id: number | null };
+      diffs: Diff[];
+      // Existing values for columns the file may not carry (the compact
+      // export variant has no postcode/address/policy type): the update
+      // keeps these instead of nulling them out.
+      keep: { postcode: string | null; address: string | null; policy_type: string | null };
+    }
     const toInsert: { row: EbahRow; mapping: { bucket: Bucket; adviser_id: number | null } }[] = [];
     const toUpdate: UpdateOp[] = [];
     let unchanged = 0, unmatched = 0;
@@ -225,9 +238,11 @@ export async function ingestEbahFile(
       check("policy_start_date",   existing.policy_start_date,             r.policy_start_date);
       check("off_risk_date",       existing.off_risk_date,                 r.off_risk_date);
       check("client_name",         existing.client_name,                   r.client_name);
-      check("postcode",            existing.postcode,                      r.postcode);
-      check("address",             existing.address,                       r.address);
-      check("policy_type",         existing.policy_type,                   r.policy_type);
+      // Only diff fields the file actually carries: a compact export
+      // without these columns must not read as "everything cleared".
+      if (present.has("postcode"))    check("postcode",    existing.postcode,    r.postcode);
+      if (present.has("address_1"))   check("address",     existing.address,     r.address);
+      if (present.has("policy_type")) check("policy_type", existing.policy_type, r.policy_type);
       check("ebah_agent_name",     existing.ebah_agent_name,               r.ebah_agent_name);
       check("adviser_id",          existing.adviser_id,                    mapping.adviser_id);
       check("agent_bucket",        existing.agent_bucket,                  mapping.bucket);
@@ -238,7 +253,10 @@ export async function ingestEbahFile(
         unchanged++;
         continue;
       }
-      toUpdate.push({ id: existing.id, row: r, mapping, diffs });
+      toUpdate.push({
+        id: existing.id, row: r, mapping, diffs,
+        keep: { postcode: existing.postcode, address: existing.address, policy_type: existing.policy_type },
+      });
     }
 
     // ---------- 7. Bulk-insert new cases in chunks; collect ids for history ----------
@@ -278,7 +296,10 @@ export async function ingestEbahFile(
           r.warning, r.clawback_due, r.clawback_date, r.net_premium,
           r.premium_outstanding, r.policy_start_date, r.off_risk_date,
           r.client_name, r.client_first_name, r.client_last_name,
-          r.postcode, r.address, r.policy_type, r.ebah_agent_name,
+          present.has("postcode")    ? r.postcode    : u.keep.postcode,
+          present.has("address_1")   ? r.address     : u.keep.address,
+          present.has("policy_type") ? r.policy_type : u.keep.policy_type,
+          r.ebah_agent_name,
           u.mapping.adviser_id, u.mapping.bucket,
           r.master_agent_no, r.agent_no,
           uploadId, restoreThis, u.id,
