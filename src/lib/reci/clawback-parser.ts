@@ -53,41 +53,79 @@ export interface ParseResult {
   reportDate: string | null;   // YYYY-MM-DD parsed from the title
   rows: EbahRow[];
   errors: { rowIndex: number; reason: string }[];
+  /** Field keys the file's headers actually carried (see HEADER_FIELDS). */
+  columnsPresent: string[];
 }
 
-// Header row column positions (0-indexed)
-const COL = {
-  master_agent_no:   0,
-  agent_no:          1,
-  policy_number:     2,
-  client_name:       3,
-  dob:               4,
-  email:             5,
-  phone:             6,
-  address_1:         7,
-  address_2:         8,
-  address_3:         9,
-  address_4:         10,
-  postcode:          11,
-  policy_type:       12,
-  warning:           13,
-  last_full_paid:    14,
-  net_premium:       15,
-  premium_os:        16,
-  clawback_due:      17,
-  clawback_date:     18,
-  policy_start_date: 19,
-  off_risk_date:     20,
-  sales_agent_name:  21,
-  servicing_agent:   22,
-  frn:               23,
-  reqs_to_save:      24,
+/**
+ * Header-name -> field mapping (27 Aug 2026 rebuild). L&G's export
+ * shape-shifts per download: we have seen 25-column (with Policy Type),
+ * 24-column (Policy Type dropped) and 17-column compact (no contact
+ * details at all) files in a single week. The old fixed indices poured
+ * neighbouring columns into the wrong fields whenever the shape moved,
+ * silently corrupting ~130 cases. Columns are now located BY HEADER
+ * NAME; a file whose anchors can't be found is rejected loudly instead
+ * of mis-parsed quietly.
+ *
+ * Keys are the header text normalised to lowercase alphanumerics.
+ */
+const HEADER_FIELDS: Record<string, string> = {
+  masteragentno:          "master_agent_no",
+  agentno:                "agent_no",
+  policynumber:           "policy_number",
+  clientname:             "client_name",
+  dob:                    "dob",
+  emailaddress:           "email",
+  telephonenumber:        "phone",
+  address1:               "address_1",
+  address2:               "address_2",
+  address3:               "address_3",
+  address4:               "address_4",
+  postcode:               "postcode",
+  policytype:             "policy_type",
+  warning:                "warning",
+  lastfullpremiumpaid:    "last_full_paid",
+  netpremium:             "net_premium",
+  premiumos:              "premium_os",
+  clawbackdue:            "clawback_due",
+  clawbackdate:           "clawback_date",
+  policystartdate:        "policy_start_date",
+  offriskdate:            "off_risk_date",
+  salesagentname:         "sales_agent_name",
+  servicingagentname:     "servicing_agent",
+  frn:                    "frn",
+  reqstoreinstateorsave:  "reqs_to_save",
 };
+
+/** Columns that MUST exist for the file to be an EBAH at all. */
+const REQUIRED_FIELDS = ["policy_number", "client_name", "warning", "clawback_due"];
+
+function normHeader(v: unknown): string {
+  return String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Scan the first few rows for the header row and build field -> column
+ * index. Returns null when no row carries the required anchors.
+ */
+function locateHeaders(grid: unknown[][]): { map: Map<string, number>; headerRow: number } | null {
+  for (let r = 0; r < Math.min(6, grid.length); r++) {
+    const row = grid[r];
+    if (!row) continue;
+    const map = new Map<string, number>();
+    for (let c = 0; c < row.length; c++) {
+      const field = HEADER_FIELDS[normHeader(row[c])];
+      if (field && !map.has(field)) map.set(field, c);
+    }
+    if (REQUIRED_FIELDS.every((f) => map.has(f))) return { map, headerRow: r };
+  }
+  return null;
+}
 
 export function parseEbahXlsx(buf: Buffer | ArrayBuffer): ParseResult {
   const wb = XLSX.read(buf, { type: "buffer", cellDates: false });
   const sheetName = wb.SheetNames[0];
-  if (!sheetName) return { reportDate: null, rows: [], errors: [{ rowIndex: 0, reason: "no sheet" }] };
+  if (!sheetName) return { reportDate: null, rows: [], errors: [{ rowIndex: 0, reason: "no sheet" }], columnsPresent: [] };
   const sheet = wb.Sheets[sheetName];
   const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null });
 
@@ -95,81 +133,99 @@ export function parseEbahXlsx(buf: Buffer | ArrayBuffer): ParseResult {
   const titleRow = grid[0]?.[0];
   const reportDate = parseReportDate(typeof titleRow === "string" ? titleRow : null);
 
+  const located = locateHeaders(grid);
+  if (!located) {
+    const seen = (grid[2] ?? []).map((h) => String(h ?? "")).filter(Boolean).join(", ");
+    return {
+      reportDate, rows: [], columnsPresent: [],
+      errors: [{
+        rowIndex: 3,
+        reason: `EBAH layout not recognised: could not find the ${REQUIRED_FIELDS.join(" / ")} columns by name. Headers seen: ${seen || "(none)"}`,
+      }],
+    };
+  }
+  const { map, headerRow } = located;
+  const cell = (r: unknown[], field: string): unknown => {
+    const idx = map.get(field);
+    return idx === undefined ? null : r[idx];
+  };
+
   const rows: EbahRow[] = [];
   const errors: { rowIndex: number; reason: string }[] = [];
 
-  // Data starts at row index 3 (0=title, 1=blank, 2=headers, 3+=data).
-  //
   // The file finishes with a footer row that looks like a policy row at a
   // glance but is L&G's grand total:
   //   Agent No   = "Total Policies"
-  //   Policy No  = <count of policies in the file>
   //   PremOS     = "Total Clawback Due"
-  //   CB Due     = <the grand total>
   // Recognise it explicitly so a future L&G layout change can't sneak it
   // into the case table.
-  for (let i = 3; i < grid.length; i++) {
+  for (let i = headerRow + 1; i < grid.length; i++) {
     const r = grid[i];
     if (!r) continue;
-    const agentNoCell = toStr(r[COL.agent_no]);
-    const premOsCell  = toStr(r[COL.premium_os]);
-    if (agentNoCell === "Total Policies" || premOsCell === "Total Clawback Due") {
+    const agentNoCell = toStr(cell(r, "agent_no"));
+    const premOsCell  = toStr(cell(r, "premium_os"));
+    if (agentNoCell === "Total Policies" || premOsCell === "Total Clawback Due"
+        || toStr(cell(r, "policy_number")) === "Total Policies") {
       continue; // footer row
     }
-    const policyRaw = stripLeadingApostrophe(toStr(r[COL.policy_number]));
+    const policyRaw = stripLeadingApostrophe(toStr(cell(r, "policy_number")));
     if (!policyRaw) continue; // blank row
-    const clientName = toStr(r[COL.client_name]);
+    const clientName = toStr(cell(r, "client_name"));
     if (!clientName) {
       errors.push({ rowIndex: i + 1, reason: "missing client name" });
       continue;
     }
     // Per Pauline (29 Jun 2026): rows tagged "Increasing cover" never
     // accrue a CB so they're noise. Skip on ingest.
-    const warningRaw = toStr(r[COL.warning]);
+    const warningRaw = toStr(cell(r, "warning"));
     if (warningRaw && /increasing cover/i.test(warningRaw)) continue;
 
     const { first, last } = splitClientName(clientName);
     const address = joinNonEmpty([
-      toStr(r[COL.address_1]),
-      toStr(r[COL.address_2]),
-      toStr(r[COL.address_3]),
-      toStr(r[COL.address_4]),
+      toStr(cell(r, "address_1")),
+      toStr(cell(r, "address_2")),
+      toStr(cell(r, "address_3")),
+      toStr(cell(r, "address_4")),
     ]);
-    const agentRaw = toStr(r[COL.sales_agent_name]);
+    const agentRaw = toStr(cell(r, "sales_agent_name"));
     rows.push({
       rowIndex: i + 1,
       policy_number: policyRaw,
       client_name: clientName,
       client_first_name: first,
       client_last_name: last,
-      client_dob: parseDateCell(r[COL.dob]),
-      client_email: toStr(r[COL.email]),
-      client_phone: stripLeadingApostrophe(toStr(r[COL.phone])),
+      client_dob: parseDateCell(cell(r, "dob")),
+      client_email: toStr(cell(r, "email")),
+      client_phone: stripLeadingApostrophe(toStr(cell(r, "phone"))),
       address,
-      postcode: toStr(r[COL.postcode]),
-      policy_type: toStr(r[COL.policy_type]),
-      warning: toStr(r[COL.warning]),
-      net_premium: toNum(r[COL.net_premium]),
-      premium_outstanding: toNum(r[COL.premium_os]),
-      clawback_due: toNum(r[COL.clawback_due]) ?? 0,
-      clawback_date: parseDateCell(r[COL.clawback_date]),
-      policy_start_date: parseDateCell(r[COL.policy_start_date]),
-      off_risk_date: parseDateCell(r[COL.off_risk_date]),
+      postcode: toStr(cell(r, "postcode")),
+      policy_type: toStr(cell(r, "policy_type")),
+      warning: toStr(cell(r, "warning")),
+      net_premium: toNum(cell(r, "net_premium")),
+      premium_outstanding: toNum(cell(r, "premium_os")),
+      clawback_due: toNum(cell(r, "clawback_due")) ?? 0,
+      clawback_date: parseDateCell(cell(r, "clawback_date")),
+      policy_start_date: parseDateCell(cell(r, "policy_start_date")),
+      off_risk_date: parseDateCell(cell(r, "off_risk_date")),
       ebah_agent_name: canonicaliseAgent(agentRaw ?? ""),
-      master_agent_no: stripLeadingApostrophe(toStr(r[COL.master_agent_no])),
-      agent_no:        stripLeadingApostrophe(toStr(r[COL.agent_no])),
+      master_agent_no: stripLeadingApostrophe(toStr(cell(r, "master_agent_no"))),
+      agent_no:        stripLeadingApostrophe(toStr(cell(r, "agent_no"))),
       raw: {
         // Poz confirmed we don't need Servicing Agent -- Sales Agent is the
-        // only one that matters for clawback ownership. Field still exists
-        // on the EBAH schema (COL.servicing_agent) but we stop carrying it.
-        frn:             toStr(r[COL.frn]),
-        reqs_to_save:    toStr(r[COL.reqs_to_save]),
-        last_full_paid:  parseDateCell(r[COL.last_full_paid]),
+        // only one that matters for clawback ownership.
+        frn:             toStr(cell(r, "frn")),
+        reqs_to_save:    toStr(cell(r, "reqs_to_save")),
+        last_full_paid:  parseDateCell(cell(r, "last_full_paid")),
       },
     });
   }
 
-  return { reportDate, rows, errors };
+  // Which fields this file actually carried: the ingest must not
+  // null-out data (emails, postcodes...) just because a compact export
+  // variant omits those columns.
+  const columnsPresent = Array.from(map.keys());
+
+  return { reportDate, rows, errors, columnsPresent };
 }
 
 // -- agent-name canonicaliser ------------------------------------------------
