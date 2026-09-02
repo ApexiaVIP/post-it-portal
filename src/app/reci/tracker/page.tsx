@@ -223,6 +223,10 @@ export default function BusinessTrackerPage() {
                 className="w-16 rounded border border-slate-300 px-2 py-1 text-right"
               />
             )}
+            <a href="/reci/tracker/seller"
+              className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-800 hover:bg-indigo-100">
+              Seller trends
+            </a>
             <PrintButton />
             <PrintButton label="Print headline" onClick={() => setHeadlinePrint(true)} />
           </div>
