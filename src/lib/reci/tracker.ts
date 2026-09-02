@@ -71,7 +71,7 @@ const MONTH_NAMES = [
 // ISO week -> Monday date -> calendar month/quarter
 // ----------------------------------------------------------------------------
 
-function isoWeekMonday(year: number, week: number): Date {
+export function isoWeekMonday(year: number, week: number): Date {
   const jan4 = new Date(Date.UTC(year, 0, 4));
   const jan4Day = jan4.getUTCDay() || 7; // 1 (Mon) .. 7 (Sun)
   const week1Mon = new Date(jan4);

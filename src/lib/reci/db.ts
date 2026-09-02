@@ -64,13 +64,16 @@ export async function createDeal(
     INSERT INTO deals (
       adviser_id, year, week, client, postcode, no_of_deals, provider, premium,
       confirmed_date, poz_listened, miscellaneous, submitted, acc_ref,
-      status, commission, notes, gl_sp, gl_txt, trust_done, trust_sent
+      status, commission, notes, gl_sp, gl_txt, trust_done, trust_sent,
+      booked_date, policy_type, resell_cb
     ) VALUES (
       ${data.adviser_id}, ${data.year}, ${data.week}, ${data.client},
       ${data.postcode}, ${data.no_of_deals}, ${data.provider}, ${data.premium},
       ${data.confirmed_date}, ${data.poz_listened}, ${data.miscellaneous},
       ${data.submitted}, ${data.acc_ref}, ${data.status}, ${data.commission},
-      ${data.notes}, ${data.gl_sp}, ${data.gl_txt}, ${data.trust_done}, ${data.trust_sent}
+      ${data.notes}, ${data.gl_sp}, ${data.gl_txt}, ${data.trust_done}, ${data.trust_sent},
+      ${data.booked_date ?? new Date().toISOString().slice(0, 10)},
+      ${data.policy_type}, ${data.resell_cb ?? 0}
     )
     RETURNING *
   `;

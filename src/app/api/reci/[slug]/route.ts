@@ -49,6 +49,10 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     gl_txt: body.gl_txt ? String(body.gl_txt).slice(0, 40) : null,
     trust_done: body.trust_done ? String(body.trust_done).slice(0, 40) : null,
     trust_sent: body.trust_sent ? String(body.trust_sent).slice(0, 40) : null,
+    booked_date: typeof body.booked_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.booked_date)
+      ? body.booked_date : null,
+    policy_type: body.policy_type ? String(body.policy_type).slice(0, 40) : null,
+    resell_cb: Number(body.resell_cb ?? 0) >= 0 ? Number(body.resell_cb ?? 0) || 0 : 0,
   }, session.username);
   return NextResponse.json({ ok: true, deal }, { status: 201 });
 }

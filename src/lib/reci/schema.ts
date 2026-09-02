@@ -120,6 +120,10 @@ export interface Deal {
   nys_check_notes: string | null;
   nys_checked_at: string | null;
   nys_checked_by: string | null;
+  // Confirmation Planner fields (Poz, 2 Sep 2026).
+  booked_date: string | null;   // when the seller booked it; defaults to entry day
+  policy_type: string | null;   // SLL / JDL / SDL ...
+  resell_cb: number;            // clawback attached to a resell; net = commission - resell_cb
   created_at: string;
   updated_at: string;
 }
