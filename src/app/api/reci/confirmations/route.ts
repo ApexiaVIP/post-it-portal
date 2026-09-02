@@ -23,7 +23,7 @@ import type { Deal, DealStatus, InProcessingStage } from "@/lib/reci/schema";
 export const dynamic = "force-dynamic";
 
 /** Parse Poz's typed confirmed dates: "28/8", "28/08", "28/8/26", "28/8/2026". */
-export function parseConfirmedDate(text: string | null, fallbackYear: number): string | null {
+function parseConfirmedDate(text: string | null, fallbackYear: number): string | null {
   if (!text) return null;
   const m = text.trim().match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?$/);
   if (!m) return null;
