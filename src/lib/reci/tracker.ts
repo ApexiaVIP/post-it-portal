@@ -478,3 +478,122 @@ export function parseScopeFromParams(p: URLSearchParams): Scope {
   const m = Math.max(1, Math.min(12, Number(p.get("month") ?? (new Date().getMonth() + 1))));
   return { kind: "month", month: m };
 }
+
+// ----------------------------------------------------------------------------
+// Seller performance trends (Poz/Guy, 2 Sep 2026): one adviser's Business
+// Tracker measures rolled up per month and per quarter so Guy can see how
+// an individual is trending rather than reading the figures in isolation.
+// Quarters use the same straight 13-week bins as the Business Tracker page.
+// ----------------------------------------------------------------------------
+
+export interface SellerPeriodRow {
+  key: string;              // "m1".."m12" or "q1".."q4"
+  label: string;            // "January" / "Q1"
+  // £ by status (cancelled includes clawback, matching the tracker).
+  paid: number;
+  on_risk_nyp: number;
+  in_processing: number;
+  not_yet_submitted: number;
+  cancelled: number;
+  total: number;            // £ all statuses
+  liveTotal: number;        // £ excluding cancelled
+  deals: number;            // SUM(no_of_deals) excluding cancelled/clawback
+  weeks: number;            // weeks in the period with any data for this seller
+  avgPerWeek: number;       // liveTotal / weeks
+  avgPerDeal: number;       // liveTotal / deals
+  cancelRate: number;       // cancelled £ / total £ (0-1)
+  teamShare: number;        // seller total £ / whole-team total £ (0-1)
+}
+
+export interface SellerPerformanceResult {
+  year: number;
+  adviser: TrackerAdviser;
+  advisers: TrackerAdviser[];  // for the picker
+  months: SellerPeriodRow[];   // only months with data
+  quarters: SellerPeriodRow[];
+  ytd: SellerPeriodRow;
+}
+
+function quarterBinForWeek(week: number): number {
+  if (week <= 13) return 1;
+  if (week <= 26) return 2;
+  if (week <= 39) return 3;
+  return 4;
+}
+
+export async function sellerPerformance(year: number, adviserId: number): Promise<SellerPerformanceResult> {
+  const [allDeals, advisers] = await Promise.all([fetchYearDeals(year), fetchActiveAdvisers()]);
+  const adviser = advisers.find((a) => a.id === adviserId) ?? { id: adviserId, name: "Unknown" };
+
+  interface Acc {
+    paid: number; on_risk_nyp: number; in_processing: number;
+    not_yet_submitted: number; cancelled: number;
+    deals: number; weeks: Set<number>; teamTotal: number;
+  }
+  const blank = (): Acc => ({
+    paid: 0, on_risk_nyp: 0, in_processing: 0, not_yet_submitted: 0,
+    cancelled: 0, deals: 0, weeks: new Set(), teamTotal: 0,
+  });
+  const monthAcc = new Map<number, Acc>();
+  const quarterAcc = new Map<number, Acc>();
+  const ytdAcc = blank();
+
+  const addTo = (acc: Acc, d: DealRow, mine: boolean) => {
+    const c = Number(d.commission ?? 0) || 0;
+    acc.teamTotal += c;
+    if (!mine) return;
+    if (d.status === "paid") acc.paid += c;
+    else if (d.status === "on_risk_nyp") acc.on_risk_nyp += c;
+    else if (d.status === "in_processing") acc.in_processing += c;
+    else if (d.status === "not_yet_submitted") acc.not_yet_submitted += c;
+    else if (d.status === "cancelled" || d.status === "clawback") acc.cancelled += c;
+    if (d.status !== "cancelled" && d.status !== "clawback") {
+      acc.deals += Number(d.no_of_deals ?? 0) || 0;
+    }
+    acc.weeks.add(d.week);
+  };
+
+  for (const d of allDeals) {
+    const m = monthForWeek(year, d.week);
+    const q = quarterBinForWeek(d.week);
+    const mine = d.adviser_id === adviserId;
+    for (const [map, k] of [[monthAcc, m], [quarterAcc, q]] as const) {
+      let a = map.get(k);
+      if (!a) { a = blank(); map.set(k, a); }
+      addTo(a, d, mine);
+    }
+    addTo(ytdAcc, d, mine);
+  }
+
+  const toRow = (key: string, label: string, a: Acc): SellerPeriodRow => {
+    const total = a.paid + a.on_risk_nyp + a.in_processing + a.not_yet_submitted + a.cancelled;
+    const live = total - a.cancelled;
+    return {
+      key, label,
+      paid: a.paid, on_risk_nyp: a.on_risk_nyp, in_processing: a.in_processing,
+      not_yet_submitted: a.not_yet_submitted, cancelled: a.cancelled,
+      total, liveTotal: live,
+      deals: a.deals,
+      weeks: a.weeks.size,
+      avgPerWeek: a.weeks.size > 0 ? live / a.weeks.size : 0,
+      avgPerDeal: a.deals > 0 ? live / a.deals : 0,
+      cancelRate: total > 0 ? a.cancelled / total : 0,
+      teamShare: a.teamTotal > 0 ? total / a.teamTotal : 0,
+    };
+  };
+
+  const months = Array.from(monthAcc.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([m, a]) => toRow(`m${m}`, MONTH_NAMES[m - 1], a))
+    .filter((r) => r.total > 0 || r.deals > 0);
+  const quarters = Array.from(quarterAcc.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([q, a]) => toRow(`q${q}`, `Q${q}`, a))
+    .filter((r) => r.total > 0 || r.deals > 0);
+
+  return {
+    year, adviser, advisers,
+    months, quarters,
+    ytd: toRow("ytd", "Year to date", ytdAcc),
+  };
+}
