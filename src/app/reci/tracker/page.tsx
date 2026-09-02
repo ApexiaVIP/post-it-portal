@@ -73,7 +73,12 @@ export default function BusinessTrackerPage() {
   const [year, setYear] = useState<number>(now.getFullYear());
   const [kind, setKind] = useState<ScopeKind>("year");
   const [month, setMonth] = useState<number>(now.getMonth() + 1);
-  const [quarter, setQuarter] = useState<number>(Math.ceil((now.getMonth() + 1) / 3));
+  // Multi-select since Poz 2 Sep 2026: Guy wants any combination of
+  // quarters (Q1, Q1+Q2, ...) on one printout. Data is fetched at year
+  // scope and filtered to the selected quarters client-side.
+  const [quarters, setQuarters] = useState<Set<number>>(
+    () => new Set([Math.ceil((now.getMonth() + 1) / 3)]),
+  );
   const [week, setWeek] = useState<number>(1);
   // We track which advisers are EXCLUDED (deselected) rather than which are
   // selected, so on first paint every pill renders as visually active without
@@ -94,20 +99,35 @@ export default function BusinessTrackerPage() {
     if (data) allAdvisersRef.current = data.allAdvisers;
   }, [data]);
 
-  // Landscape print for this page only.
+  // Landscape print for this page only. headline-print-mode powers the
+  // "Print headline" button (Poz 2 Sep 2026): totals, per-adviser
+  // summary and quarter subtotals only -- the week-by-week blocks hide.
   useEffect(() => {
     const style = document.createElement("style");
     style.setAttribute("data-bizt-print", "1");
-    style.textContent = "@media print { @page { size: A4 landscape; margin: 8mm; } }";
+    style.textContent = [
+      "@media print { @page { size: A4 landscape; margin: 8mm; } }",
+      "@media print { .headline-print-mode .week-print-block { display: none !important; } }",
+    ].join("\n");
     document.head.appendChild(style);
     return () => { style.remove(); };
   }, []);
 
+  const [headlinePrint, setHeadlinePrint] = useState(false);
+  useEffect(() => {
+    if (!headlinePrint) return;
+    const done = () => setHeadlinePrint(false);
+    window.addEventListener("afterprint", done);
+    const t = setTimeout(() => window.print(), 50);
+    return () => { clearTimeout(t); window.removeEventListener("afterprint", done); };
+  }, [headlinePrint]);
+
   const qs = useMemo(() => {
     const p = new URLSearchParams();
     p.set("year", String(year));
-    p.set("scope", kind);
-    if (kind === "quarter") p.set("q",     String(quarter));
+    // Quarter view fetches the full year and filters client-side so any
+    // combination of quarters can be shown/printed together.
+    p.set("scope", kind === "quarter" ? "year" : kind);
     if (kind === "month")   p.set("month", String(month));
     if (kind === "week")    p.set("week",  String(week));
     // Compute "selected" = all known advisers minus the excluded set. Only
@@ -120,7 +140,7 @@ export default function BusinessTrackerPage() {
       if (shown.length > 0) p.set("advisers", shown.join(","));
     }
     return p.toString();
-  }, [year, kind, quarter, month, week, excludedAdvisers]);
+  }, [year, kind, month, week, excludedAdvisers]);
 
   const load = useCallback(async (signal: AbortSignal) => {
     setLoading(true); setErr(null);
@@ -145,16 +165,26 @@ export default function BusinessTrackerPage() {
 
   const scopeLabel = useMemo(() => {
     if (kind === "year")    return `${year} Year To Date`;
-    if (kind === "quarter") return `Q${quarter} ${year}`;
+    if (kind === "quarter") {
+      const qs = Array.from(quarters).sort();
+      return `${qs.map((q) => `Q${q}`).join(" + ")} ${year}`;
+    }
     if (kind === "month")   return `${MONTH_NAMES[month - 1]} ${year}`;
     return `Week ${week} ${year}`;
-  }, [kind, year, month, quarter, week]);
+  }, [kind, year, month, quarters, week]);
+
+  const toggleQuarter = (q: number) =>
+    setQuarters((prev) => {
+      const next = new Set(prev);
+      if (next.has(q)) { if (next.size > 1) next.delete(q); } else next.add(q);
+      return next;
+    });
 
   const toggleAdviser = (id: number) =>
     setExcludedAdvisers((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className={`min-h-screen bg-slate-50 text-slate-900${headlinePrint ? " headline-print-mode" : ""}`}>
       <header className="no-print border-b bg-white">
         <div className="mx-auto flex max-w-[1800px] flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3">
@@ -172,8 +202,15 @@ export default function BusinessTrackerPage() {
             </label>
             <ScopeToggle value={kind} onChange={setKind} />
             {kind === "quarter" && (
-              <SelectInline value={quarter} onChange={setQuarter}
-                options={[1,2,3,4].map((q) => ({ value: q, label: `Q${q}` }))} />
+              <div className="inline-flex overflow-hidden rounded border border-slate-300 bg-white text-xs">
+                {[1, 2, 3, 4].map((q) => (
+                  <button key={q} type="button" onClick={() => toggleQuarter(q)}
+                    title="Toggle quarter (combine as many as you like)"
+                    className={`px-2 py-1 ${quarters.has(q) ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"}`}>
+                    Q{q}
+                  </button>
+                ))}
+              </div>
             )}
             {kind === "month" && (
               <SelectInline value={month} onChange={setMonth}
@@ -187,6 +224,7 @@ export default function BusinessTrackerPage() {
               />
             )}
             <PrintButton />
+            <PrintButton label="Print headline" onClick={() => setHeadlinePrint(true)} />
           </div>
         </div>
 
@@ -245,7 +283,7 @@ export default function BusinessTrackerPage() {
           <div className="rounded-lg border bg-white p-6 text-sm text-slate-500">
             {loading ? "Loading…" : "Loading…"}
           </div>
-        ) : <PivotedView data={data} />}
+        ) : <PivotedView data={data} quarterFilter={kind === "quarter" ? quarters : null} />}
       </main>
     </div>
   );
@@ -257,7 +295,7 @@ export default function BusinessTrackerPage() {
 // when more than one quarter has data in scope. Finally a per-adviser scope
 // totals block (so Pauline can see Tan's YTD, Hayder's YTD, etc. all in one
 // spot) and the overall grand total card.
-function PivotedView({ data }: { data: Resp }) {
+function PivotedView({ data, quarterFilter }: { data: Resp; quarterFilter: Set<number> | null }) {
   const sumRows = (a: BizWeekRow, b: BizWeekRow, week: number): BizWeekRow => ({
     week,
     paid:              a.paid + b.paid,
@@ -274,7 +312,10 @@ function PivotedView({ data }: { data: Resp }) {
     total_n:             a.total_n + b.total_n,
   });
 
-  // Build the per-week sections.
+  // Build the per-week sections. When a quarter multi-select is active
+  // (Poz 2 Sep 2026) only the chosen quarters' weeks survive, and every
+  // total below is computed from what's shown so the printout stands on
+  // its own.
   const sections = data.weeksInScope.map((week) => {
     const rows = data.advisers.map((a) => {
       const row = a.weeks.find((w) => w.week === week) ?? emptyRow(week);
@@ -285,7 +326,21 @@ function PivotedView({ data }: { data: Resp }) {
       emptyRow(week),
     );
     return { week, rows, weekTotal };
-  }).filter((s) => s.weekTotal.total > 0);
+  }).filter((s) => s.weekTotal.total > 0)
+    .filter((s) => !quarterFilter || quarterFilter.has(quarterFromWeek(data.year, s.week)));
+
+  // Per-adviser totals across the DISPLAYED weeks (the API's own totals
+  // cover its full scope, which is the whole year when quarter-filtering).
+  const adviserTotals = data.advisers
+    .map((a) => ({
+      adviser_id: a.adviser_id,
+      adviser_name: a.adviser_name,
+      total: sections.reduce((acc, s) => {
+        const r = s.rows.find((x) => x.adviser_id === a.adviser_id)?.row ?? emptyRow(0);
+        return sumRows(acc, r, 0);
+      }, emptyRow(0)),
+    }))
+    .filter((a) => a.total.total > 0);
 
   // Overall scope total (across every week shown).
   const grand = sections.reduce(
@@ -305,7 +360,7 @@ function PivotedView({ data }: { data: Resp }) {
   // inside it, with all the totals blocks ABOVE the weeks so Guy lands on
   // the overall position instead of scrolling to it.
   const quarterEntries = Array.from(sectionsByQuarter.entries()).sort((a, b) => b[0] - a[0]);
-  const showQuarterSubtotals = quarterEntries.length > 1;
+  const showQuarterSubtotals = quarterEntries.length > 1 || quarterFilter !== null;
   const showAdviserTotals    = data.advisers.length > 1;
   const weeksWithData = sections.length;
 
@@ -335,7 +390,7 @@ function PivotedView({ data }: { data: Resp }) {
       </section>
 
       {showAdviserTotals && (
-        <AdviserTotalsBlock advisers={data.advisers} weeksWithData={weeksWithData} />
+        <AdviserTotalsBlock advisers={adviserTotals} weeksWithData={weeksWithData} />
       )}
 
       {quarterEntries.map(([q, qSections]) => (
@@ -421,7 +476,10 @@ function QuarterBlock({ q, sections, advisers, sumRows }: {
   );
 }
 
-function AdviserTotalsBlock({ advisers, weeksWithData }: { advisers: BizAdviserRollup[]; weeksWithData: number }) {
+function AdviserTotalsBlock({ advisers, weeksWithData }: {
+  advisers: { adviser_id: number; adviser_name: string; total: BizWeekRow }[];
+  weeksWithData: number;
+}) {
   return (
     <section className="rounded-lg border-2 border-slate-400 bg-white shadow-sm print-keep">
       <h2 className="border-b-2 border-slate-400 bg-slate-200 px-3 py-2 text-sm font-bold uppercase tracking-wide text-slate-800">
@@ -466,7 +524,7 @@ function WeekBlock({ week, rows, weekTotal }: {
   weekTotal: BizWeekRow;
 }) {
   return (
-    <section className="rounded-lg border bg-white shadow-sm print-keep">
+    <section className="week-print-block rounded-lg border bg-white shadow-sm print-keep">
       <h2 className="border-b bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">
         Week {week}
       </h2>
