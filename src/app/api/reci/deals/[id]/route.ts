@@ -23,8 +23,18 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!body) return NextResponse.json({ error: "bad body" }, { status: 400 });
   const patch: any = {};
   const stringFields = ["client","postcode","provider","confirmed_date","poz_listened",
-    "miscellaneous","submitted","acc_ref","notes","gl_sp","gl_txt","trust_done","trust_sent"];
+    "miscellaneous","submitted","acc_ref","notes","gl_sp","gl_txt","trust_done","trust_sent",
+    "policy_type"];
   for (const f of stringFields) if (f in body) patch[f] = body[f] != null ? String(body[f]).slice(0, 500) : null;
+  // Confirmation Planner fields (Poz 2 Sep 2026).
+  if ("booked_date" in body) {
+    patch.booked_date = typeof body.booked_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.booked_date)
+      ? body.booked_date : null;
+  }
+  if ("resell_cb" in body) {
+    const n = Number(body.resell_cb);
+    patch.resell_cb = Number.isFinite(n) && n >= 0 ? n : 0;
+  }
   if ("no_of_deals" in body) patch.no_of_deals = Number(body.no_of_deals) || 0;
   if ("premium" in body) patch.premium = body.premium != null ? Number(body.premium) : null;
   if ("commission" in body) patch.commission = Number(body.commission) || 0;

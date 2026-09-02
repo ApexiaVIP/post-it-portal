@@ -99,6 +99,13 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
     in_processing_stage: initial.in_processing_stage ?? "",
     nys_check_status:    initial.nys_check_status    ?? "",
     nys_check_notes:     initial.nys_check_notes     ?? "",
+    // Confirmation Planner fields (Poz 2 Sep 2026). booked_date defaults
+    // to today for new deals -- Poz confirms same/next day as booking.
+    policy_type: initial.policy_type ?? "",
+    booked_date: initial.booked_date
+      ? String(initial.booked_date).slice(0, 10)
+      : new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date()),
+    resell_cb: initial.resell_cb ?? 0,
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -137,8 +144,10 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
           cancellation_reason: "",
           cancellation_notes: "",
           in_processing_stage: "",
+          policy_type: "",
+          resell_cb: 0,
           // KEEP: client, postcode, week, poz_listened, miscellaneous,
-          //       confirmed_date, submitted, year
+          //       confirmed_date, submitted, year, booked_date
         }));
       } else {
         onClose();
@@ -188,6 +197,10 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
           <Field label="Premium"><input type="number" step="0.01" value={form.premium} onChange={set("premium")} className="w-full border rounded px-2 py-1" /></Field>
           <Field label="No. deals"><input type="number" min={0} value={form.no_of_deals} onChange={set("no_of_deals")} className="w-full border rounded px-2 py-1" /></Field>
           <Field label="Confirmed date"><input value={form.confirmed_date} onChange={set("confirmed_date")} placeholder="21/4 or 21/4/2026" className="w-full border rounded px-2 py-1" /></Field>
+
+          <Field label="Policy type"><input value={form.policy_type} onChange={set("policy_type")} placeholder="SLL / JDL / SDL..." className="w-full border rounded px-2 py-1" /></Field>
+          <Field label="Date booked"><input type="date" value={form.booked_date} onChange={set("booked_date")} className="w-full border rounded px-2 py-1" /></Field>
+          <Field label="Resell CB £"><input type="number" min={0} step="0.01" value={form.resell_cb} onChange={set("resell_cb")} title="Clawback attached to a resell; the Confirmation Planner reports commission net of this" className="w-full border rounded px-2 py-1" /></Field>
 
           <Field label="POZ/Pauline listened"><input value={form.poz_listened} onChange={set("poz_listened")} placeholder="Yes/No" className="w-full border rounded px-2 py-1" /></Field>
           <Field label="Miscellaneous"><input value={form.miscellaneous} onChange={set("miscellaneous")} className="w-full border rounded px-2 py-1" /></Field>
