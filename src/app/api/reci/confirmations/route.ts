@@ -135,8 +135,12 @@ export async function GET(req: Request) {
       daily.comm += d.commission;
       daily.cb += d.resell_cb;
       daily.net += d.net;
-      if ((d.acc_ref ?? "").toUpperCase().startsWith("ACC")) daily.acc += 1;
-      if ((d.acc_ref ?? "").toUpperCase().startsWith("REF")) daily.ref += 1;
+      // Acc/Ref count DEAL COUNTS, not records (Poz 8 Sep: MEAH's three
+      // records = 2 accepted deals under the 3-for-2 rule, and her "6/1"
+      // week should have read 5/1). This also keeps Acc + Ref equal to
+      // the confirmed-deals total.
+      if ((d.acc_ref ?? "").toUpperCase().startsWith("ACC")) daily.acc += d.no_of_deals;
+      if ((d.acc_ref ?? "").toUpperCase().startsWith("REF")) daily.ref += d.no_of_deals;
       const c = daily.cam[d.adviser_id];
       if (c) { c.deals += d.no_of_deals; c.comm += d.net; }
     }
