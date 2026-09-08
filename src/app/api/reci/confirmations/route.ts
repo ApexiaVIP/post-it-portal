@@ -14,7 +14,7 @@
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
-import { getSession, isDashboardUser } from "@/lib/auth";
+import { getSession, canViewConfirmationsMI } from "@/lib/auth";
 import { isoWeekMonday } from "@/lib/reci/tracker";
 import { loadManualDataFor } from "@/lib/store";
 import { ADVISERS as POSTIT_ADVISERS } from "@/lib/schema";
@@ -48,7 +48,7 @@ function positionLabel(status: DealStatus, stage: InProcessingStage | null): str
 
 export async function GET(req: Request) {
   const session = await getSession();
-  if (!isDashboardUser(session.username)) {
+  if (!canViewConfirmationsMI(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const url = new URL(req.url);

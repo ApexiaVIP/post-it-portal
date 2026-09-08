@@ -160,7 +160,16 @@ export default function ConfirmationPlannerPage() {
                       </thead>
                       <tbody>
                         {day.deals.map((d) => (
-                          <tr key={d.id} className="border-t border-slate-100">
+                          // Row tints (Poz 8 Sep: "SAT deals in green"):
+                          // green = safely on risk or paid, blue = in
+                          // processing, amber = checked, red = cancelled.
+                          <tr key={d.id} className={`border-t border-slate-100 ${
+                            d.position === "Paid" || d.position === "On Risk NYP" ? "bg-emerald-50" :
+                            d.position.startsWith("In Processing") ? "bg-blue-50/60" :
+                            d.position === "Checked" ? "bg-amber-50" :
+                            d.position === "Cancelled" || d.position === "Clawback" ? "bg-red-50" :
+                            ""
+                          }`}>
                             <td className="px-3 py-1.5 font-medium">{d.adviser_name}</td>
                             <td className="px-3 py-1.5">{d.client}</td>
                             <td className="px-3 py-1.5">{d.acc_ref || "—"}</td>

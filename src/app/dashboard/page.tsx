@@ -176,6 +176,11 @@ export default function DashboardPage() {
       <header className="no-print flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold">POST IT Live Dashboard</h1>
+          <a href="/dashboard/range"
+            className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-800 hover:bg-indigo-100"
+            title="Per-week call centre stats over any week range (Hayder's Monday handout)">
+            Week range report
+          </a>
           <p className="text-sm text-slate-500">
             {snap
               ? <>Showing <strong>{snap.date} {snap.target}</strong> &middot; captured {lastRefreshedLabel} &middot; next scheduled {nextScheduled}</>

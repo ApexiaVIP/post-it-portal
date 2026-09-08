@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getSession, isDashboardUser } from "@/lib/auth";
+import { getSession, canViewTrackerMI } from "@/lib/auth";
 import { businessTrackerByAdviser, parseScopeFromParams } from "@/lib/reci/tracker";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const session = await getSession();
-  if (!isDashboardUser(session.username)) {
+  if (!canViewTrackerMI(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const { searchParams } = new URL(req.url);
