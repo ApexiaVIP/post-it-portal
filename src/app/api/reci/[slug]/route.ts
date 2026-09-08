@@ -34,7 +34,14 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     week: Number(body.week),
     client: String(body.client).slice(0, 200),
     postcode: body.postcode ? String(body.postcode).slice(0, 20) : null,
-    no_of_deals: Number(body.no_of_deals ?? 1) || 1,
+    // 0 is a legitimate count: the extra application(s) of a multi-app
+    // sale (Guy's 3-for-2 / 2-for-1 rule when premiums are under £20 or
+    // comms under £500 per deal). The old `|| 1` silently promoted 0 to
+    // 1 on create, which is why Poz couldn't make MEAH count as 2.
+    no_of_deals: (() => {
+      const n = Number(body.no_of_deals ?? 1);
+      return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 1;
+    })(),
     provider: body.provider ? String(body.provider).slice(0, 60) : null,
     premium: body.premium != null ? Number(body.premium) : null,
     confirmed_date: body.confirmed_date ? String(body.confirmed_date).slice(0, 40) : null,

@@ -195,7 +195,21 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
 
           <Field label="Provider"><input value={form.provider} onChange={set("provider")} className="w-full border rounded px-2 py-1" /></Field>
           <Field label="Premium"><input type="number" step="0.01" value={form.premium} onChange={set("premium")} className="w-full border rounded px-2 py-1" /></Field>
-          <Field label="No. deals"><input type="number" min={0} value={form.no_of_deals} onChange={set("no_of_deals")} className="w-full border rounded px-2 py-1" /></Field>
+          <Field label="No. deals">
+            {/* Dropdown incl 0 (Poz 8 Sep 2026): a 3-for-2 client is three
+                records counted 1 + 1 + 0, so every application keeps its
+                own premium and commission but the sales figures and wage
+                uplift see the reduced count. */}
+            <select value={form.no_of_deals} onChange={set("no_of_deals")}
+              title="Multi-app sale (3-for-2 etc): give the extra application(s) 0 so this client's records add up to the counted deals"
+              className="w-full border rounded px-2 py-1">
+              <option value={0}>0 – extra app (3-for-2 rule)</option>
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+              <option value={3}>3</option>
+              <option value={4}>4</option>
+            </select>
+          </Field>
           <Field label="Confirmed date"><input value={form.confirmed_date} onChange={set("confirmed_date")} placeholder="21/4 or 21/4/2026" className="w-full border rounded px-2 py-1" /></Field>
 
           <Field label="Policy type"><input value={form.policy_type} onChange={set("policy_type")} placeholder="SLL / JDL / SDL..." className="w-full border rounded px-2 py-1" /></Field>
