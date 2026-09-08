@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getSession, isDashboardUser } from "@/lib/auth";
+import { getSession, canViewCallCentreMI } from "@/lib/auth";
 import { listSnapshotTargets, listDatesWithSnapshots } from "@/lib/snapshots";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const session = await getSession();
-  if (!isDashboardUser(session.username)) {
+  if (!canViewCallCentreMI(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const { searchParams } = new URL(req.url);

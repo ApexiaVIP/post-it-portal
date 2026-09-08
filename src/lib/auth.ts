@@ -181,6 +181,34 @@ export function isClawbackAdmin(username: string | null | undefined): boolean {
   if (!username) return false;
   return CLAWBACK_USERNAMES.includes(username.toLowerCase());
 }
+// ---------------------------------------------------------------------------
+// MI area access (Poz, 8 Sep 2026): Tan and Hayder take over slices of
+// the reporting so Guy can get verbal updates from them and Hayder can
+// stop hand-producing his sales tracker. Env-driven so the lists change
+// without a deploy. Admins always qualify.
+// ---------------------------------------------------------------------------
+const TRACKER_MI_USERNAMES       = parseList(process.env.TRACKER_MI_USERNAMES       ?? "tan,hayder");
+const ANALYTICS_MI_USERNAMES     = parseList(process.env.ANALYTICS_MI_USERNAMES     ?? "tan");
+const CONFIRMATIONS_MI_USERNAMES = parseList(process.env.CONFIRMATIONS_MI_USERNAMES ?? "tan,hayder");
+const CALLCENTRE_MI_USERNAMES    = parseList(process.env.CALLCENTRE_MI_USERNAMES    ?? "tan,hayder");
+
+function inMiList(list: string[], username: string | null | undefined): boolean {
+  if (!username) return false;
+  return list.includes(username.toLowerCase());
+}
+export function canViewTrackerMI(u: string | null | undefined): boolean {
+  return isDashboardUser(u) || inMiList(TRACKER_MI_USERNAMES, u);
+}
+export function canViewAnalyticsMI(u: string | null | undefined): boolean {
+  return isDashboardUser(u) || inMiList(ANALYTICS_MI_USERNAMES, u);
+}
+export function canViewConfirmationsMI(u: string | null | undefined): boolean {
+  return isDashboardUser(u) || inMiList(CONFIRMATIONS_MI_USERNAMES, u);
+}
+export function canViewCallCentreMI(u: string | null | undefined): boolean {
+  return isDashboardUser(u) || inMiList(CALLCENTRE_MI_USERNAMES, u);
+}
+
 // Client nurture journeys are restricted to Poz while the process beds
 // in (Jimmy, 17 Jul 2026: "ONLY available for Poz right now"). Env-driven
 // so widening it to sellers later is a Vercel env change, not a deploy.
@@ -324,6 +352,20 @@ export function canAccessPath(username: string | null | undefined, pathname: str
   if (pathname.startsWith("/api/data"))       return true;
   if (pathname.startsWith("/api/auth"))       return true;
   if (pathname === "/api/me")                 return true;
+  // MI areas handed to senior sellers (Poz 8 Sep 2026).
+  if (canViewTrackerMI(username) && (
+        pathname.startsWith("/reci/tracker")
+     || pathname.startsWith("/api/reci/business-tracker"))) return true;
+  if (canViewAnalyticsMI(username) && (
+        pathname.startsWith("/reci/analytics")
+     || pathname.startsWith("/api/reci/analytics"))) return true;
+  if (canViewConfirmationsMI(username) && (
+        pathname.startsWith("/reci/confirmations")
+     || pathname.startsWith("/api/reci/confirmations"))) return true;
+  if (canViewCallCentreMI(username) && (
+        pathname === "/dashboard"
+     || pathname.startsWith("/dashboard/")
+     || pathname.startsWith("/api/snapshots"))) return true;
   // Sellers / viewers can reach /reci/clawback even if their primary role
   // is data-entry or none. Same crowd gets the adviser cases workspace
   // (/reci/cases, Poz 6 Aug 2026) — per-adviser scoping happens in the
