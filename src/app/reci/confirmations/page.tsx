@@ -71,6 +71,34 @@ export default function ConfirmationPlannerPage() {
   }, [year, week]);
   useEffect(() => { void load(); }, [load]);
 
+  // Print-first treatment (Poz 9 Sep 2026: headings were separating from
+  // the data and the text printed faint). Landscape is forced so she
+  // needn't pick it; day sections FLOW across pages instead of jumping
+  // whole (that jump caused the near-blank first page); headers stick to
+  // their tables; cells get real borders and dark text like her old
+  // gridded sheet; the dark week banner prints white-on-paper.
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.setAttribute("data-planner-print", "1");
+    style.textContent = `
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .planner-section { break-inside: auto !important; box-shadow: none !important; }
+  .planner-day-header { break-after: avoid; }
+  .overflow-x-auto { overflow: visible !important; }
+  table.planner { font-size: 10px; border-collapse: collapse !important; }
+  table.planner th, table.planner td {
+    border: 0.5pt solid #64748b; padding: 2px 5px; color: #0f172a !important;
+  }
+  table.planner thead { display: table-header-group; }
+  .week-banner { background: #fff !important; color: #0f172a !important; border: 1.5pt solid #0f172a !important; break-after: avoid; }
+  .week-banner * { color: #0f172a !important; }
+}`;
+    document.head.appendChild(style);
+    return () => { style.remove(); };
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="no-print border-b bg-white">
@@ -114,7 +142,7 @@ export default function ConfirmationPlannerPage() {
         ) : (
           <>
             {/* WEEK TOTALS banner */}
-            <section className="rounded-lg border-2 border-slate-400 bg-slate-900 p-4 text-white shadow-sm print-keep">
+            <section className="week-banner rounded-lg border-2 border-slate-400 bg-slate-900 p-4 text-white shadow-sm print-keep">
               <div className="mb-2 text-xs font-bold uppercase tracking-wide">Week {data.week} totals</div>
               <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 md:grid-cols-6">
                 <div><div className="text-xs text-slate-400">Total CAM deals</div><div className="text-xl font-semibold tabular-nums">{data.weekTotals.deals}</div></div>
@@ -124,11 +152,31 @@ export default function ConfirmationPlannerPage() {
                 <div><div className="text-xs text-slate-400">Accepted / Referred</div><div className="text-lg font-semibold tabular-nums">{data.weekTotals.acc} / {data.weekTotals.ref}</div></div>
                 <div><div className="text-xs text-slate-400">In Checked status</div><div className="text-lg font-semibold tabular-nums">{data.weekTotals.checked.n > 0 ? `${data.weekTotals.checked.n} · ${gbp(data.weekTotals.checked.net)}` : "—"}</div></div>
               </div>
+              {/* Per-seller headline (Poz 9 Sep): Tan - X deals / GBP X etc,
+                  so the overall position reads at a glance without digging
+                  into the day subtotals. */}
+              {(() => {
+                const last = data.days[data.days.length - 1];
+                const parts = data.sellers
+                  .map((s) => ({ s, c: last?.cumulative.cam[s.id] }))
+                  .filter((x) => x.c && (x.c.deals > 0 || x.c.comm > 0));
+                if (parts.length === 0) return null;
+                return (
+                  <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-700 pt-2 text-sm">
+                    {parts.map(({ s, c }) => (
+                      <span key={s.id} className="whitespace-nowrap">
+                        <span className="text-slate-400">{s.name}</span>{" "}
+                        <strong className="tabular-nums">{c!.deals} {c!.deals === 1 ? "deal" : "deals"} / {gbp(c!.comm)}</strong>
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
             </section>
 
             {data.days.map((day) => (
-              <section key={day.date} className="rounded-lg border bg-white shadow-sm print-keep">
-                <div className="flex flex-wrap items-baseline justify-between gap-2 border-b bg-slate-100 px-4 py-2">
+              <section key={day.date} className="planner-section rounded-lg border bg-white shadow-sm">
+                <div className="planner-day-header flex flex-wrap items-baseline justify-between gap-2 border-b bg-slate-100 px-4 py-2">
                   <h2 className="text-sm font-semibold text-slate-800">{fmtDay(day.date)}</h2>
                   <span className="text-xs text-slate-600">
                     Booked per Post-it: <strong>{day.postItBooked.total}</strong>
@@ -141,7 +189,7 @@ export default function ConfirmationPlannerPage() {
                   <div className="px-4 py-3 text-sm text-slate-400">No confirmations.</div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="planner w-full text-sm">
                       <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                         <tr>
                           <th className="px-3 py-1.5 text-left">CAM</th>
@@ -218,7 +266,7 @@ export default function ConfirmationPlannerPage() {
 
                 {/* CAM stats grid */}
                 <div className="border-t border-slate-200 px-4 py-2">
-                  <table className="w-full text-xs">
+                  <table className="planner w-full text-xs">
                     <thead>
                       <tr className="text-slate-500">
                         <th className="py-1 text-left font-medium uppercase tracking-wide">Cam stats</th>
