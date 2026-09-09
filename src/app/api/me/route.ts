@@ -5,6 +5,7 @@ import {
   isClawbackViewer, canEditClawback, canEditAnyCase,
   canUploadEbah, canNotifyCam,
   getEditableAdviserId,
+  canViewTrackerMI, canViewAnalyticsMI, canViewConfirmationsMI, canViewCallCentreMI,
 } from "@/lib/auth";
 import { sql } from "@vercel/postgres";
 
@@ -56,6 +57,11 @@ export async function GET() {
     canEditAnyCase:    canEditAnyCase(session.username),
     canUploadEbah:     canUploadEbah(session.username),
     canNotifyCam:      canNotifyCam(session.username),
+    // MI areas (Poz 8 Sep 2026) — drives the nav strip on the POST IT page.
+    canTracker:        canViewTrackerMI(session.username),
+    canAnalytics:      canViewAnalyticsMI(session.username),
+    canConfirmations:  canViewConfirmationsMI(session.username),
+    canCallCentre:     canViewCallCentreMI(session.username),
     // For junior sellers: the adviser_id whose cases they're allowed to
     // edit. Null for admins / senior sellers (can edit all) and viewers
     // (can edit none). The dashboard uses this to gate the "Take action"

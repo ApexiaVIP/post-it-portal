@@ -8,12 +8,24 @@ import {
 
 type Saving = "idle" | "saving" | "saved" | "error";
 
+interface MeFlags {
+  canCallCentre?: boolean; canTracker?: boolean;
+  canConfirmations?: boolean; canAnalytics?: boolean; canClawback?: boolean;
+}
+
 export default function AdminPage() {
   const [date, setDate] = useState<string>(londonDateIso());
   const [data, setData] = useState<ManualData | null>(null);
   const [saving, setSaving] = useState<Saving>("idle");
   const [err, setErr] = useState<string | null>(null);
   const [weekProgress, setWeekProgress] = useState<string | null>(null);
+  const [me, setMe] = useState<MeFlags | null>(null);
+  useEffect(() => {
+    fetch("/api/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setMe)
+      .catch(() => setMe(null));
+  }, []);
 
   const loadDate = useCallback(async (d: string) => {
     setData(null);
@@ -119,6 +131,32 @@ export default function AdminPage() {
 
   return (
     <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6">
+      {/* Role-aware nav (Poz 9 Sep 2026): the MI access granted to Tan
+          and Hayder was invisible because this landing page had no links
+          to anywhere. Buttons render only for areas the user can open. */}
+      {me && (me.canCallCentre || me.canTracker || me.canConfirmations || me.canAnalytics || me.canClawback) && (
+        <nav className="flex flex-wrap items-center gap-2 text-sm">
+          {me.canCallCentre && (
+            <a href="/dashboard" className="rounded border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100">Live Dashboard</a>
+          )}
+          {me.canCallCentre && (
+            <a href="/dashboard/range" className="rounded border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100">Week range report</a>
+          )}
+          {me.canTracker && (
+            <a href="/reci/tracker" className="rounded border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100">Business Tracker</a>
+          )}
+          {me.canConfirmations && (
+            <a href="/reci/confirmations" className="rounded border border-emerald-300 bg-emerald-50 px-3 py-1.5 font-medium text-emerald-800 hover:bg-emerald-100">Confirmation Planner</a>
+          )}
+          {me.canAnalytics && (
+            <a href="/reci/analytics" className="rounded border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100">RECI Analytics</a>
+          )}
+          {me.canClawback && (
+            <a href="/reci/clawback" className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 font-medium text-indigo-800 hover:bg-indigo-100">Clawback Dashboard</a>
+          )}
+        </nav>
+      )}
+
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold">POST IT Portal</h1>
