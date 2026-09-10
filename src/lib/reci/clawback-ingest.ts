@@ -366,7 +366,20 @@ export async function ingestEbahFile(
     //
     // Runs OUTSIDE the transaction. Failures don't roll back the ingest --
     // the case is still inserted and Pauline can manually re-Notify later.
-    const notifyMetrics = await autoNotifyNewCases(inserted, toInsert, parsed.reportDate);
+    // Cases whose CB figure ARRIVED on this upload (10 Sep 2026, Poz):
+    // L&G often lists a case first and sends the £ on a later report.
+    // Those cases were created with CB 0 (correctly unnotified) and the
+    // old digest never revisited them, so the team was never told when
+    // the money landed. Candidates here; autoNotify filters to open +
+    // still-unnotified.
+    const cbArrived = toUpdate
+      .filter((u) => u.diffs.some((d) =>
+        d.field === "clawback_due"
+        && (Number(d.newV) || 0) > 0
+        && (Number(d.oldV) || 0) <= 0))
+      .map((u) => ({ id: u.id, row: u.row, mapping: u.mapping }));
+
+    const notifyMetrics = await autoNotifyNewCases(inserted, toInsert, cbArrived, parsed.reportDate);
 
     return {
       uploadId,
@@ -551,6 +564,7 @@ function isoWeek(yyyymmdd: string): number {
 async function autoNotifyNewCases(
   inserted: { id: number; policy_number: string }[],
   toInsert: { row: EbahRow; mapping: { bucket: Bucket; adviser_id: number | null } }[],
+  cbArrived: { id: number; row: EbahRow; mapping: { bucket: Bucket; adviser_id: number | null } }[],
   ebahReportDate: string | null,
 ): Promise<{ attempted: number; sent: number; failed: number }> {
   // policy_number -> { row, mapping } lookup
@@ -567,16 +581,37 @@ async function autoNotifyNewCases(
     adviserId: number | null;
   };
   const groups = new Map<string, { adviserId: number | null; bucket: Bucket; items: Item[] }>();
+  const addItem = (item: Item) => {
+    const key = `${item.adviserId ?? "null"}|${item.bucket}`;
+    const g = groups.get(key);
+    if (g) g.items.push(item);
+    else groups.set(key, { adviserId: item.adviserId, bucket: item.bucket, items: [item] });
+  };
   for (const ins of inserted) {
     const o = byPolicy.get(ins.policy_number);
     if (!o) continue;
     const cb = Number(o.row.clawback_due ?? 0) || 0;
     if (cb <= 0) continue;
-    const key = `${o.mapping.adviser_id ?? "null"}|${o.mapping.bucket}`;
-    const item: Item = { id: ins.id, row: o.row, bucket: o.mapping.bucket, adviserId: o.mapping.adviser_id };
-    const g = groups.get(key);
-    if (g) g.items.push(item);
-    else groups.set(key, { adviserId: o.mapping.adviser_id, bucket: o.mapping.bucket, items: [item] });
+    addItem({ id: ins.id, row: o.row, bucket: o.mapping.bucket, adviserId: o.mapping.adviser_id });
+  }
+
+  // CB-arrived updates join the same digests, but only cases that are
+  // still open and were never notified (a case Poz already notified by
+  // hand, or one already resolved, stays quiet).
+  if (cbArrived.length > 0) {
+    const eligibleR = await sql.query<{ id: number }>(
+      `SELECT id FROM clawback_cases
+        WHERE id = ANY($1::int[])
+          AND deleted_at IS NULL
+          AND status = 'open'
+          AND notified_at IS NULL`,
+      [cbArrived.map((c) => c.id)],
+    );
+    const eligible = new Set(eligibleR.rows.map((r) => r.id));
+    for (const c of cbArrived) {
+      if (!eligible.has(c.id)) continue;
+      addItem({ id: c.id, row: c.row, bucket: c.mapping.bucket, adviserId: c.mapping.adviser_id });
+    }
   }
 
   let attempted = 0, sent = 0, failed = 0;
