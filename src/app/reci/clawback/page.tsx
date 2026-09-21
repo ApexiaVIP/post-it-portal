@@ -428,7 +428,7 @@ export default function ClawbackPage() {
       }
       const ok = window.confirm(
         `${dj.candidateCount} case${dj.candidateCount === 1 ? "" : "s"} ready to Notify. ` +
-        `Recipients will be the CAM (or Tan + Hayder for Xstaff) with Guy and management on CC. ` +
+        `Recipients will be the CAM (or Tan + Hayder for anything not assigned to a named CAM) with management on CC. ` +
         `Continue?`,
       );
       if (!ok) return;

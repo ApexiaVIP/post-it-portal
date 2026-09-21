@@ -493,25 +493,23 @@ function guyEmail(): string | null {
 }
 
 // Resolve the CAM email + name for a clawback case based on its bucket /
-// adviser_id. For xstaff returns Tan + Hayder. For adviser returns just
-// that adviser. For legacy / needs_review returns no CAM.
+// adviser_id. For adviser returns just that adviser. Anything NOT routed
+// to a named adviser (xstaff, legacy, needs_review, unknown buckets, or an
+// adviser row with no email on file) goes to Tan + Hayder: Poz 21 Sep 2026,
+// after an orphan-case digest landed only with management.
 async function resolveCamRecipients(adviserId: number | null, bucket: string): Promise<{ to: string[]; label: string }> {
   if (bucket === "adviser" && adviserId !== null) {
     const r = await sql<{ name: string; email: string | null }>`
       SELECT name, email FROM advisers WHERE id = ${adviserId}
     `;
     const a = r.rows[0];
-    if (!a || !a.email) return { to: [], label: a?.name || "CAM" };
-    return { to: [a.email], label: a.name };
+    if (a?.email) return { to: [a.email], label: a.name };
   }
-  if (bucket === "xstaff") {
-    const r = await sql<{ name: string; email: string | null }>`
-      SELECT name, email FROM advisers WHERE name = ANY(ARRAY['Tan','Hayder'])
-    `;
-    const emails = r.rows.map((x) => x.email).filter((e): e is string => !!e);
-    return { to: emails, label: "Tan + Hayder (Xstaff)" };
-  }
-  return { to: [], label: bucket };
+  const r = await sql<{ name: string; email: string | null }>`
+    SELECT name, email FROM advisers WHERE name = ANY(ARRAY['Tan','Hayder'])
+  `;
+  const emails = r.rows.map((x) => x.email).filter((e): e is string => !!e);
+  return { to: emails, label: "Tan + Hayder" };
 }
 
 export interface ClawbackNotifyInput {
@@ -565,14 +563,14 @@ export async function sendClawbackNotifyEmail(i: ClawbackNotifyInput): Promise<{
   const subject = `${newOwPrefix}[RECI Clawback]${postcodeTag} ${i.clientName} (${i.policyNumber})`;
 
   const greeting = cam.to.length > 0
-    ? `Hi ${escapeHtml(i.agentBucket === "xstaff" ? "Tan + Hayder" : cam.label)},`
+    ? `Hi ${escapeHtml(cam.label)},`
     : `Hi team,`;
 
   const reason = i.ebahWarning || "Clawback notification";
 
   const lines = [
     cam.to.length > 0
-      ? `Hi ${i.agentBucket === "xstaff" ? "Tan + Hayder" : cam.label},`
+      ? `Hi ${cam.label},`
       : `Hi team,`,
     ``,
     `A post-completion clawback case needs your attention.`,
@@ -714,17 +712,17 @@ export async function sendClawbackNotifyDigestEmail(
   const totalPostcodes = groups.length;
   const newOwAny = i.cases.some((c) => c.source === "new_ow");
   const newOwPrefix = newOwAny ? "[NEW OW] " : "";
-  const subject = `${newOwPrefix}[RECI Clawback] ${totalCases} case${totalCases === 1 ? "" : "s"} need attention (${totalPostcodes} postcode${totalPostcodes === 1 ? "" : "s"})`;
+  const subject = `${newOwPrefix}[RECI Clawback] ${totalCases} case${totalCases === 1 ? " needs" : "s need"} attention (${totalPostcodes} postcode${totalPostcodes === 1 ? "" : "s"})`;
 
   const greeting = cam.to.length > 0
-    ? `Hi ${escapeHtml(i.agentBucket === "xstaff" ? "Tan + Hayder" : cam.label)},`
+    ? `Hi ${escapeHtml(cam.label)},`
     : `Hi team,`;
 
   // Plain-text body. Pauline's house style: no em dashes, basic language,
   // no commission figures.
   const textLines: string[] = [];
   textLines.push(cam.to.length > 0
-    ? `Hi ${i.agentBucket === "xstaff" ? "Tan + Hayder" : cam.label},`
+    ? `Hi ${cam.label},`
     : `Hi team,`);
   textLines.push("");
   textLines.push(`${totalCases} post-completion clawback case${totalCases === 1 ? "" : "s"} need${totalCases === 1 ? "s" : ""} your attention.`);
