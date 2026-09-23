@@ -11,16 +11,16 @@
  * sees the overall position without scrolling. Every £ cell also shows the
  * deal count underneath.
  *
- * Filter bar at top: Year, Scope (Week / Month / Quarter / Year), and a
- * multi-select adviser pill row. If no advisers are selected, the page shows
- * all advisers that have data in scope.
+ * Filter bar at top: Year, Scope (Week / Weeks range / Month / Quarter /
+ * Year), and a multi-select adviser pill row. If no advisers are selected,
+ * the page shows all advisers that have data in scope.
  *
  * Force landscape A4 for print (the 12-column table is wide).
  */
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PrintButton, PrintHeader } from "@/components/print";
 
-type ScopeKind = "year" | "quarter" | "month" | "week";
+type ScopeKind = "year" | "quarter" | "month" | "week" | "range";
 
 interface BizWeekRow {
   week: number;
@@ -68,6 +68,15 @@ function pct(part: number, whole: number): string {
   return `${Math.round((part / whole) * 100)}%`;
 }
 
+function isoWeekNow(): number {
+  const d = new Date();
+  const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+  return Math.ceil(((utc.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
 export default function BusinessTrackerPage() {
   const now = new Date();
   const [year, setYear] = useState<number>(now.getFullYear());
@@ -80,6 +89,10 @@ export default function BusinessTrackerPage() {
     () => new Set([Math.ceil((now.getMonth() + 1) / 3)]),
   );
   const [week, setWeek] = useState<number>(1);
+  // Week-range scope (Poz 23 Sep 2026): Guy asks for things like "the
+  // last 5 weeks" in one print, so default the range to exactly that.
+  const [weekFrom, setWeekFrom] = useState<number>(() => Math.max(1, isoWeekNow() - 4));
+  const [weekTo, setWeekTo] = useState<number>(() => isoWeekNow());
   // We track which advisers are EXCLUDED (deselected) rather than which are
   // selected, so on first paint every pill renders as visually active without
   // having to wait for the advisers list to arrive from the server. Empty
@@ -125,9 +138,9 @@ export default function BusinessTrackerPage() {
   const qs = useMemo(() => {
     const p = new URLSearchParams();
     p.set("year", String(year));
-    // Quarter view fetches the full year and filters client-side so any
-    // combination of quarters can be shown/printed together.
-    p.set("scope", kind === "quarter" ? "year" : kind);
+    // Quarter and week-range views fetch the full year and filter
+    // client-side so any combination can be shown/printed together.
+    p.set("scope", kind === "quarter" || kind === "range" ? "year" : kind);
     if (kind === "month")   p.set("month", String(month));
     if (kind === "week")    p.set("week",  String(week));
     // Compute "selected" = all known advisers minus the excluded set. Only
@@ -170,8 +183,13 @@ export default function BusinessTrackerPage() {
       return `${qs.map((q) => `Q${q}`).join(" + ")} ${year}`;
     }
     if (kind === "month")   return `${MONTH_NAMES[month - 1]} ${year}`;
+    if (kind === "range") {
+      const lo = Math.min(weekFrom, weekTo);
+      const hi = Math.max(weekFrom, weekTo);
+      return lo === hi ? `Week ${lo} ${year}` : `Weeks ${lo}-${hi} ${year}`;
+    }
     return `Week ${week} ${year}`;
-  }, [kind, year, month, quarters, week]);
+  }, [kind, year, month, quarters, week, weekFrom, weekTo]);
 
   const toggleQuarter = (q: number) =>
     setQuarters((prev) => {
@@ -222,6 +240,22 @@ export default function BusinessTrackerPage() {
                 onChange={(e) => setWeek(Math.max(1, Math.min(53, Number(e.target.value) || 1)))}
                 className="w-16 rounded border border-slate-300 px-2 py-1 text-right"
               />
+            )}
+            {kind === "range" && (
+              <span className="inline-flex items-center gap-1">
+                <span className="text-slate-600">Wk</span>
+                <input
+                  type="number" min={1} max={53} value={weekFrom}
+                  onChange={(e) => setWeekFrom(Math.max(1, Math.min(53, Number(e.target.value) || 1)))}
+                  className="w-16 rounded border border-slate-300 px-2 py-1 text-right"
+                />
+                <span className="text-slate-600">to</span>
+                <input
+                  type="number" min={1} max={53} value={weekTo}
+                  onChange={(e) => setWeekTo(Math.max(1, Math.min(53, Number(e.target.value) || 1)))}
+                  className="w-16 rounded border border-slate-300 px-2 py-1 text-right"
+                />
+              </span>
             )}
             <a href="/reci/tracker/seller"
               className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-800 hover:bg-indigo-100">
@@ -291,7 +325,15 @@ export default function BusinessTrackerPage() {
           <div className="rounded-lg border bg-white p-6 text-sm text-slate-500">
             {loading ? "Loading…" : "Loading…"}
           </div>
-        ) : <PivotedView data={data} quarterFilter={kind === "quarter" ? quarters : null} />}
+        ) : (
+          <PivotedView
+            data={data}
+            quarterFilter={kind === "quarter" ? quarters : null}
+            weekRange={kind === "range"
+              ? { from: Math.min(weekFrom, weekTo), to: Math.max(weekFrom, weekTo) }
+              : null}
+          />
+        )}
       </main>
     </div>
   );
@@ -303,7 +345,11 @@ export default function BusinessTrackerPage() {
 // when more than one quarter has data in scope. Finally a per-adviser scope
 // totals block (so Pauline can see Tan's YTD, Hayder's YTD, etc. all in one
 // spot) and the overall grand total card.
-function PivotedView({ data, quarterFilter }: { data: Resp; quarterFilter: Set<number> | null }) {
+function PivotedView({ data, quarterFilter, weekRange }: {
+  data: Resp;
+  quarterFilter: Set<number> | null;
+  weekRange: { from: number; to: number } | null;
+}) {
   const sumRows = (a: BizWeekRow, b: BizWeekRow, week: number): BizWeekRow => ({
     week,
     paid:              a.paid + b.paid,
@@ -335,7 +381,8 @@ function PivotedView({ data, quarterFilter }: { data: Resp; quarterFilter: Set<n
     );
     return { week, rows, weekTotal };
   }).filter((s) => s.weekTotal.total > 0)
-    .filter((s) => !quarterFilter || quarterFilter.has(quarterFromWeek(data.year, s.week)));
+    .filter((s) => !quarterFilter || quarterFilter.has(quarterFromWeek(data.year, s.week)))
+    .filter((s) => !weekRange || (s.week >= weekRange.from && s.week <= weekRange.to));
 
   // Per-adviser totals across the DISPLAYED weeks (the API's own totals
   // cover its full scope, which is the whole year when quarter-filtering).
@@ -382,6 +429,27 @@ function PivotedView({ data, quarterFilter }: { data: Resp; quarterFilter: Set<n
 
   return (
     <>
+      {/* Week-range headline (Poz 23 Sep 2026): when Guy asks for "the
+          last 5 weeks", the print leads with one line of deals + £. */}
+      {weekRange && (
+        <section className="rounded-lg border-2 border-slate-900 bg-white shadow-sm print-keep">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 px-4 py-3">
+            <div className="text-sm font-bold uppercase tracking-wide text-slate-600">
+              {weekRange.from === weekRange.to
+                ? `Week ${weekRange.from} headline`
+                : `Weeks ${weekRange.from}-${weekRange.to} headline`}
+            </div>
+            <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-2xl font-bold tabular-nums">{Math.round(grand.total_n)}</span>
+                <span className="text-sm text-slate-500">{Math.round(grand.total_n) === 1 ? "deal" : "deals"}</span>
+              </div>
+              <div className="text-2xl font-bold tabular-nums">{gbp(grand.total)}</div>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="rounded-lg border bg-slate-900 text-white shadow-sm print-keep">
         <div className="border-b border-slate-700 px-3 py-2 text-sm font-bold uppercase tracking-wide">
           Overall total
@@ -686,6 +754,7 @@ function Row({ row, label, kind }: {
 function ScopeToggle({ value, onChange }: { value: ScopeKind; onChange: (v: ScopeKind) => void }) {
   const opts: { value: ScopeKind; label: string }[] = [
     { value: "week",    label: "Week" },
+    { value: "range",   label: "Weeks" },
     { value: "month",   label: "Month" },
     { value: "quarter", label: "Quarter" },
     { value: "year",    label: "Year" },
