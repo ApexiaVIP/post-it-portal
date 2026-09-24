@@ -569,6 +569,14 @@ export default function ClawbackPage() {
           >
             Credit Control
           </a>
+          {me && !me.isJuniorSeller && (
+            <a
+              href="/reci/clawback/monthly"
+              className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-800 hover:bg-indigo-100"
+            >
+              CB by month
+            </a>
+          )}
           <PrintButton />
         </div>
       </div>

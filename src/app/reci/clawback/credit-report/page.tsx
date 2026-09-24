@@ -190,7 +190,16 @@ function StatusChip({ status }: { status: string }) {
 
 export default function CreditReportPage() {
   const [data, setData] = useState<ReportResp | null>(null);
-  const [showCompleted, setShowCompleted] = useState(true);
+  // Completed-month case detail is off by default (Poz 24 Sep 2026:
+  // printing with every month's cases ran to ~20 pages). Clicking a row
+  // in the summary opens just that month.
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
+  const toggleMonth = (key: string) => setOpenMonths((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -256,6 +265,7 @@ export default function CreditReportPage() {
         <div className="flex items-center gap-2">
           <Link href="/reci/clawback" className="rounded border border-slate-300 px-3 py-1 text-slate-700 hover:bg-slate-50">Dashboard</Link>
           <Link href="/reci/clawback/reports" className="rounded border border-slate-300 px-3 py-1 text-slate-700 hover:bg-slate-50">Reports</Link>
+          <Link href="/reci/clawback/monthly" className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1 font-medium text-indigo-800 hover:bg-indigo-100">CB by month</Link>
           <PrintButton />
         </div>
         <span className="text-xs text-slate-500">
@@ -284,7 +294,9 @@ export default function CreditReportPage() {
 
       {data && (
         <>
-          {data.forecast.map((m) => <MonthSection key={m.key} block={m} kind="forecast" />)}
+          {data.forecast.map((m) => m.key === "unscheduled"
+            ? <UnscheduledSection key={m.key} block={m} />
+            : <MonthSection key={m.key} block={m} kind="forecast" />)}
 
           {/* Year summary after the full at-risk section (Poz 9 Jul). */}
           <section className="mt-8 break-inside-avoid">
@@ -312,8 +324,13 @@ export default function CreditReportPage() {
                   {completedThisYear.length === 0 ? (
                     <tr><td colSpan={NEG_COLS.length + POS_COLS.length + 3} className="px-3 py-3 text-center text-slate-400">No completed months yet in {year}.</td></tr>
                   ) : completedThisYear.map((m) => (
-                    <tr key={m.key} className="border-t border-slate-100 tabular-nums">
-                      <td className="px-2 py-1.5 text-left font-medium">{m.label}</td>
+                    <tr key={m.key} onClick={() => toggleMonth(m.key)}
+                      title="Click to show or hide this month's cases"
+                      className={`cursor-pointer border-t border-slate-100 tabular-nums hover:bg-slate-50 ${openMonths.has(m.key) ? "bg-slate-100" : ""}`}>
+                      <td className="whitespace-nowrap px-2 py-1.5 text-left font-medium">
+                        <span className="no-print mr-1 inline-block w-3 text-slate-400">{openMonths.has(m.key) || showCompleted ? "▾" : "▸"}</span>
+                        {m.label}
+                      </td>
                       <td className="px-2 py-1.5 text-right font-semibold">{gbp(m.totals.exposure)}</td>
                       {NEG_COLS.map((c) => {
                         const v = colValue(m.totals, c);
@@ -366,15 +383,19 @@ export default function CreditReportPage() {
             </div>
           </section>
 
-          {showCompleted && data.completed.length > 0 && (
-            <>
-              <h2 className="mt-10 border-b-2 border-slate-900 pb-2 text-lg font-bold">
-                Completed months — worked case detail
-                <span className="ml-2 text-xs font-normal text-slate-500">the evidence behind the summary totals · cancelled cases can still be called and resold</span>
-              </h2>
-              {data.completed.map((m) => <MonthSection key={m.key} block={m} kind="completed" />)}
-            </>
-          )}
+          {(() => {
+            const shown = data.completed.filter((m) => showCompleted || openMonths.has(m.key));
+            if (shown.length === 0) return null;
+            return (
+              <>
+                <h2 className="mt-10 border-b-2 border-slate-900 pb-2 text-lg font-bold">
+                  Completed months — worked case detail
+                  <span className="ml-2 text-xs font-normal text-slate-500">the evidence behind the summary totals · cancelled cases can still be called and resold</span>
+                </h2>
+                {shown.map((m) => <MonthSection key={m.key} block={m} kind="completed" />)}
+              </>
+            );
+          })()}
         </>
       )}
     </main>
@@ -442,6 +463,67 @@ function CaseTable({ rows, oldOw }: { rows: CaseRow[]; oldOw?: boolean }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * Unscheduled = cases with no CB date (Poz asked what it means, 24 Sep
+ * 2026). Almost all are L&G early warnings (lapse, DD representation,
+ * cancelled/bounced DD, 5 yearly review, death claim) where no clawback
+ * has been raised, so there's no amount and no date. They drop into a
+ * month automatically once an EBAH gives them one. Collapsed by default
+ * so they don't swamp the print; anything that DOES carry a CB amount
+ * is listed because it's missing from every monthly figure.
+ */
+function UnscheduledSection({ block }: { block: MonthBlock }) {
+  const [expanded, setExpanded] = useState(false);
+  const all = [...block.cases, ...block.oldOw];
+  const withCb = all.filter((c) => c.clawback > 0).sort((a, b) => b.clawback - a.clawback);
+  const cbTotal = withCb.reduce((n, c) => n + c.clawback, 0);
+  return (
+    <section className="mt-6 break-inside-avoid">
+      <div className="rounded border border-slate-300 bg-slate-50 px-4 py-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-bold">Unscheduled (no CB date)</h2>
+          <div className="font-mono text-sm text-slate-700">
+            {all.length} cases · {withCb.length} with a clawback amount ({gbp(cbTotal)})
+          </div>
+        </div>
+        <p className="mt-1 text-sm text-slate-600">
+          Early warnings from L&amp;G (lapses, DD representations, cancelled or bounced DDs, 5 yearly
+          reviews, death claims) where no clawback has been raised yet, so there is no amount and no
+          date. Nothing is due on these. They move into a month automatically when an EBAH gives
+          them a clawback date.
+        </p>
+        {withCb.length > 0 && (
+          <p className="mt-1 text-sm font-medium text-amber-800">
+            {withCb.length === 1 ? "1 case has" : `${withCb.length} cases have`} a clawback amount but
+            no date, so {withCb.length === 1 ? "it is" : "they are"} missing from every monthly figure.
+            Add a CB date from the case if known.
+          </p>
+        )}
+        <button type="button" onClick={() => setExpanded((v) => !v)}
+          className="no-print mt-2 rounded border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">
+          {expanded ? "Hide all unscheduled cases" : `Show all ${all.length} unscheduled cases`}
+        </button>
+      </div>
+      {withCb.length > 0 && !expanded && (
+        <div className="mt-2 overflow-x-auto rounded border border-amber-300 bg-white">
+          <CaseTable rows={withCb} />
+        </div>
+      )}
+      {expanded && (
+        <div className="mt-2 overflow-x-auto rounded border border-slate-200 bg-white">
+          {block.cases.length > 0 && <CaseTable rows={block.cases} />}
+          {block.oldOw.length > 0 && (
+            <>
+              <div className="border-t-2 border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900">Old Openwork</div>
+              <CaseTable rows={block.oldOw} oldOw />
+            </>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
