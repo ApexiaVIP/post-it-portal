@@ -57,7 +57,7 @@ export async function listDealsForAdviser(adviserId: number, year: number): Prom
 }
 
 export async function createDeal(
-  data: Omit<Deal, "id" | "created_at" | "updated_at" | "position" | "cancellation_reason" | "cancellation_notes" | "cancelled_at" | "cancelled_by" | "in_processing_stage" | "nys_check_status" | "nys_check_notes" | "nys_checked_at" | "nys_checked_by">,
+  data: Omit<Deal, "id" | "created_at" | "updated_at" | "position" | "cancellation_reason" | "cancellation_notes" | "cancelled_at" | "cancelled_by" | "in_processing_stage" | "nys_check_status" | "nys_check_notes" | "nys_checked_at" | "nys_checked_by" | "welcome_sent_at" | "welcome_sent_to" | "welcome_sent_by">,
   username: string,
 ): Promise<Deal> {
   const { rows } = await sql<Deal>`
@@ -65,7 +65,8 @@ export async function createDeal(
       adviser_id, year, week, client, postcode, no_of_deals, provider, premium,
       confirmed_date, poz_listened, miscellaneous, submitted, acc_ref,
       status, commission, notes, gl_sp, gl_txt, trust_done, trust_sent,
-      booked_date, policy_type, resell_cb
+      booked_date, policy_type, resell_cb,
+      client_email, policy_number, policy_start_date, first_dd_date
     ) VALUES (
       ${data.adviser_id}, ${data.year}, ${data.week}, ${data.client},
       ${data.postcode}, ${data.no_of_deals}, ${data.provider}, ${data.premium},
@@ -73,7 +74,9 @@ export async function createDeal(
       ${data.submitted}, ${data.acc_ref}, ${data.status}, ${data.commission},
       ${data.notes}, ${data.gl_sp}, ${data.gl_txt}, ${data.trust_done}, ${data.trust_sent},
       ${data.booked_date ?? new Date().toISOString().slice(0, 10)},
-      ${data.policy_type}, ${data.resell_cb ?? 0}
+      ${data.policy_type}, ${data.resell_cb ?? 0},
+      ${data.client_email ?? null}, ${data.policy_number ?? null},
+      ${data.policy_start_date ?? null}, ${data.first_dd_date ?? null}
     )
     RETURNING *
   `;
@@ -129,6 +132,13 @@ export async function updateDeal(
       nys_check_notes     = ${next.nys_check_notes},
       nys_checked_at      = ${(prev.nys_check_status !== "checked" && next.nys_check_status === "checked") ? new Date().toISOString() : next.nys_checked_at},
       nys_checked_by      = ${(prev.nys_check_status !== "checked" && next.nys_check_status === "checked") ? username : next.nys_checked_by},
+      booked_date         = ${next.booked_date},
+      policy_type         = ${next.policy_type},
+      resell_cb           = ${next.resell_cb ?? 0},
+      client_email        = ${next.client_email},
+      policy_number       = ${next.policy_number},
+      policy_start_date   = ${next.policy_start_date},
+      first_dd_date       = ${next.first_dd_date},
       updated_at = now()
     WHERE id = ${id}
     RETURNING *

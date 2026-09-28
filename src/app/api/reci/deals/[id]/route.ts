@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession, isDashboardUser } from "@/lib/auth";
 import { getDealById, updateDeal, deleteDeal } from "@/lib/reci/db";
 import { CANCELLATION_REASONS, DEAL_STATUSES, IN_PROCESSING_STAGES, NYS_CHECK_STATUSES } from "@/lib/reci/schema";
+import { parseWelcomeFields } from "@/lib/reci/welcome-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const n = Number(body.resell_cb);
     patch.resell_cb = Number.isFinite(n) && n >= 0 ? n : 0;
   }
+  Object.assign(patch, parseWelcomeFields(body));
   if ("no_of_deals" in body) patch.no_of_deals = Number(body.no_of_deals) || 0;
   if ("premium" in body) patch.premium = body.premium != null ? Number(body.premium) : null;
   if ("commission" in body) patch.commission = Number(body.commission) || 0;

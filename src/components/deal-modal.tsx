@@ -20,6 +20,7 @@ import {
   NYS_CHECK_STATUSES, NYS_CHECK_STATUS_LABELS,
 } from "@/lib/reci/schema";
 import { isoWeekNumber } from "@/lib/schema";
+import { WelcomeEmailPanel } from "@/components/welcome-email-panel";
 
 export function NewDealModal({ slug, year, onClose }: { slug: string; year: number; onClose: () => void }) {
   // Default to the current ISO week in London time so Pauline doesn't have to
@@ -46,6 +47,7 @@ export function EditDealModal({ deal, onClose }: { deal: Deal; onClose: () => vo
     title="Edit deal"
     initial={deal}
     canDelete
+    welcomeDealId={deal.id}
     onSubmit={async (payload) => {
       const r = await fetch(`/api/reci/deals/${deal.id}`, {
         method: "PATCH",
@@ -63,10 +65,12 @@ export function EditDealModal({ deal, onClose }: { deal: Deal; onClose: () => vo
   />;
 }
 
-function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, onDelete, onClose }: {
+function DealFormModal({ title, initial, canDelete, allowAddAnother, welcomeDealId, onSubmit, onDelete, onClose }: {
   title: string;
   initial: Partial<Deal> & { year?: number };
   canDelete?: boolean;
+  /** Existing deals: enables the Welcome email button (Poz 28 Sep 2026). */
+  welcomeDealId?: number;
   /** Show a "Save and add another" button. Used by NewDealModal so Pauline can
    *  enter multiple policies for one client without retyping client-level
    *  fields (client, postcode, week, listened-to, confirmed date, etc.). */
@@ -106,7 +110,37 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
       ? String(initial.booked_date).slice(0, 10)
       : new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date()),
     resell_cb: initial.resell_cb ?? 0,
+    // Welcome email fields (Poz 28 Sep 2026).
+    client_email: initial.client_email ?? "",
+    policy_number: initial.policy_number ?? "",
+    policy_start_date: initial.policy_start_date ? String(initial.policy_start_date).slice(0, 10) : "",
+    first_dd_date: initial.first_dd_date ? String(initial.first_dd_date).slice(0, 10) : "",
   });
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [welcomeSent, setWelcomeSent] = useState<{ at: string | null; to: string | null }>({
+    at: initial.welcome_sent_at ?? null, to: initial.welcome_sent_to ?? null,
+  });
+
+  // The welcome panel saves straight to the deal, so pull those fields
+  // back in when it closes; otherwise a later Save here would overwrite
+  // them with what the form loaded with.
+  async function closeWelcome() {
+    setShowWelcome(false);
+    if (!welcomeDealId) return;
+    const r = await fetch(`/api/reci/deals/${welcomeDealId}`, { cache: "no-store" });
+    if (!r.ok) return;
+    const { deal } = (await r.json()) as { deal: Deal };
+    setForm((f) => ({
+      ...f,
+      provider: deal.provider ?? "",
+      premium: deal.premium ?? "",
+      client_email: deal.client_email ?? "",
+      policy_number: deal.policy_number ?? "",
+      policy_start_date: deal.policy_start_date ? String(deal.policy_start_date).slice(0, 10) : "",
+      first_dd_date: deal.first_dd_date ? String(deal.first_dd_date).slice(0, 10) : "",
+    }));
+    setWelcomeSent({ at: deal.welcome_sent_at, to: deal.welcome_sent_to });
+  }
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // "Save and add another" mode: which button triggered the submit, and how
@@ -146,8 +180,11 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
           in_processing_stage: "",
           policy_type: "",
           resell_cb: 0,
+          policy_number: "",
+          policy_start_date: "",
+          first_dd_date: "",
           // KEEP: client, postcode, week, poz_listened, miscellaneous,
-          //       confirmed_date, submitted, year, booked_date
+          //       confirmed_date, submitted, year, booked_date, client_email
         }));
       } else {
         onClose();
@@ -224,6 +261,34 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
               <option value="">—</option><option>ACC</option><option>REF</option>
             </select>
           </Field>
+
+          <div className="col-span-2 md:col-span-4 mt-1 border-t pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            For the welcome email
+          </div>
+          <Field label="Client email" className="col-span-2">
+            <input type="email" value={form.client_email} onChange={set("client_email")} placeholder="client@example.com" className="w-full border rounded px-2 py-1" />
+          </Field>
+          <Field label="Policy number" className="col-span-2">
+            <input value={form.policy_number} onChange={set("policy_number")} className="w-full border rounded px-2 py-1 font-mono" />
+          </Field>
+          <Field label="Policy start date"><input type="date" value={form.policy_start_date} onChange={set("policy_start_date")} className="w-full border rounded px-2 py-1" /></Field>
+          <Field label="First DD date"><input type="date" value={form.first_dd_date} onChange={set("first_dd_date")} className="w-full border rounded px-2 py-1" /></Field>
+          <div className="col-span-2 flex items-end gap-2 pb-1 text-xs">
+            {welcomeSent.at ? (
+              <span className="text-emerald-700">✓ Welcome email sent {new Date(welcomeSent.at).toLocaleDateString("en-GB")}{welcomeSent.to ? ` to ${welcomeSent.to}` : ""}</span>
+            ) : welcomeDealId && initial.status === "on_risk_nyp" ? (
+              <span className="text-slate-500">Welcome email not sent yet</span>
+            ) : (
+              <span className="text-slate-400">Sent once the deal is On Risk NYP</span>
+            )}
+            {welcomeDealId && (
+              <button type="button" onClick={() => setShowWelcome(true)}
+                className="ml-auto rounded border border-indigo-300 bg-indigo-50 px-2 py-1 font-medium text-indigo-800 hover:bg-indigo-100">
+                Welcome email…
+              </button>
+            )}
+          </div>
+          <div className="col-span-2 md:col-span-4 border-t" />
 
           <Field label="Status" className="col-span-2">
             <select value={form.status} onChange={set("status")} className="w-full border rounded px-2 py-1">
@@ -321,6 +386,9 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, onSubmit, o
           </div>
         </footer>
       </form>
+      {showWelcome && welcomeDealId && (
+        <WelcomeEmailPanel dealId={welcomeDealId} onClose={() => { void closeWelcome(); }} />
+      )}
     </div>
   );
 }

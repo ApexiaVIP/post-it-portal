@@ -20,6 +20,7 @@ import {
 } from "@/lib/reci/schema";
 import { PrintButton, PrintHeader } from "@/components/print";
 import { NewDealModal, EditDealModal } from "@/components/deal-modal";
+import { WelcomeEmailPanel } from "@/components/welcome-email-panel";
 
 type Tracker = { week: number; paid: number; on_risk_nyp: number; in_processing: number; nys: number; cxl: number; total: number }[];
 
@@ -51,6 +52,9 @@ export default function AdviserKanbanPage() {
   const [activeDealId, setActiveDealId] = useState<number | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [cancelling, setCancelling] = useState<{ deal: Deal } | null>(null);
+  // Welcome email prompt (Poz 28 Sep 2026): opens when a deal lands in
+  // On Risk NYP without having had its welcome email.
+  const [welcomeFor, setWelcomeFor] = useState<number | null>(null);
   // Edit modal opened via ?openDeal=<id> in the URL (drill-through from the
   // Analytics Deals table).
   const [editFromUrl, setEditFromUrl] = useState<Deal | null>(null);
@@ -109,6 +113,7 @@ export default function AdviserKanbanPage() {
       const fields: (string | null | undefined)[] = [
         d.client, d.postcode, d.provider, d.notes, d.cancellation_notes,
         d.miscellaneous, d.confirmed_date, d.acc_ref, d.gl_sp, d.gl_txt,
+        d.policy_number, d.client_email,
       ];
       return fields.some((f) => f && String(f).toLowerCase().includes(q));
     };
@@ -140,6 +145,8 @@ export default function AdviserKanbanPage() {
       return;
     }
     load(); // refresh tracker + cancellations
+    const moved = data?.deals.find((x) => x.id === dealId);
+    if (newStatus === "on_risk_nyp" && moved && !moved.welcome_sent_at) setWelcomeFor(dealId);
   }
 
   function onDragStart(e: DragStartEvent) {
@@ -254,6 +261,10 @@ export default function AdviserKanbanPage() {
         />
       )}
 
+      {welcomeFor !== null && (
+        <WelcomeEmailPanel dealId={welcomeFor} onClose={() => { setWelcomeFor(null); load(); }} />
+      )}
+
       {editFromUrl && (
         <EditDealModal
           deal={editFromUrl}
@@ -299,6 +310,7 @@ function StatusColumn({ status, deals, onEdit }: { status: DealStatus; deals: De
 function DealCard({ deal, onEdit, dragging }: { deal: Deal; onEdit: () => void; dragging?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: deal.id });
   const [editing, setEditing] = useState(false);
+  const [welcoming, setWelcoming] = useState(false);
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging || dragging ? 0.5 : 1 };
   return (
     <>
@@ -328,6 +340,20 @@ function DealCard({ deal, onEdit, dragging }: { deal: Deal; onEdit: () => void; 
             {deal.cancellation_notes ? ` — ${deal.cancellation_notes}` : ""}
           </div>
         )}
+        {deal.status === "on_risk_nyp" && (
+          deal.welcome_sent_at ? (
+            <div className="mt-1 text-xs text-emerald-700" title={deal.welcome_sent_to ?? ""}>✓ Welcome email sent</div>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setWelcoming(true); }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="mt-1 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-xs text-indigo-800 hover:bg-indigo-100"
+            >
+              ✉ Welcome email
+            </button>
+          )
+        )}
         {deal.status === "in_processing" && (
           <InProcessingStageSelect
             deal={deal}
@@ -347,6 +373,7 @@ function DealCard({ deal, onEdit, dragging }: { deal: Deal; onEdit: () => void; 
         )}
       </div>
       {editing && <EditDealModal deal={deal} onClose={() => { setEditing(false); onEdit(); }} />}
+      {welcoming && <WelcomeEmailPanel dealId={deal.id} onClose={() => { setWelcoming(false); onEdit(); }} />}
     </>
   );
 }
