@@ -1036,3 +1036,45 @@ export async function sendJourneyClientEmail(i: {
     return { sent: false, reason };
   }
 }
+
+/**
+ * Welcome / thank-you email to a client (Poz, 28 Sep 2026). Sent as
+ * "TopQuote" from the portal mailbox, with replies going to the shared
+ * customer inbox rather than the data@ sending address.
+ */
+export async function sendWelcomeEmail(i: {
+  to: string[];
+  subject: string;
+  html: string;
+  text: string;
+  label: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const transporter = getTransporter();
+  if (!transporter) {
+    console.error(`[reci-email:${i.label}] no SMTP creds; aborting`);
+    return { sent: false, reason: "no SMTP credentials" };
+  }
+  const addr = process.env.SMTP_USER || process.env.GMAIL_USER || "";
+  const replyTo = (process.env.WELCOME_REPLY_TO || "hello@topquote.uk.com").trim();
+  try {
+    const info = await transporter.sendMail({
+      from: `"TopQuote" <${addr}>`,
+      replyTo,
+      to: i.to.join(", "),
+      subject: i.subject,
+      text: i.text,
+      html: i.html,
+    });
+    console.error(`[reci-email:${i.label}] sent`, { to: i.to, messageId: info.messageId, rejected: info.rejected });
+    return { sent: true };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    console.error(`[reci-email:${i.label}] FAILED`, { reason, to: i.to });
+    return { sent: false, reason };
+  }
+}
+
+/** Test mode recipients for the welcome email: management (Poz + Jimmy). */
+export function welcomeTestRecipients(): string[] {
+  return managementCc();
+}

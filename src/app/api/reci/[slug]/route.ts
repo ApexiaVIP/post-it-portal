@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession, isDashboardUser } from "@/lib/auth";
 import { getAdviserBySlug, listDealsForAdviser, businessTrackerFor, createDeal, cancellationsFor } from "@/lib/reci/db";
 import { DEAL_STATUSES } from "@/lib/reci/schema";
+import { parseWelcomeFields } from "@/lib/reci/welcome-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,8 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
       ? body.booked_date : null,
     policy_type: body.policy_type ? String(body.policy_type).slice(0, 40) : null,
     resell_cb: Number(body.resell_cb ?? 0) >= 0 ? Number(body.resell_cb ?? 0) || 0 : 0,
+    client_email: null, policy_number: null, policy_start_date: null, first_dd_date: null,
+    ...parseWelcomeFields(body),
   }, session.username);
   return NextResponse.json({ ok: true, deal }, { status: 201 });
 }

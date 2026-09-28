@@ -124,6 +124,14 @@ export interface Deal {
   booked_date: string | null;   // when the seller booked it; defaults to entry day
   policy_type: string | null;   // SLL / JDL / SDL ...
   resell_cb: number;            // clawback attached to a resell; net = commission - resell_cb
+  // Welcome email fields (Poz, 28 Sep 2026).
+  client_email: string | null;
+  policy_number: string | null;
+  policy_start_date: string | null;
+  first_dd_date: string | null;
+  welcome_sent_at: string | null;
+  welcome_sent_to: string | null;
+  welcome_sent_by: string | null;
   created_at: string;
   updated_at: string;
 }
