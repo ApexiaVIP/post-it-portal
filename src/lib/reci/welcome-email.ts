@@ -26,6 +26,13 @@ export interface WelcomeInput {
 export const TOPQUOTE_PHONE = "0161 974 3710";
 export const TOPQUOTE_EMAIL = "hello@topquote.uk.com";
 
+/** Hosted on the portal (public/, outside the login gate) so email clients can fetch it. */
+function logoUrl(): string {
+  const base = (process.env.PUBLIC_DASHBOARD_URL || "https://post-it-portal.vercel.app").replace(/\/$/, "");
+  return `${base}/email/topquote-logo.png`;
+}
+const TEAL = "#06babc";
+
 export const WELCOME_SUBJECT = "Thank you for choosing TopQuote to help look after you and your family";
 
 /**
@@ -204,7 +211,9 @@ export function renderWelcomeEmail(i: WelcomeInput): { subject: string; html: st
 <body style="margin:0;padding:0;background:#f1f5f9;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;"><tr><td align="center" style="padding:24px 12px;">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:6px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1e293b;">
-<tr><td style="background:${navy};padding:18px 28px;color:#ffffff;font-size:22px;font-weight:bold;letter-spacing:0.5px;">TopQuote</td></tr>
+<tr><td style="background:${navy};padding:20px 28px;border-bottom:4px solid ${TEAL};">
+<img src="${logoUrl()}" width="200" height="55" alt="TopQuote" style="display:block;width:200px;height:55px;border:0;outline:none;text-decoration:none;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:bold;">
+</td></tr>
 <tr><td style="padding:28px;">
 ${h.join("\n")}
 <p style="margin:24px 0 12px;">${esc(SIGN_OFF[0])}</p>
