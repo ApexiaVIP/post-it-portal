@@ -10,6 +10,7 @@ export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function parseWelcomeFields(body: Record<string, unknown>): {
   client_email?: string | null;
+  client_email_2?: string | null;
   policy_number?: string | null;
   policy_start_date?: string | null;
   first_dd_date?: string | null;
@@ -20,9 +21,11 @@ export function parseWelcomeFields(body: Record<string, unknown>): {
     return s ? s.slice(0, max) : null;
   };
   const date = (v: unknown) => (typeof v === "string" && ISO_DATE.test(v) ? v : null);
-  if ("client_email" in body) {
-    const e = text(body.client_email, 200);
-    out.client_email = e ? e.toLowerCase() : null;
+  for (const k of ["client_email", "client_email_2"] as const) {
+    if (k in body) {
+      const e = text(body[k], 200);
+      out[k] = e ? e.toLowerCase() : null;
+    }
   }
   if ("policy_number" in body) out.policy_number = text(body.policy_number, 60);
   if ("policy_start_date" in body) out.policy_start_date = date(body.policy_start_date);

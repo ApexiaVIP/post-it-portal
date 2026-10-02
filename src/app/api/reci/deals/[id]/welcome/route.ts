@@ -28,7 +28,7 @@ type DealRow = Deal & { adviser_name: string };
 async function loadDeal(id: number): Promise<DealRow | null> {
   const r = await sql.query<DealRow>(
     `SELECT d.*, d.policy_start_date::text AS policy_start_date,
-            d.first_dd_date::text AS first_dd_date, a.name AS adviser_name
+            d.first_dd_date::text AS first_dd_date, COALESCE(NULLIF(a.full_name, ''), a.name) AS adviser_name
        FROM deals d JOIN advisers a ON a.id = d.adviser_id
       WHERE d.id = $1`,
     [id],
@@ -40,7 +40,7 @@ async function loadDeal(id: number): Promise<DealRow | null> {
 async function loadSiblings(d: DealRow): Promise<DealRow[]> {
   const r = await sql.query<DealRow>(
     `SELECT d.*, d.policy_start_date::text AS policy_start_date,
-            d.first_dd_date::text AS first_dd_date, a.name AS adviser_name
+            d.first_dd_date::text AS first_dd_date, COALESCE(NULLIF(a.full_name, ''), a.name) AS adviser_name
        FROM deals d JOIN advisers a ON a.id = d.adviser_id
       WHERE d.id <> $1
         AND d.adviser_id = $2
@@ -57,6 +57,7 @@ async function loadSiblings(d: DealRow): Promise<DealRow[]> {
 function missingFor(d: DealRow): string[] {
   const m: string[] = [];
   if (!d.client_email || !EMAIL_RE.test(d.client_email)) m.push("client email");
+  if (d.client_email_2 && !EMAIL_RE.test(d.client_email_2)) m.push("second email (not valid)");
   if (!(d.provider ?? "").trim()) m.push("provider");
   if (!(d.policy_number ?? "").trim()) m.push("policy number");
   if (!d.policy_start_date) m.push("policy start date");
@@ -79,6 +80,7 @@ function summary(d: DealRow) {
     first_dd_date: d.first_dd_date ? String(d.first_dd_date).slice(0, 10) : null,
     premium: d.premium != null ? Number(d.premium) : null,
     client_email: d.client_email,
+    client_email_2: d.client_email_2,
     welcome_sent_at: d.welcome_sent_at,
     welcome_sent_to: d.welcome_sent_to,
     welcome_sent_by: d.welcome_sent_by,
@@ -124,9 +126,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
   const missing = Object.fromEntries(deals.map((d) => [d.id, missingFor(d)]));
   const incomplete = deals.filter((d) => missingFor(d).length > 0);
-  const emails = Array.from(new Set(deals.map((d) => (d.client_email ?? "").toLowerCase()).filter(Boolean)));
+  // Joint policies can carry a second email (Poz 2 Oct 2026); both get
+  // the email. Every policy folded in must share the same address(es),
+  // so nobody is sent details of policies that aren't theirs.
+  const recipientsFor = (d: DealRow) => Array.from(new Set(
+    [d.client_email, d.client_email_2].map((e) => (e ?? "").trim().toLowerCase()).filter(Boolean),
+  )).sort();
+  const emailSets = Array.from(new Set(deals.map((d) => recipientsFor(d).join(", ")).filter(Boolean)));
+  const emailConflict = emailSets.length > 1;
+  const clientEmails = emailConflict ? [] : recipientsFor(primary);
 
-  const rendered = incomplete.length === 0 && emails.length === 1
+  const rendered = incomplete.length === 0 && !emailConflict && clientEmails.length > 0
     ? renderWelcomeEmail({
         clientName: primary.client.trim(),
         adviserName: primary.adviser_name,
@@ -144,7 +154,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({
       ok: true,
       missing,
-      emailConflict: emails.length > 1 ? emails : null,
+      emailConflict: emailConflict ? emailSets : null,
       subject: rendered?.subject ?? null,
       html: rendered?.html ?? null,
     });
@@ -153,7 +163,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   // ---- send ----
   if (!rendered) {
     return NextResponse.json({
-      error: emails.length > 1
+      error: emailConflict
         ? "These policies have different client email addresses. Make them match first."
         : "Some details are still missing.",
       missing,
@@ -163,8 +173,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (live && !body?.resend && deals.some((d) => d.welcome_sent_at)) {
     return NextResponse.json({ error: "A welcome email has already been sent for this deal." }, { status: 409 });
   }
-  const clientEmail = emails[0];
-  const to = live ? [clientEmail] : welcomeTestRecipients();
+  const clientEmail = clientEmails.join(", ");
+  const to = live ? clientEmails : welcomeTestRecipients();
   if (to.length === 0) return NextResponse.json({ error: "No test recipients configured." }, { status: 500 });
   const subject = live ? rendered.subject : `[TEST, would go to ${clientEmail}] ${rendered.subject}`;
 

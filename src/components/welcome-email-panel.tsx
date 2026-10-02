@@ -21,6 +21,7 @@ interface WelcomeDeal {
   first_dd_date: string | null;
   premium: number | null;
   client_email: string | null;
+  client_email_2: string | null;
   welcome_sent_at: string | null;
   welcome_sent_to: string | null;
   welcome_sent_by: string | null;
@@ -57,6 +58,7 @@ export function WelcomeEmailPanel({ dealId, onClose, onChanged }: {
   const [info, setInfo] = useState<Info | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [email, setEmail] = useState("");
+  const [email2, setEmail2] = useState("");
   const [forms, setForms] = useState<Record<number, PolicyForm>>({});
   const [extras, setExtras] = useState<Set<number>>(new Set());
   const [preview, setPreview] = useState<{ html: string | null; missing: Record<string, string[]>; emailConflict: string[] | null } | null>(null);
@@ -72,6 +74,7 @@ export function WelcomeEmailPanel({ dealId, onClose, onChanged }: {
       const i = j as Info;
       setInfo(i);
       setEmail(i.deal.client_email ?? i.siblings.find((s) => s.client_email)?.client_email ?? "");
+      setEmail2(i.deal.client_email_2 ?? i.siblings.find((s) => s.client_email_2)?.client_email_2 ?? "");
       const f: Record<number, PolicyForm> = { [i.deal.id]: toForm(i.deal) };
       for (const s of i.siblings) f[s.id] = toForm(s);
       setForms(f);
@@ -100,6 +103,7 @@ export function WelcomeEmailPanel({ dealId, onClose, onChanged }: {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             client_email: email,
+            client_email_2: email2,
             provider: f.provider,
             policy_number: f.policy_number,
             policy_start_date: f.policy_start_date,
@@ -127,9 +131,10 @@ export function WelcomeEmailPanel({ dealId, onClose, onChanged }: {
 
   async function send() {
     if (!info || !preview?.html) return;
-    const target = info.live ? email : info.testRecipients.join(", ");
+    const clientTo = [email, email2].map((e) => e.trim()).filter(Boolean).join(" and ");
+    const target = info.live ? clientTo : info.testRecipients.join(", ");
     const msg = info.live
-      ? `Send the welcome email to ${email}?`
+      ? `Send the welcome email to ${clientTo}?`
       : `TEST MODE: send this to ${target} (not the client)?`;
     if (!confirm(msg)) return;
     setBusy(true); setErr(null);
@@ -141,7 +146,7 @@ export function WelcomeEmailPanel({ dealId, onClose, onChanged }: {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      setDone(j.live ? `Sent to ${email}.` : `Test sent to ${(j.sentTo as string[]).join(", ")}.`);
+      setDone(j.live ? `Sent to ${clientTo}.` : `Test sent to ${(j.sentTo as string[]).join(", ")}.`);
       onChanged?.();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "send failed");
@@ -161,7 +166,7 @@ export function WelcomeEmailPanel({ dealId, onClose, onChanged }: {
         <header className="flex items-center justify-between border-b px-4 py-3">
           <h2 className="font-semibold">
             Welcome email{info ? `: ${info.deal.client}` : ""}
-            {info && <span className="ml-2 text-xs font-normal text-slate-500">adviser {info.adviserName}</span>}
+            {info && <span className="ml-2 text-xs font-normal text-slate-500">adviser shown as {info.adviserName}</span>}
           </h2>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button>
         </header>
@@ -192,11 +197,18 @@ export function WelcomeEmailPanel({ dealId, onClose, onChanged }: {
               </div>
             )}
 
-            <label className="block max-w-md">
-              <span className="mb-1 block text-xs font-medium text-slate-600">Client email *</span>
-              <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setPreview(null); }}
-                className="w-full rounded border px-2 py-1" placeholder="client@example.com" />
-            </label>
+            <div className="grid max-w-3xl grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600">Client email *</span>
+                <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setPreview(null); }}
+                  className="w-full rounded border px-2 py-1" placeholder="client@example.com" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600">Second email (joint policy, optional)</span>
+                <input type="email" value={email2} onChange={(e) => { setEmail2(e.target.value); setPreview(null); }}
+                  className="w-full rounded border px-2 py-1" placeholder="partner@example.com" />
+              </label>
+            </div>
 
             {info.siblings.length > 0 && (
               <div className="rounded border border-indigo-200 bg-indigo-50 px-3 py-2">
@@ -272,7 +284,7 @@ export function WelcomeEmailPanel({ dealId, onClose, onChanged }: {
             </table>
 
             {preview?.emailConflict && (
-              <p className="text-red-700">These policies have different emails on file ({preview.emailConflict.join(", ")}). Save again with one email.</p>
+              <p className="text-red-700">These policies have different emails on file ({preview.emailConflict.join(" / ")}). Save and preview again so they all use the same email(s).</p>
             )}
 
             {preview?.html && (

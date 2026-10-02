@@ -112,6 +112,7 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, welcomeDeal
     resell_cb: initial.resell_cb ?? 0,
     // Welcome email fields (Poz 28 Sep 2026).
     client_email: initial.client_email ?? "",
+    client_email_2: initial.client_email_2 ?? "",
     policy_number: initial.policy_number ?? "",
     policy_start_date: initial.policy_start_date ? String(initial.policy_start_date).slice(0, 10) : "",
     first_dd_date: initial.first_dd_date ? String(initial.first_dd_date).slice(0, 10) : "",
@@ -135,6 +136,7 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, welcomeDeal
       provider: deal.provider ?? "",
       premium: deal.premium ?? "",
       client_email: deal.client_email ?? "",
+      client_email_2: deal.client_email_2 ?? "",
       policy_number: deal.policy_number ?? "",
       policy_start_date: deal.policy_start_date ? String(deal.policy_start_date).slice(0, 10) : "",
       first_dd_date: deal.first_dd_date ? String(deal.first_dd_date).slice(0, 10) : "",
@@ -184,7 +186,7 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, welcomeDeal
           policy_start_date: "",
           first_dd_date: "",
           // KEEP: client, postcode, week, poz_listened, miscellaneous,
-          //       confirmed_date, submitted, year, booked_date, client_email
+          //       confirmed_date, submitted, year, booked_date, client_email(s)
         }));
       } else {
         onClose();
@@ -268,12 +270,15 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, welcomeDeal
           <Field label="Client email" className="col-span-2">
             <input type="email" value={form.client_email} onChange={set("client_email")} placeholder="client@example.com" className="w-full border rounded px-2 py-1" />
           </Field>
+          <Field label="Second email (joint policy)" className="col-span-2">
+            <input type="email" value={form.client_email_2} onChange={set("client_email_2")} placeholder="optional" className="w-full border rounded px-2 py-1" />
+          </Field>
           <Field label="Policy number" className="col-span-2">
             <input value={form.policy_number} onChange={set("policy_number")} className="w-full border rounded px-2 py-1 font-mono" />
           </Field>
           <Field label="Policy start date"><input type="date" value={form.policy_start_date} onChange={set("policy_start_date")} className="w-full border rounded px-2 py-1" /></Field>
           <Field label="First DD date"><input type="date" value={form.first_dd_date} onChange={set("first_dd_date")} className="w-full border rounded px-2 py-1" /></Field>
-          <div className="col-span-2 flex items-end gap-2 pb-1 text-xs">
+          <div className="col-span-2 md:col-span-4 flex items-end gap-2 pb-1 text-xs">
             {welcomeSent.at ? (
               <span className="text-emerald-700">✓ Welcome email sent {new Date(welcomeSent.at).toLocaleDateString("en-GB")}{welcomeSent.to ? ` to ${welcomeSent.to}` : ""}</span>
             ) : welcomeDealId && initial.status === "on_risk_nyp" ? (

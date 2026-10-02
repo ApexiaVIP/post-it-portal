@@ -113,7 +113,7 @@ export default function AdviserKanbanPage() {
       const fields: (string | null | undefined)[] = [
         d.client, d.postcode, d.provider, d.notes, d.cancellation_notes,
         d.miscellaneous, d.confirmed_date, d.acc_ref, d.gl_sp, d.gl_txt,
-        d.policy_number, d.client_email,
+        d.policy_number, d.client_email, d.client_email_2,
       ];
       return fields.some((f) => f && String(f).toLowerCase().includes(q));
     };

@@ -86,6 +86,7 @@ export interface Adviser {
   sort_order: number;
   active: boolean;
   email?: string | null;
+  full_name?: string | null;     // client-facing name, e.g. on the welcome email
 }
 
 export interface Deal {
@@ -126,6 +127,7 @@ export interface Deal {
   resell_cb: number;            // clawback attached to a resell; net = commission - resell_cb
   // Welcome email fields (Poz, 28 Sep 2026).
   client_email: string | null;
+  client_email_2: string | null;   // second policyholder on a joint policy
   policy_number: string | null;
   policy_start_date: string | null;
   first_dd_date: string | null;
