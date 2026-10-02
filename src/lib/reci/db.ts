@@ -66,7 +66,7 @@ export async function createDeal(
       confirmed_date, poz_listened, miscellaneous, submitted, acc_ref,
       status, commission, notes, gl_sp, gl_txt, trust_done, trust_sent,
       booked_date, policy_type, resell_cb,
-      client_email, policy_number, policy_start_date, first_dd_date
+      client_email, client_email_2, policy_number, policy_start_date, first_dd_date
     ) VALUES (
       ${data.adviser_id}, ${data.year}, ${data.week}, ${data.client},
       ${data.postcode}, ${data.no_of_deals}, ${data.provider}, ${data.premium},
@@ -75,7 +75,7 @@ export async function createDeal(
       ${data.notes}, ${data.gl_sp}, ${data.gl_txt}, ${data.trust_done}, ${data.trust_sent},
       ${data.booked_date ?? new Date().toISOString().slice(0, 10)},
       ${data.policy_type}, ${data.resell_cb ?? 0},
-      ${data.client_email ?? null}, ${data.policy_number ?? null},
+      ${data.client_email ?? null}, ${data.client_email_2 ?? null}, ${data.policy_number ?? null},
       ${data.policy_start_date ?? null}, ${data.first_dd_date ?? null}
     )
     RETURNING *
@@ -136,6 +136,7 @@ export async function updateDeal(
       policy_type         = ${next.policy_type},
       resell_cb           = ${next.resell_cb ?? 0},
       client_email        = ${next.client_email},
+      client_email_2      = ${next.client_email_2},
       policy_number       = ${next.policy_number},
       policy_start_date   = ${next.policy_start_date},
       first_dd_date       = ${next.first_dd_date},
