@@ -63,10 +63,19 @@ export function providerDisplayName(raw: string | null | undefined): { name: str
   return mapped ? { name: mapped, recognised: true } : { name: typed, recognised: false };
 }
 
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+/** 1st, 2nd, 3rd, 4th ... 11th, 12th, 13th ... 21st (Guy, 28 Sep 2026). */
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th"}`;
+}
+
 export function formatLongDate(iso: string): string {
   const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  return `${ordinal(d.getUTCDate())} ${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 function money(n: number): string {
@@ -87,26 +96,31 @@ type Block =
   | { kind: "h1"; text: string }
   | { kind: "h2"; text: string }
   | { kind: "p"; text: string }
+  | { kind: "list"; items: { lead: string; text: string }[] }
   | { kind: "details"; rows: [string, string][]; caption?: string };
 
+/**
+ * Shortened 2 Oct 2026 (Guy found the first version too long): every
+ * point from Poz's copy is kept, but each is said once and the four
+ * "what to do now" sections sit together as a short list.
+ */
 function buildBlocks(i: WelcomeInput): Block[] {
   const many = i.policies.length > 1;
   const providers = Array.from(new Set(i.policies.map((p) => p.provider)));
   const providerList = joinAnd(providers);
   const starts = Array.from(new Set(i.policies.map((p) => p.startDate)));
   const adviser = i.adviserName;
+  const pol = many ? "policies" : "policy";
 
-  const intro = !many
-    ? `We are delighted to confirm that your new protection policy with ${providerList} is now in force, with your cover commencing on ${formatLongDate(starts[0])}.`
-    : starts.length === 1
-      ? `We are delighted to confirm that your new protection policies with ${providerList} are now in force, with your cover commencing on ${formatLongDate(starts[0])}.`
-      : `We are delighted to confirm that your new protection policies with ${providerList} are now in force. The start date for each policy is shown below.`;
+  const intro = starts.length === 1
+    ? `We are delighted to confirm that your new protection ${pol} with ${providerList} ${many ? "are" : "is"} now in force, with your cover starting on ${formatLongDate(starts[0])}.`
+    : `We are delighted to confirm that your new protection ${pol} with ${providerList} are now in force. The start date for each policy is shown below.`;
 
   const blocks: Block[] = [
     { kind: "h1", text: WELCOME_SUBJECT },
     { kind: "p", text: `Dear ${i.clientName},` },
     { kind: "p", text: intro },
-    { kind: "p", text: "Thank you for choosing TopQuote to arrange your protection. We really appreciate your business and hope you are pleased to have this important cover in place." },
+    { kind: "p", text: "Thank you for choosing TopQuote to arrange your protection. We really appreciate your business." },
     { kind: "h2", text: "Your policy details" },
   ];
   i.policies.forEach((p, idx) => {
@@ -123,41 +137,38 @@ function buildBlocks(i: WelcomeInput): Block[] {
       ],
     });
   });
+  const collector = providers.length === 1 ? providerList : "the insurer";
   blocks.push(
-    { kind: "p", text: "Please retain these details for your records." },
-
-    { kind: "h2", text: "Your first payment" },
     {
       kind: "p",
-      text: !many
-        ? `Your first Direct Debit will be collected by ${providerList} on or shortly after the collection date agreed with ${adviser} during your application.`
-        : `The first Direct Debit for each policy will be collected by ${providers.length === 1 ? providerList : "the insurer"} on or shortly after the collection date agreed with ${adviser} during your application.`,
+      text: `Please keep these details for your records. ${many ? "The first Direct Debit for each policy" : "Your first Direct Debit"} will be collected by ${collector} on or shortly after the first collection date shown above.`,
     },
 
-    { kind: "h2", text: "Your policy documents" },
-    { kind: "p", text: "Your insurer will issue your policy documentation either electronically or by post, depending on the delivery method selected during your application. These documents would normally be expected within the next 7–10 days." },
-    { kind: "p", text: "If you have not received them after this time, please contact us and we will be happy to arrange for duplicate copies to be issued." },
-
-    { kind: "h2", text: "Checking Your Details" },
-    { kind: "p", text: `Your insurance provider will supply you with a copy of the application discussed and completed with your adviser, ${adviser}, and will usually invite you to check that the personal, lifestyle and medical information recorded is correct.` },
-    { kind: "p", text: "This is an important final opportunity to make sure the information captured during your application is a true and accurate reflection of the information you provided." },
-    { kind: "p", text: "Providers may refer to this process as “Checking Your Details” or something similar." },
-    { kind: "p", text: "Please complete this as soon as possible, confirming that the information is correct or making any necessary amendments at your earliest convenience." },
-    { kind: "p", text: `If you have any questions or need our help, please contact us on ${TOPQUOTE_PHONE}.` },
-
-    { kind: "h2", text: "Existing policies" },
-    { kind: "p", text: `If your new ${many ? "policies are" : "policy is"} replacing existing protection, please do not cancel your previous cover unless you are satisfied that your new ${many ? "policies are" : "policy is"} in force, and you know whether cancellation has already been arranged.` },
-    { kind: "p", text: "Where TopQuote has arranged the replacement of an existing policy with a new policy from the same insurer, the cancellation may already have been arranged to coincide with the start of your new cover." },
-    { kind: "p", text: "If you are unsure whether your previous policy has been cancelled, please contact us before taking any action and we will be happy to check this for you." },
-
-    { kind: "h2", text: `Placing your ${many ? "policies" : "policy"} into Trust` },
-    { kind: "p", text: `If it is your intention to place your new ${many ? "policies" : "policy"} into Trust, and this was not arranged when your ${many ? "policies were" : "policy was"} set up with ${adviser}, we would encourage you to do this as soon as possible.` },
-    { kind: "p", text: `Please contact the relevant Trust department at ${providerList} to discuss the options available to you and obtain the appropriate documentation.` },
-    { kind: "p", text: `Whilst TopQuote cannot complete the Trust documentation on your behalf, we can provide some guidance should you need our help on a standard discretionary trust. Please contact your adviser here at TopQuote on ${TOPQUOTE_PHONE}.` },
+    { kind: "h2", text: "What happens next" },
+    {
+      kind: "list",
+      items: [
+        {
+          lead: "Your policy documents",
+          text: "Your insurer will send these by email or post, depending on what you chose when you applied, normally within 7 to 10 days. If they have not arrived by then, let us know and we will arrange copies.",
+        },
+        {
+          lead: "Checking your details",
+          text: `Your insurer will send you a copy of the application you completed with ${adviser} and ask you to check that the personal, lifestyle and medical information is correct. This is an important final opportunity to make sure it is accurate, so please do this as soon as possible and make any changes needed.`,
+        },
+        {
+          lead: "Existing cover",
+          text: `If your new ${pol} ${many ? "replace" : "replaces"} existing cover, please do not cancel your old policy until you are sure the new cover is in force and you know whether the cancellation has already been arranged. Where we have replaced a policy with the same insurer, we may have arranged this already. If you are unsure, please call us before taking any action.`,
+        },
+        {
+          lead: `Placing your ${pol} in Trust`,
+          text: `If you would like to place your ${pol} in Trust and this was not arranged with ${adviser}, please contact the Trust department at ${providerList} as soon as possible. We cannot complete the Trust documents for you, but we can guide you on a standard discretionary trust.`,
+        },
+      ],
+    },
 
     { kind: "h2", text: "We’re here to help" },
-    { kind: "p", text: `Although your new ${many ? "policies are" : "policy is"} now in place, our relationship with you doesn’t end here.` },
-    { kind: "p", text: "If your circumstances change, you have a question about your cover, or you simply need our help in the future, please get in touch." },
+    { kind: "p", text: `Our relationship with you doesn’t end here. If your circumstances change or you have a question about your cover, now or in the future, please call us on ${TOPQUOTE_PHONE} or email ${TOPQUOTE_EMAIL}.` },
   );
   return blocks;
 }
@@ -177,7 +188,9 @@ export function renderWelcomeEmail(i: WelcomeInput): { subject: string; html: st
     if (b.kind === "h1") t.push(b.text.toUpperCase(), "");
     else if (b.kind === "h2") t.push(b.text, "-".repeat(b.text.length));
     else if (b.kind === "p") t.push(b.text, "");
-    else {
+    else if (b.kind === "list") {
+      for (const it of b.items) t.push(`- ${it.lead}: ${it.text}`, "");
+    } else {
       if (b.caption) t.push(b.caption);
       for (const [k, v] of b.rows) t.push(`${k}: ${v}`);
       t.push("");
@@ -196,6 +209,12 @@ export function renderWelcomeEmail(i: WelcomeInput): { subject: string; html: st
       h.push(`<h2 style="margin:26px 0 8px;font-size:17px;line-height:1.3;color:${navy};">${esc(b.text)}</h2>`);
     } else if (b.kind === "p") {
       h.push(`<p style="margin:0 0 12px;">${esc(b.text)}</p>`);
+    } else if (b.kind === "list") {
+      const items = b.items.map((it) =>
+        `<tr><td style="width:14px;vertical-align:top;padding:7px 0 10px;"><div style="width:7px;height:7px;border-radius:4px;background:${TEAL};"></div></td>` +
+        `<td style="padding:0 0 10px;"><strong style="color:${navy};">${esc(it.lead)}.</strong> ${esc(it.text)}</td></tr>`,
+      ).join("");
+      h.push(`<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 6px;">${items}</table>`);
     } else {
       const caption = b.caption
         ? `<tr><td colspan="2" style="padding:8px 12px;background:#e8eef5;font-weight:bold;color:${navy};border:1px solid #d5dde8;">${esc(b.caption)}</td></tr>`
