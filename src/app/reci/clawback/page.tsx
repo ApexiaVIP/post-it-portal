@@ -466,13 +466,14 @@ export default function ClawbackPage() {
         setUploadResult(`Upload failed: ${j.error || r.statusText}`);
       } else {
         const s = j.summary;
-        // Auto-notify metrics come back when at least one new case had
-        // clawback_due > 0 (zero-pound cases are deliberately not
-        // notified). Surface them so Pauline knows what fired.
+        // Always say what happened with emails (Poz 5 Oct 2026: an upload
+        // that needed none read as silence and looked like a fault).
+        // Only cases carrying a clawback amount are emailed; £0 L&G
+        // early warnings never are.
         const notifyTail = s.autoNotifyAttempted > 0
-          ? ` Notify emails: ${s.autoNotifySent}/${s.autoNotifyAttempted}` +
-            (s.autoNotifyFailed > 0 ? ` (${s.autoNotifyFailed} failed -- see logs)` : "")
-          : "";
+          ? ` Emails to sellers: ${s.autoNotifySent} of ${s.autoNotifyAttempted} case${s.autoNotifyAttempted === 1 ? "" : "s"} sent` +
+            (s.autoNotifyFailed > 0 ? ` (${s.autoNotifyFailed} failed, tell Jimmy)` : "") + "."
+          : " No emails needed: none of the new or updated cases has a clawback amount yet (they are L&G early warnings). Sellers are emailed automatically once a case has a clawback amount.";
         setUploadResult(
           `Ingested ${s.rowsTotal} rows from ${f.name} (report date ${s.reportDate || "n/a"}): ` +
           `${s.rowsInserted} new, ${s.rowsUpdated} updated, ${s.rowsUnchanged} unchanged, ` +
