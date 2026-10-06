@@ -17,7 +17,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const auth = await requireCallQA();
   if (auth instanceof NextResponse) return auth;
   const caseId = Number(params.id);
-  if (!(await getCase(caseId))) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const qaCase = await getCase(caseId);
+  if (!qaCase) return NextResponse.json({ error: "not found" }, { status: 404 });
   const body = await req.json().catch(() => ({})) as { gate?: number };
   const gate = body.gate === 2 ? 2 : 1;
 
@@ -51,6 +52,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     VALUES (${caseId}, ${gate}, 'running', ${QA_MODEL}, ${auth.username})
     RETURNING id`;
   const runId = run.rows[0].id;
-  waitUntil(gate === 1 ? runGate1(runId, calls) : runGate2(runId, calls, pdf!));
+  waitUntil(gate === 1
+    ? runGate1(runId, calls, qaCase.case_type)
+    : runGate2(runId, calls, pdf!, qaCase.case_type));
   return NextResponse.json({ ok: true, runId }, { status: 202 });
 }
