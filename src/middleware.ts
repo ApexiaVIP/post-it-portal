@@ -16,6 +16,9 @@ export const config = {
     "/api/reci/:path*",
     "/api/admin/:path*",
     "/api/me",
+    "/qa",
+    "/qa/:path*",
+    "/api/qa/:path*",
   ],
 };
 

@@ -6,6 +6,7 @@ import {
   canUploadEbah, canNotifyCam,
   getEditableAdviserId,
   canViewTrackerMI, canViewAnalyticsMI, canViewConfirmationsMI, canViewCallCentreMI,
+  canUseCallQA,
 } from "@/lib/auth";
 import { sql } from "@vercel/postgres";
 
@@ -62,6 +63,7 @@ export async function GET() {
     canAnalytics:      canViewAnalyticsMI(session.username),
     canConfirmations:  canViewConfirmationsMI(session.username),
     canCallCentre:     canViewCallCentreMI(session.username),
+    canCallQA:         canUseCallQA(session.username),
     // For junior sellers: the adviser_id whose cases they're allowed to
     // edit. Null for admins / senior sellers (can edit all) and viewers
     // (can edit none). The dashboard uses this to gate the "Take action"
