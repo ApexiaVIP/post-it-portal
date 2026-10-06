@@ -23,8 +23,14 @@ export async function requireCallQA(): Promise<{ username: string } | NextRespon
 export async function getCase(id: number): Promise<QaCase | null> {
   const r = await sql<QaCase>`
     SELECT c.id, c.client_name, c.adviser_id, a.name AS adviser_name, c.case_type,
-           c.notes, c.created_by, c.created_at::text AS created_at
-      FROM qa_cases c LEFT JOIN advisers a ON a.id = c.adviser_id
+           c.notes, c.created_by, c.created_at::text AS created_at,
+           c.deal_id,
+           CASE WHEN d.id IS NULL THEN NULL
+                ELSE d.client || COALESCE(' · ' || d.provider, '') || ' · week ' || d.week || ' ' || d.year END AS deal_label,
+           c.outcome, c.outcome_notes, c.outcome_by, c.outcome_at::text AS outcome_at
+      FROM qa_cases c
+      LEFT JOIN advisers a ON a.id = c.adviser_id
+      LEFT JOIN deals d ON d.id = c.deal_id
      WHERE c.id = ${id} AND c.deleted_at IS NULL`;
   return r.rows[0] ?? null;
 }

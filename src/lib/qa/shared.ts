@@ -29,7 +29,20 @@ export interface QaCase {
   notes: string | null;
   created_by: string;
   created_at: string;
+  deal_id: number | null;
+  deal_label: string | null;
+  outcome: CaseOutcome | null;
+  outcome_notes: string | null;
+  outcome_by: string | null;
+  outcome_at: string | null;
 }
+
+export type CaseOutcome = "approved" | "approved_with_actions" | "returned";
+export const OUTCOME_LABELS: Record<CaseOutcome, string> = {
+  approved: "Approved",
+  approved_with_actions: "Approved with actions",
+  returned: "Returned to adviser",
+};
 
 export interface QaCall {
   id: number;

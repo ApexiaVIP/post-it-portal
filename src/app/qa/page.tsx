@@ -20,7 +20,14 @@ interface CaseRow {
   calls_ready: number;
   gate1_status: "running" | "done" | "failed" | null;
   gate2_status: "running" | "done" | "failed" | null;
+  outcome: "approved" | "approved_with_actions" | "returned" | null;
 }
+
+const OUTCOME_CHIP: Record<string, [string, string]> = {
+  approved: ["Approved", "bg-emerald-100 text-emerald-800"],
+  approved_with_actions: ["Approved with actions", "bg-amber-100 text-amber-900"],
+  returned: ["Returned", "bg-red-100 text-red-800"],
+};
 interface Adviser { id: number; name: string }
 
 function GateChip({ label, status }: { label: string; status: CaseRow["gate1_status"] }) {
@@ -83,6 +90,7 @@ export default function CallQaListPage() {
         </div>
         <div className="flex items-center gap-2 text-sm">
           <Link href="/" className="rounded border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">POST IT</Link>
+          <Link href="/qa/dashboard" className="rounded border border-teal-300 bg-teal-50 px-3 py-1.5 font-medium text-teal-800 hover:bg-teal-100">QA dashboard</Link>
           <button type="button" onClick={() => setShowNew((v) => !v)}
             className="rounded bg-slate-900 px-3 py-1.5 font-medium text-white hover:bg-slate-800">
             + New case
@@ -139,13 +147,14 @@ export default function CallQaListPage() {
               <th className="px-3 py-2">Type</th>
               <th className="px-3 py-2">Calls</th>
               <th className="px-3 py-2">Checks</th>
+              <th className="px-3 py-2">Sign-off</th>
               <th className="px-3 py-2">Created</th>
             </tr>
           </thead>
           <tbody>
-            {!cases && !err && <tr><td colSpan={6} className="px-3 py-4 text-slate-400">Loading…</td></tr>}
+            {!cases && !err && <tr><td colSpan={7} className="px-3 py-4 text-slate-400">Loading…</td></tr>}
             {cases && cases.length === 0 && (
-              <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">No cases yet. Click + New case to start.</td></tr>
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-500">No cases yet. Click + New case to start.</td></tr>
             )}
             {cases?.map((c) => (
               <tr key={c.id} className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
@@ -155,6 +164,13 @@ export default function CallQaListPage() {
                 <td className="px-3 py-2">{c.case_type === "one_call" ? "One call" : "Two calls"}</td>
                 <td className="px-3 py-2 tabular-nums">{c.calls_ready}/{c.calls} transcribed</td>
                 <td className="space-x-1 px-3 py-2"><GateChip label="Gate 1" status={c.gate1_status} /><GateChip label="Gate 2" status={c.gate2_status} /></td>
+                <td className="px-3 py-2">
+                  {c.outcome
+                    ? <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${OUTCOME_CHIP[c.outcome][1]}`}>{OUTCOME_CHIP[c.outcome][0]}</span>
+                    : c.gate1_status === "done"
+                      ? <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[11px] font-medium text-teal-800">Awaiting review</span>
+                      : <span className="text-xs text-slate-400">—</span>}
+                </td>
                 <td className="px-3 py-2 text-slate-500">{new Date(c.created_at).toLocaleDateString("en-GB")} · {c.created_by}</td>
               </tr>
             ))}
