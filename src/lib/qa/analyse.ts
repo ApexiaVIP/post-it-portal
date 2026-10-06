@@ -15,7 +15,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { z } from "zod";
 import { sql } from "@vercel/postgres";
-import { CALL_TYPE_LABELS, type QaCall } from "./shared";
+import { CALL_TYPE_LABELS, type QaCall, type CaseType } from "./shared";
 import {
   ObservationOutput, DisclosureOutput, FactsOutput, ConsistencyOutput, SuitabilityOutput,
   type Gate1Result, type Gate2Result,
@@ -100,9 +100,12 @@ export function buildTranscriptText(calls: QaCall[]): string {
   return parts.join("\n");
 }
 
-async function loadStandards(): Promise<string> {
+/** The Openwork form plus the call guides for this case type. */
+async function loadStandards(caseType: CaseType): Promise<string> {
   const r = await sql<{ key: string; title: string; content: string }>`
-    SELECT key, title, content FROM qa_rulesets ORDER BY sort_order, key`;
+    SELECT key, title, content FROM qa_rulesets
+     WHERE applies_to IN ('all', ${caseType})
+     ORDER BY sort_order, key`;
   if (r.rows.length === 0) throw new Error("The QA rulebook has not been loaded yet.");
   return r.rows
     .map((x) => `<standard key="${x.key}" title="${x.title}">\n${x.content}\n</standard>`)
@@ -175,10 +178,10 @@ function describeError(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export async function runGate1(runId: number, calls: QaCall[]): Promise<void> {
+export async function runGate1(runId: number, calls: QaCall[], caseType: CaseType): Promise<void> {
   try {
     const client = new Anthropic();
-    const system = `${SYSTEM_INTRO}\n\nTHE STANDARDS\n\n${await loadStandards()}`;
+    const system = `${SYSTEM_INTRO}\n\nTHE STANDARDS\n\n${await loadStandards(caseType)}`;
     const transcripts = buildTranscriptText(calls);
 
     const [observation, disclosures, facts, consistency] = await Promise.allSettled([
@@ -206,10 +209,10 @@ export async function runGate1(runId: number, calls: QaCall[]): Promise<void> {
   }
 }
 
-export async function runGate2(runId: number, calls: QaCall[], reportPdf: Buffer): Promise<void> {
+export async function runGate2(runId: number, calls: QaCall[], reportPdf: Buffer, caseType: CaseType): Promise<void> {
   try {
     const client = new Anthropic();
-    const system = `${SYSTEM_INTRO}\n\nTHE STANDARDS\n\n${await loadStandards()}`;
+    const system = `${SYSTEM_INTRO}\n\nTHE STANDARDS\n\n${await loadStandards(caseType)}`;
     const { data, usage } = await runCheck(
       client, system, buildTranscriptText(calls), TASKS.suitability, SuitabilityOutput, reportPdf,
     );
