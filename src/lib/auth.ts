@@ -334,7 +334,22 @@ export function isPortalUser(username: string | null | undefined): username is s
 
 // Path-level authorisation. Layered so multiple roles can apply to one user:
 // e.g. Tan is both data-entry (for POST IT) and reci-seller (for clawback).
+// Call QA (Guy + Poz brief, 6 Oct 2026): AI checking of recorded sales
+// calls. Health and financial data, so access is an explicit list that
+// nobody inherits through another role, admins included.
+const CALL_QA_USERNAMES = parseList(process.env.CALL_QA_USERNAMES ?? "jimmy,pauline,poz,guy");
+
+export function canUseCallQA(username: string | null | undefined): username is string {
+  if (!username) return false;
+  return CALL_QA_USERNAMES.includes(username.toLowerCase());
+}
+
+function isCallQAPath(pathname: string): boolean {
+  return pathname === "/qa" || pathname.startsWith("/qa/") || pathname.startsWith("/api/qa");
+}
+
 export function canAccessPath(username: string | null | undefined, pathname: string): boolean {
+  if (isCallQAPath(pathname)) return canUseCallQA(username);
   const role = roleFor(username);
   if (role === "none") {
     // Even non-roled accounts may have a clawback role attached

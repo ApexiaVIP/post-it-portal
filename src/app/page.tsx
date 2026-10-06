@@ -11,6 +11,7 @@ type Saving = "idle" | "saving" | "saved" | "error";
 interface MeFlags {
   canCallCentre?: boolean; canTracker?: boolean;
   canConfirmations?: boolean; canAnalytics?: boolean; canClawback?: boolean;
+  canCallQA?: boolean;
 }
 
 export default function AdminPage() {
@@ -134,7 +135,7 @@ export default function AdminPage() {
       {/* Role-aware nav (Poz 9 Sep 2026): the MI access granted to Tan
           and Hayder was invisible because this landing page had no links
           to anywhere. Buttons render only for areas the user can open. */}
-      {me && (me.canCallCentre || me.canTracker || me.canConfirmations || me.canAnalytics || me.canClawback) && (
+      {me && (me.canCallCentre || me.canTracker || me.canConfirmations || me.canAnalytics || me.canClawback || me.canCallQA) && (
         <nav className="flex flex-wrap items-center gap-2 text-sm">
           {me.canCallCentre && (
             <a href="/dashboard" className="rounded border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100">Live Dashboard</a>
@@ -153,6 +154,9 @@ export default function AdminPage() {
           )}
           {me.canClawback && (
             <a href="/reci/clawback" className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 font-medium text-indigo-800 hover:bg-indigo-100">Clawback Dashboard</a>
+          )}
+          {me.canCallQA && (
+            <a href="/qa" className="rounded border border-teal-300 bg-teal-50 px-3 py-1.5 font-medium text-teal-800 hover:bg-teal-100">Call QA</a>
           )}
         </nav>
       )}

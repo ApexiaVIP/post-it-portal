@@ -28,6 +28,7 @@ interface MeResp {
   isClawbackAdmin: boolean;
   isSeniorSeller: boolean;
   isJuniorSeller: boolean;
+  canCallQA?: boolean;
   isClawbackSeller: boolean;
   isClawbackViewer: boolean;
   canEditClawback: boolean;
@@ -570,6 +571,14 @@ export default function ClawbackPage() {
           >
             Credit Control
           </a>
+          {me?.canCallQA && (
+            <a
+              href="/qa"
+              className="rounded border border-teal-300 bg-teal-50 px-3 py-1.5 text-sm font-medium text-teal-800 hover:bg-teal-100"
+            >
+              Call QA
+            </a>
+          )}
           {me && !me.isJuniorSeller && (
             <a
               href="/reci/clawback/monthly"
