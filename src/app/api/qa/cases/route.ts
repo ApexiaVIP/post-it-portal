@@ -16,7 +16,7 @@ export async function GET() {
 
   const [cases, advisers] = await Promise.all([
     sql`
-      SELECT c.id, c.client_name, c.case_type, c.created_by, c.created_at::text AS created_at,
+      SELECT c.id, c.client_name, c.case_type, c.created_by, c.created_at::text AS created_at, c.outcome,
              a.name AS adviser_name,
              (SELECT COUNT(*)::int FROM qa_calls k WHERE k.case_id = c.id AND k.deleted_at IS NULL) AS calls,
              (SELECT COUNT(*)::int FROM qa_calls k WHERE k.case_id = c.id AND k.deleted_at IS NULL AND k.status = 'ready') AS calls_ready,

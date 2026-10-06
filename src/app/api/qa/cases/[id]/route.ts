@@ -40,11 +40,18 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
           FROM qa_runs WHERE case_id = ${id}
          ORDER BY gate, started_at DESC`,
   ]);
+  const runIds = runs.rows.map((r) => r.id as number);
+  const reviews = runIds.length
+    ? await sql.query(
+        `SELECT run_id, item_key, confirmed_result, note, reviewed_by, reviewed_at::text AS reviewed_at
+           FROM qa_review_items WHERE run_id = ANY($1::int[])`, [runIds])
+    : { rows: [] };
   return NextResponse.json({
     case: qaCase,
     calls,
     document: doc.rows[0] ?? null,
     runs: runs.rows,
+    reviews: reviews.rows,
   });
 }
 
@@ -61,9 +68,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     ? (Number(body.adviser_id) > 0 ? Number(body.adviser_id) : null) : existing.adviser_id;
   const caseType = body.case_type === "one_call" || body.case_type === "two_call" ? body.case_type : existing.case_type;
   const notes = "notes" in body ? (String(body.notes ?? "").trim().slice(0, 2000) || null) : existing.notes;
+  const dealId = "deal_id" in body ? (Number(body.deal_id) > 0 ? Number(body.deal_id) : null) : existing.deal_id;
   await sql`
     UPDATE qa_cases SET client_name = ${clientName}, adviser_id = ${adviserId},
-           case_type = ${caseType}, notes = ${notes}, updated_at = now()
+           case_type = ${caseType}, notes = ${notes}, deal_id = ${dealId}, updated_at = now()
      WHERE id = ${id}`;
   return NextResponse.json({ ok: true });
 }

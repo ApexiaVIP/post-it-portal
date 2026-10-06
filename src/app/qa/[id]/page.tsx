@@ -12,7 +12,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { CALL_TYPE_LABELS, fmtTime, type QaCall, type QaCase, type CallType } from "@/lib/qa/shared";
+import {
+  CALL_TYPE_LABELS, OUTCOME_LABELS, fmtTime,
+  type QaCall, type QaCase, type CallType, type CaseOutcome,
+} from "@/lib/qa/shared";
+import { CONFIRM_OPTIONS, CONFIRM_LABELS, aiAsConfirmed, type ReviewSection } from "@/lib/qa/review";
 import type {
   Gate1Result, Gate2Result, EvidenceItem, ExceptionItem,
 } from "@/lib/qa/schemas";
@@ -33,6 +37,15 @@ interface Detail {
   calls: QaCall[];
   document: { id: number; filename: string | null; size_bytes: number; uploaded_by: string | null; uploaded_at: string } | null;
   runs: Run[];
+  reviews: ReviewRow[];
+}
+interface ReviewRow {
+  run_id: number; item_key: string; confirmed_result: string; note: string | null;
+  reviewed_by: string; reviewed_at: string;
+}
+interface ReviewApi {
+  get: (runId: number | undefined, key: string) => ReviewRow | undefined;
+  save: (runId: number, items: { key: string; confirmed: string | null }[]) => Promise<void>;
 }
 
 const CHUNK = 4 * 1024 * 1024 - 1024;
@@ -107,6 +120,30 @@ export default function CallQaCasePage() {
   const gate1 = data?.runs.find((r) => r.gate === 1) ?? null;
   const gate2 = data?.runs.find((r) => r.gate === 2) ?? null;
 
+  const review: ReviewApi = useMemo(() => {
+    const map = new Map((data?.reviews ?? []).map((r) => [`${r.run_id}|${r.item_key}`, r]));
+    return {
+      get: (runId, key) => (runId ? map.get(`${runId}|${key}`) : undefined),
+      save: async (runId, items) => {
+        // Optimistic, then refresh from the server.
+        setData((d) => {
+          if (!d) return d;
+          const keep = d.reviews.filter((r) => !(r.run_id === runId && items.some((i) => i.key === r.item_key)));
+          const added = items.filter((i) => i.confirmed !== null).map((i) => ({
+            run_id: runId, item_key: i.key, confirmed_result: i.confirmed as string, note: null,
+            reviewed_by: "you", reviewed_at: new Date().toISOString(),
+          }));
+          return { ...d, reviews: [...keep, ...added] };
+        });
+        await fetch(`/api/qa/cases/${caseId}/review`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ run_id: runId, items }),
+        });
+        void load();
+      },
+    };
+  }, [data?.reviews, caseId, load]);
+
   const jump = useCallback((ev: EvidenceItem) => {
     const call = data?.calls.find((c) => c.call_number === ev.call);
     if (!call) return;
@@ -135,6 +172,7 @@ export default function CallQaCasePage() {
             Adviser {c.adviser_name ?? "not set"} · {c.case_type === "one_call" ? "One call" : "Fact find call + advice call"}
             {c.notes ? ` · ${c.notes}` : ""}
           </p>
+          <DealLink caseId={caseId} qaCase={c} onChanged={load} />
         </div>
         <div className="no-print flex gap-2 text-sm">
           <button type="button" onClick={() => window.print()} className="rounded border border-slate-300 px-3 py-1.5 hover:bg-slate-50">Print report</button>
@@ -174,7 +212,11 @@ export default function CallQaCasePage() {
           onStarted={load} />
       </section>
 
-      <Report gate1={gate1} gate2={gate2} onJump={jump} />
+      {(gate1?.status === "done" || gate2?.status === "done") && (
+        <OutcomePanel caseId={caseId} qaCase={c} onChanged={load} />
+      )}
+
+      <Report gate1={gate1} gate2={gate2} onJump={jump} review={review} />
     </main>
   );
 }
@@ -473,7 +515,9 @@ function SectionTitle({ n, title, note }: { n: number; title: string; note?: str
   );
 }
 
-function Report({ gate1, gate2, onJump }: { gate1: Run | null; gate2: Run | null; onJump: (e: EvidenceItem) => void }) {
+function Report({ gate1, gate2, onJump, review }: {
+  gate1: Run | null; gate2: Run | null; onJump: (e: EvidenceItem) => void; review: ReviewApi;
+}) {
   const g1 = (gate1?.result ?? null) as Partial<Gate1Result> | null;
   const g2 = (gate2?.result ?? null) as Partial<Gate2Result> | null;
   if (!g1 && !g2) {
@@ -540,6 +584,11 @@ function Report({ gate1, gate2, onJump }: { gate1: Run | null; gate2: Run | null
       <SectionTitle n={1} title="Openwork observation check" note="numbered as on the form" />
       {obs ? (
         <>
+          <ReviewBar
+            runId={gate1?.id} review={review} section="observation"
+            items={obs.checks.map((k, i) => ({ key: `obs:${i}`, ai: k.result }))}
+            acceptLabel="Confirm all the AI's passes"
+            acceptWhen={(ai) => ai === "PASS" || ai === "NOT_APPLICABLE"} />
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             {obs.stage_outcomes.map((s, i) => (
               <span key={i} className="rounded border border-slate-200 bg-white px-2 py-1" title={s.note}>{s.stage} <Chip v={s.result} /></span>
@@ -547,19 +596,20 @@ function Report({ gate1, gate2, onJump }: { gate1: Run | null; gate2: Run | null
           </div>
           <table className="mt-2 w-full border-collapse text-sm">
             <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
-              <tr><th className="w-14 px-2 py-1">Ref</th><th className="px-2 py-1">Standard</th><th className="w-36 px-2 py-1">Result</th><th className="px-2 py-1">Finding and evidence</th></tr>
+              <tr><th className="w-14 px-2 py-1">Ref</th><th className="px-2 py-1">Standard</th><th className="w-36 px-2 py-1">AI result</th><th className="px-2 py-1">Finding and evidence</th><th className="w-44 px-2 py-1">Reviewer</th></tr>
             </thead>
             <tbody>
               {obs.checks.map((k, i) => {
                 const newStage = i === 0 || obs.checks[i - 1].stage !== k.stage;
                 return (
                   <Fragment key={i}>
-                    {newStage && <tr><td colSpan={4} className="bg-slate-50 px-2 py-1 text-xs font-bold uppercase tracking-wide text-slate-700">{k.stage}</td></tr>}
+                    {newStage && <tr><td colSpan={5} className="bg-slate-50 px-2 py-1 text-xs font-bold uppercase tracking-wide text-slate-700">{k.stage}</td></tr>}
                     <tr className="border-t border-slate-100 align-top">
                       <td className="px-2 py-1.5 font-mono text-xs">{k.ref}</td>
                       <td className="px-2 py-1.5">{k.requirement}{k.mandatory && <span className="ml-1 text-xs font-bold text-red-700">*</span>}</td>
                       <td className="px-2 py-1.5"><Chip v={k.result} /></td>
                       <td className="px-2 py-1.5"><p>{k.finding}</p><EvidenceLinks ev={k.evidence} onJump={onJump} /></td>
+                      <td className="px-2 py-1.5"><ReviewCell section="observation" aiResult={k.result} runId={gate1?.id} itemKey={`obs:${i}`} review={review} /></td>
                     </tr>
                   </Fragment>
                 );
@@ -571,9 +621,15 @@ function Report({ gate1, gate2, onJump }: { gate1: Run | null; gate2: Run | null
 
       <SectionTitle n={2} title="Mandatory disclosures" note="SAY AS WRITTEN passages and mandatory questions" />
       {disc ? (
+        <>
+        <ReviewBar
+          runId={gate1?.id} review={review} section="disclosure"
+          items={disc.disclosures.map((d, i) => ({ key: `disc:${i}`, ai: d.result }))}
+          acceptLabel="Confirm all delivered in full"
+          acceptWhen={(ai) => ai === "DELIVERED_IN_FULL" || ai === "NOT_APPLICABLE"} />
         <table className="mt-2 w-full border-collapse text-sm">
           <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
-            <tr><th className="px-2 py-1">Disclosure</th><th className="w-40 px-2 py-1">Result</th><th className="px-2 py-1">What was missing or changed, and evidence</th></tr>
+            <tr><th className="px-2 py-1">Disclosure</th><th className="w-40 px-2 py-1">AI result</th><th className="px-2 py-1">What was missing or changed, and evidence</th><th className="w-52 px-2 py-1">Reviewer</th></tr>
           </thead>
           <tbody>
             {disc.disclosures.map((d, i) => (
@@ -581,10 +637,12 @@ function Report({ gate1, gate2, onJump }: { gate1: Run | null; gate2: Run | null
                 <td className="px-2 py-1.5"><p className="font-medium">{d.name}</p><p className="text-xs text-slate-500">{d.source}{d.form_refs.length ? ` · form ${d.form_refs.join(", ")}` : ""}</p></td>
                 <td className="px-2 py-1.5"><Chip v={d.result} /></td>
                 <td className="px-2 py-1.5">{d.differences && <p>{d.differences}</p>}<EvidenceLinks ev={d.evidence} onJump={onJump} /></td>
+                <td className="px-2 py-1.5"><ReviewCell section="disclosure" aiResult={d.result} runId={gate1?.id} itemKey={`disc:${i}`} review={review} /></td>
               </tr>
             ))}
           </tbody>
         </table>
+        </>
       ) : <Missing gate={gate1} />}
 
       <SectionTitle n={3} title="Client fact summary" note="FACT = said on a call · INFERENCE = the AI's reading" />
@@ -681,10 +739,15 @@ function Report({ gate1, gate2, onJump }: { gate1: Run | null; gate2: Run | null
       <SectionTitle n={7} title="Suitability report check" note="Gate 2: report against the calls, both ways" />
       {suit ? (
         <>
+          <ReviewBar
+            runId={gate2?.id} review={review} section="suitability"
+            items={suit.findings.map((f, i) => ({ key: `suit:${i}`, ai: f.result }))}
+            acceptLabel="Confirm all matches"
+            acceptWhen={(ai) => ai === "MATCHES"} />
           <p className="mt-2 text-sm">{suit.summary}</p>
           <table className="mt-2 w-full border-collapse text-sm">
             <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
-              <tr><th className="px-2 py-1">Area</th><th className="px-2 py-1">Result</th><th className="px-2 py-1">Report says</th><th className="px-2 py-1">Calls show</th><th className="px-2 py-1">Explanation and evidence</th></tr>
+              <tr><th className="px-2 py-1">Area</th><th className="px-2 py-1">AI result</th><th className="px-2 py-1">Report says</th><th className="px-2 py-1">Calls show</th><th className="px-2 py-1">Explanation and evidence</th><th className="w-32 px-2 py-1">Reviewer</th></tr>
             </thead>
             <tbody>
               {suit.findings.map((f, i) => (
@@ -694,6 +757,7 @@ function Report({ gate1, gate2, onJump }: { gate1: Run | null; gate2: Run | null
                   <td className="px-2 py-1.5">{f.report_says}</td>
                   <td className="px-2 py-1.5">{f.call_says}</td>
                   <td className="px-2 py-1.5"><p>{f.explanation}</p><EvidenceLinks ev={f.evidence} onJump={onJump} /></td>
+                  <td className="px-2 py-1.5"><ReviewCell section="suitability" aiResult={f.result} runId={gate2?.id} itemKey={`suit:${i}`} review={review} /></td>
                 </tr>
               ))}
             </tbody>
@@ -712,6 +776,146 @@ function Report({ gate1, gate2, onJump }: { gate1: Run | null; gate2: Run | null
         ))}
         {exceptions.length === 0 && <li className="text-slate-500">Nothing flagged.</li>}
       </ul>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- sign-off
+
+function ReviewCell({ section, aiResult, runId, itemKey, review }: {
+  section: ReviewSection; aiResult: string; runId: number | undefined; itemKey: string; review: ReviewApi;
+}) {
+  if (!runId) return null;
+  const current = review.get(runId, itemKey)?.confirmed_result ?? null;
+  const suggested = aiAsConfirmed(section, aiResult);
+  return (
+    <div className="flex flex-wrap gap-1">
+      {CONFIRM_OPTIONS[section].map((opt) => {
+        const on = current === opt;
+        return (
+          <button key={opt} type="button"
+            onClick={() => review.save(runId, [{ key: itemKey, confirmed: on ? null : opt }])}
+            title={on ? "Click again to clear" : opt === suggested ? "Agree with the AI" : "Override the AI"}
+            className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${
+              on ? "border-slate-900 bg-slate-900 text-white"
+                 : opt === suggested ? "border-teal-500 text-teal-800 hover:bg-teal-50"
+                 : "border-slate-200 text-slate-500 hover:bg-slate-50"}`}>
+            {CONFIRM_LABELS[opt] ?? opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReviewBar({ runId, review, section, items, acceptLabel, acceptWhen }: {
+  runId: number | undefined; review: ReviewApi; section: ReviewSection;
+  items: { key: string; ai: string }[]; acceptLabel: string; acceptWhen: (ai: string) => boolean;
+}) {
+  if (!runId) return null;
+  const done = items.filter((i) => review.get(runId, i.key)).length;
+  const pending = items.filter((i) => !review.get(runId, i.key) && acceptWhen(i.ai));
+  return (
+    <div className="no-print mt-2 flex flex-wrap items-center gap-3 rounded border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs text-teal-900">
+      <span><strong>{done}</strong> of {items.length} confirmed by a reviewer</span>
+      {pending.length > 0 && (
+        <button type="button"
+          onClick={() => review.save(runId, pending.map((i) => ({ key: i.key, confirmed: aiAsConfirmed(section, i.ai) })))}
+          className="rounded border border-teal-400 bg-white px-2 py-0.5 font-medium hover:bg-teal-100">
+          {acceptLabel} ({pending.length})
+        </button>
+      )}
+      <span className="text-teal-700">Teal = the AI's view. Scores only count what a reviewer confirms.</span>
+    </div>
+  );
+}
+
+function OutcomePanel({ caseId, qaCase, onChanged }: { caseId: number; qaCase: QaCase; onChanged: () => void }) {
+  const [outcome, setOutcome] = useState<CaseOutcome | "">(qaCase.outcome ?? "");
+  const [notes, setNotes] = useState(qaCase.outcome_notes ?? "");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setOutcome(qaCase.outcome ?? ""); setNotes(qaCase.outcome_notes ?? ""); }, [qaCase.outcome, qaCase.outcome_notes]);
+
+  async function save() {
+    setBusy(true);
+    await fetch(`/api/qa/cases/${caseId}/outcome`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome: outcome || null, notes }),
+    });
+    setBusy(false);
+    onChanged();
+  }
+
+  return (
+    <section className="mt-6 rounded-lg border-2 border-teal-700 bg-white p-4 text-sm">
+      <h2 className="font-bold">Reviewer sign-off</h2>
+      {qaCase.outcome ? (
+        <p className="mt-1">
+          <strong>{OUTCOME_LABELS[qaCase.outcome]}</strong> by {qaCase.outcome_by} on {qaCase.outcome_at ? new Date(qaCase.outcome_at).toLocaleString("en-GB") : ""}
+          {qaCase.outcome_notes ? `: ${qaCase.outcome_notes}` : ""}
+        </p>
+      ) : (
+        <p className="mt-1 text-slate-600">Confirm the items below, then record the outcome for this case.</p>
+      )}
+      <div className="no-print mt-2 flex flex-wrap items-end gap-2">
+        <select value={outcome} onChange={(e) => setOutcome(e.target.value as CaseOutcome | "")} className="rounded border px-2 py-1">
+          <option value="">No outcome yet</option>
+          {(Object.keys(OUTCOME_LABELS) as CaseOutcome[]).map((o) => <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>)}
+        </select>
+        <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Actions or notes for the adviser (optional)"
+          className="min-w-[280px] flex-1 rounded border px-2 py-1" />
+        <button type="button" onClick={save} disabled={busy}
+          className="rounded bg-teal-700 px-3 py-1 font-medium text-white hover:bg-teal-800 disabled:opacity-50">
+          {busy ? "Saving…" : "Save outcome"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function DealLink({ caseId, qaCase, onChanged }: { caseId: number; qaCase: QaCase; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [deals, setDeals] = useState<{ id: number; client: string; provider: string | null; status: string; booked_date: string | null; has_qa: boolean }[] | null>(null);
+
+  async function open() {
+    setEditing(true);
+    if (!qaCase.adviser_id) { setDeals([]); return; }
+    const r = await fetch(`/api/qa/deals?adviser_id=${qaCase.adviser_id}`, { cache: "no-store" });
+    const j = await r.json().catch(() => ({ deals: [] }));
+    setDeals(j.deals ?? []);
+  }
+  async function choose(dealId: number | null) {
+    await fetch(`/api/qa/cases/${caseId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deal_id: dealId }),
+    });
+    setEditing(false);
+    onChanged();
+  }
+
+  return (
+    <div className="no-print mt-1 text-xs text-slate-600">
+      RECI deal: {qaCase.deal_label ?? <span className="text-slate-400">not linked</span>}
+      {!editing && (
+        <button type="button" onClick={open} className="ml-2 text-teal-800 underline">
+          {qaCase.deal_id ? "change" : "link"}
+        </button>
+      )}
+      {editing && (
+        <span className="ml-2 inline-flex items-center gap-1">
+          {!qaCase.adviser_id ? <span>Set the case adviser first.</span> : !deals ? <span>Loading…</span> : (
+            <select defaultValue={qaCase.deal_id ?? ""} onChange={(e) => choose(e.target.value ? Number(e.target.value) : null)}
+              className="rounded border px-1 py-0.5">
+              <option value="">Not linked</option>
+              {deals.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.client}{d.provider ? ` · ${d.provider}` : ""}{d.booked_date ? ` · ${d.booked_date}` : ""}{d.has_qa && d.id !== qaCase.deal_id ? " (already linked)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          <button type="button" onClick={() => setEditing(false)} className="text-slate-500 underline">cancel</button>
+        </span>
+      )}
     </div>
   );
 }
