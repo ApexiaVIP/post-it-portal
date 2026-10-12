@@ -170,6 +170,7 @@ export default function CallQaCasePage() {
           <h1 className="text-2xl font-bold">{c.client_name}</h1>
           <p className="text-sm text-slate-600">
             Adviser {c.adviser_name ?? "not set"} · {c.case_type === "one_call" ? "One call" : "Fact find call + advice call"}
+            {c.client_phone ? ` · client number ${c.client_phone}` : ""}
             {c.notes ? ` · ${c.notes}` : ""}
           </p>
           <DealLink caseId={caseId} qaCase={c} onChanged={load} />

@@ -5,7 +5,7 @@
  * and Guy only. Each case holds the client's call recordings, Gate 1
  * (calls, at Confirmation Check) and Gate 2 (suitability report).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -138,7 +138,10 @@ export default function CallQaListPage() {
         </form>
       )}
 
-      <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200 bg-white">
+      <RecordingsInbox cases={cases ?? []} onAdded={load} />
+
+      <h2 className="mt-6 text-lg font-bold">Cases</h2>
+      <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <table className="w-full text-sm">
           <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
             <tr>
@@ -178,5 +181,216 @@ export default function CallQaListPage() {
         </table>
       </div>
     </main>
+  );
+}
+
+// ---------------------------------------------------------------- inbox
+
+interface InboxItem {
+  id: number;
+  filename: string;
+  size_bytes: number | null;
+  adviser_id: number | null;
+  adviser_name: string | null;
+  client_phone: string | null;
+  call_at: string | null;
+  status: "new" | "assigned" | "ignored";
+  suggested_case_id: number | null;
+  suggested_case_name: string | null;
+}
+interface InboxResp {
+  configured: boolean;
+  items: InboxItem[];
+  sync: { synced_at: string | null } | null;
+  counts: Record<string, number>;
+}
+
+const SYNC_EVERY_MS = 15 * 60 * 1000;
+
+function RecordingsInbox({ cases, onAdded }: { cases: CaseRow[]; onAdded: () => void }) {
+  const [view, setView] = useState<"new" | "ignored">("new");
+  const [data, setData] = useState<InboxResp | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const autoSynced = useRef(false);
+
+  const load = useCallback(async () => {
+    const r = await fetch(`/api/qa/inbox?status=${view}`, { cache: "no-store" });
+    if (r.ok) setData(await r.json());
+  }, [view]);
+  useEffect(() => { void load(); }, [load]);
+
+  const sync = useCallback(async (quiet = false) => {
+    setSyncing(true);
+    if (!quiet) setMsg(null);
+    const r = await fetch("/api/qa/inbox/sync", { method: "POST" });
+    const j = await r.json().catch(() => ({}));
+    setSyncing(false);
+    if (!r.ok) { if (!quiet) setMsg(j.error || `HTTP ${r.status}`); return; }
+    if (!quiet) setMsg(j.added ? `${j.added} new recording${j.added === 1 ? "" : "s"} found.` : "No new recordings.");
+    void load();
+  }, [load]);
+
+  // Look for new recordings when the page opens, if it's been a while.
+  useEffect(() => {
+    if (!data || autoSynced.current || !data.configured) return;
+    autoSynced.current = true;
+    const last = data.sync?.synced_at ? Date.parse(data.sync.synced_at) : 0;
+    if (Date.now() - last > SYNC_EVERY_MS) void sync(true);
+  }, [data, sync]);
+
+  if (!data) return null;
+
+  // Group by client number so a fact find and its advice call sit together.
+  const groups = new Map<string, InboxItem[]>();
+  for (const it of data.items) {
+    const k = it.client_phone ?? `unknown-${it.id}`;
+    groups.set(k, [...(groups.get(k) ?? []), it]);
+  }
+
+  return (
+    <section className="mt-5 rounded-lg border border-teal-300 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-teal-200 bg-teal-50 px-3 py-2">
+        <div>
+          <h2 className="font-bold text-teal-900">Recordings inbox</h2>
+          <p className="text-xs text-teal-800">
+            New sales call recordings from SharePoint for our advisers. Add each to its case and it is transcribed automatically.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <div className="inline-flex overflow-hidden rounded border border-teal-300 bg-white text-xs">
+            {(["new", "ignored"] as const).map((v) => (
+              <button key={v} type="button" onClick={() => setView(v)}
+                className={`px-2 py-1 ${view === v ? "bg-teal-700 text-white" : "text-teal-800 hover:bg-teal-50"}`}>
+                {v === "new" ? `To do (${data.counts.new ?? 0})` : `Ignored (${data.counts.ignored ?? 0})`}
+              </button>
+            ))}
+          </div>
+          {data.configured && (
+            <button type="button" onClick={() => sync()} disabled={syncing}
+              className="rounded border border-teal-400 bg-white px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-100 disabled:opacity-50">
+              {syncing ? "Checking…" : "Check SharePoint now"}
+            </button>
+          )}
+        </div>
+      </div>
+      {!data.configured ? (
+        <p className="px-3 py-3 text-sm text-slate-600">
+          The SharePoint connection isn&apos;t set up yet. Until it is, upload recordings by hand on each case.
+        </p>
+      ) : (
+        <div className="px-3 py-2">
+          <p className="text-xs text-slate-500">
+            {data.sync?.synced_at ? `Last checked ${new Date(data.sync.synced_at).toLocaleString("en-GB")}.` : "Not checked yet."}
+            {msg ? ` ${msg}` : ""}
+          </p>
+          {data.items.length === 0 && (
+            <p className="py-3 text-sm text-slate-500">{view === "new" ? "Nothing waiting." : "Nothing ignored."}</p>
+          )}
+          <div className="mt-1 space-y-3">
+            {Array.from(groups.entries()).map(([k, items]) => (
+              <div key={k} className="rounded border border-slate-200">
+                <div className="bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+                  {items[0].client_phone ? `Client number ${items[0].client_phone}` : "Client number not found in the file name"}
+                  {items.length > 1 && <span className="ml-2 font-normal text-slate-500">{items.length} calls</span>}
+                </div>
+                {items.slice().sort((a, b) => (a.call_at ?? "").localeCompare(b.call_at ?? "")).map((it, idx) => (
+                  <InboxRow key={it.id} item={it} position={idx} groupSize={items.length} cases={cases}
+                    view={view} onDone={() => { void load(); onAdded(); }} />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function InboxRow({ item, position, groupSize, cases, view, onDone }: {
+  item: InboxItem; position: number; groupSize: number; cases: CaseRow[];
+  view: "new" | "ignored"; onDone: () => void;
+}) {
+  const [target, setTarget] = useState<string>(item.suggested_case_id ? String(item.suggested_case_id) : "new");
+  const [clientName, setClientName] = useState("");
+  const [caseType, setCaseType] = useState(groupSize > 1 ? "two_call" : "one_call");
+  const [callType, setCallType] = useState(groupSize > 1 ? (position === 0 ? "fact_find" : "advice") : "one_call");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function add() {
+    setError(null);
+    if (target === "new" && !clientName.trim()) { setError("Enter the client's name."); return; }
+    setBusy("Downloading and transcribing…");
+    const r = await fetch(`/api/qa/inbox/${item.id}/assign`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(target === "new"
+        ? { new_case: { client_name: clientName, case_type: caseType }, call_type: callType }
+        : { case_id: Number(target), call_type: callType }),
+    });
+    const j = await r.json().catch(() => ({}));
+    setBusy(null);
+    if (!r.ok) { setError(j.error || `HTTP ${r.status}`); return; }
+    onDone();
+  }
+  async function setStatus(status: "ignored" | "new") {
+    setBusy("…");
+    await fetch(`/api/qa/inbox/${item.id}/status`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
+    });
+    setBusy(null);
+    onDone();
+  }
+
+  return (
+    <div className="border-t border-slate-100 px-2 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-medium">{item.call_at ? new Date(item.call_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "Time unknown"}</span>
+        <span>{item.adviser_name ?? "Adviser unknown"}</span>
+        {item.size_bytes ? <span className="text-xs text-slate-500">{(item.size_bytes / 1048576).toFixed(1)} MB</span> : null}
+        <span className="truncate text-xs text-slate-400" title={item.filename}>{item.filename}</span>
+      </div>
+      {view === "new" ? (
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <select value={callType} onChange={(e) => setCallType(e.target.value)} className="rounded border px-1 py-0.5 text-xs">
+            <option value="fact_find">Fact find call</option>
+            <option value="advice">Advice call</option>
+            <option value="one_call">One call</option>
+            <option value="other">Other</option>
+          </select>
+          <select value={target} onChange={(e) => setTarget(e.target.value)} className="max-w-[16rem] rounded border px-1 py-0.5 text-xs">
+            <option value="new">New case…</option>
+            {item.suggested_case_id && <option value={item.suggested_case_id}>{item.suggested_case_name} (same number)</option>}
+            {cases.filter((c) => c.id !== item.suggested_case_id).slice(0, 50).map((c) => (
+              <option key={c.id} value={c.id}>{c.client_name}{c.adviser_name ? ` · ${c.adviser_name}` : ""}</option>
+            ))}
+          </select>
+          {target === "new" && (
+            <>
+              <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Client name"
+                className="w-40 rounded border px-1 py-0.5 text-xs" />
+              <select value={caseType} onChange={(e) => setCaseType(e.target.value)} className="rounded border px-1 py-0.5 text-xs">
+                <option value="two_call">Two calls</option>
+                <option value="one_call">One call</option>
+              </select>
+            </>
+          )}
+          <button type="button" onClick={add} disabled={!!busy}
+            className="rounded bg-teal-700 px-2 py-0.5 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-50">
+            {busy ?? "Add to case"}
+          </button>
+          <button type="button" onClick={() => setStatus("ignored")} disabled={!!busy}
+            className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50">
+            Ignore
+          </button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setStatus("new")} disabled={!!busy}
+          className="mt-1 rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50">
+          Restore to inbox
+        </button>
+      )}
+      {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
+    </div>
   );
 }
