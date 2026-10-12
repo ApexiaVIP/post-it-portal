@@ -31,6 +31,7 @@ export interface QaCase {
   created_at: string;
   deal_id: number | null;
   deal_label: string | null;
+  client_phone: string | null;
   outcome: CaseOutcome | null;
   outcome_notes: string | null;
   outcome_by: string | null;

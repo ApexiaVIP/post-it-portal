@@ -24,7 +24,7 @@ export async function getCase(id: number): Promise<QaCase | null> {
   const r = await sql<QaCase>`
     SELECT c.id, c.client_name, c.adviser_id, a.name AS adviser_name, c.case_type,
            c.notes, c.created_by, c.created_at::text AS created_at,
-           c.deal_id,
+           c.deal_id, c.client_phone,
            CASE WHEN d.id IS NULL THEN NULL
                 ELSE d.client || COALESCE(' · ' || d.provider, '') || ' · week ' || d.week || ' ' || d.year END AS deal_label,
            c.outcome, c.outcome_notes, c.outcome_by, c.outcome_at::text AS outcome_at
