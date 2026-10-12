@@ -5,7 +5,7 @@
  * and Guy only. Each case holds the client's call recordings, Gate 1
  * (calls, at Confirmation Check) and Gate 2 (suitability report).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -205,14 +205,11 @@ interface InboxResp {
   counts: Record<string, number>;
 }
 
-const SYNC_EVERY_MS = 15 * 60 * 1000;
-
 function RecordingsInbox({ cases, onAdded }: { cases: CaseRow[]; onAdded: () => void }) {
   const [view, setView] = useState<"new" | "ignored">("new");
   const [data, setData] = useState<InboxResp | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const autoSynced = useRef(false);
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/qa/inbox?status=${view}`, { cache: "no-store" });
@@ -231,14 +228,6 @@ function RecordingsInbox({ cases, onAdded }: { cases: CaseRow[]; onAdded: () => 
     void load();
   }, [load]);
 
-  // Look for new recordings when the page opens, if it's been a while.
-  useEffect(() => {
-    if (!data || autoSynced.current || !data.configured) return;
-    autoSynced.current = true;
-    const last = data.sync?.synced_at ? Date.parse(data.sync.synced_at) : 0;
-    if (Date.now() - last > SYNC_EVERY_MS) void sync(true);
-  }, [data, sync]);
-
   if (!data) return null;
 
   // Group by client number so a fact find and its advice call sit together.
@@ -254,7 +243,8 @@ function RecordingsInbox({ cases, onAdded }: { cases: CaseRow[]; onAdded: () => 
         <div>
           <h2 className="font-bold text-teal-900">Recordings inbox</h2>
           <p className="text-xs text-teal-800">
-            New sales call recordings from SharePoint for our advisers. Add each to its case and it is transcribed automatically.
+            Runs once a day: new recordings are picked up each evening, transcribed and sorted into cases overnight,
+            and completed sales are checked ready for the morning. Anything below needs a hand.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
