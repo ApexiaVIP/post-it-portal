@@ -164,6 +164,9 @@ export async function GET(req: Request) {
     );
   }
   const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+  // The summary tiles use the filters only; copy them before the list's
+  // paging values are added.
+  const filterParams = [...params];
   params.push(limit);
   const limitParam = `$${params.length}`;
   params.push(offset);
@@ -266,7 +269,7 @@ export async function GET(req: Request) {
                                                                             AS total_recovered
      FROM clawback_cases c
      ${whereSql}`,
-    params.slice(0, params.length - 2), // drop the trailing limit + offset params
+    filterParams,
   );
 
   // Distinct warnings + bucket breakdown for the filter dropdown and tiles.
