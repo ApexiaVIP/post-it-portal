@@ -1078,3 +1078,49 @@ export async function sendWelcomeEmail(i: {
 export function welcomeTestRecipients(): string[] {
   return managementCc();
 }
+
+/**
+ * Call QA morning summary (13 Oct 2026): what was transcribed and checked
+ * overnight, so the reviewer knows what is waiting. Names and counts only;
+ * the detail stays behind the portal login.
+ */
+export async function sendQaMorningDigest(i: {
+  cases: { id: number; client_name: string; adviser_name: string | null; status: string; fails: number; reviews: number; disclosuresMissed: number }[];
+  transcribed: number;
+  not_sales: number;
+  stuck: number;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const transporter = getTransporter();
+  if (!transporter) return { sent: false, reason: "no SMTP credentials" };
+  const to = (process.env.QA_DIGEST_TO || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const recipients = to.length ? to : managementCc();
+  if (recipients.length === 0) return { sent: false, reason: "no recipients" };
+  const base = (process.env.PUBLIC_DASHBOARD_URL || "https://post-it-portal.vercel.app").replace(/\/$/, "");
+  const addr = process.env.SMTP_USER || process.env.GMAIL_USER || "";
+
+  const checked = i.cases.filter((c) => c.status === "done");
+  const subject = `Call QA: ${checked.length} case${checked.length === 1 ? "" : "s"} checked overnight`;
+  const lines = [
+    "Good morning,",
+    "",
+    `Overnight, ${i.transcribed} sales call recording${i.transcribed === 1 ? " was" : "s were"} transcribed and added to cases, and ${i.not_sales} recording${i.not_sales === 1 ? " was" : "s were"} set aside as not sales calls.`,
+    "",
+    checked.length ? "Checked and ready for your review:" : "No completed sales needed checking.",
+    ...checked.map((c) => `- ${c.client_name}${c.adviser_name ? ` (${c.adviser_name})` : ""}: ${c.fails} fail${c.fails === 1 ? "" : "s"}, ${c.reviews} to review, ${c.disclosuresMissed} disclosure${c.disclosuresMissed === 1 ? "" : "s"} missed or partial. ${base}/qa/${c.id}`),
+    ...(i.cases.some((c) => c.status !== "done") ? ["", "Some checks did not finish and will be retried tonight."] : []),
+    ...(i.stuck ? ["", `${i.stuck} recording${i.stuck === 1 ? "" : "s"} could not be processed and need a look in the Call QA inbox.`] : []),
+    "",
+    `Open Call QA: ${base}/qa`,
+  ];
+  try {
+    await transporter.sendMail({
+      from: `"Top Quote Systems" <${addr}>`,
+      to: recipients.join(", "),
+      subject,
+      text: lines.join("\n"),
+    });
+    return { sent: true };
+  } catch (e) {
+    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
