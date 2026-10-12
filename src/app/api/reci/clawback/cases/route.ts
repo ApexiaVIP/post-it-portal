@@ -266,7 +266,7 @@ export async function GET(req: Request) {
                                                                             AS total_recovered
      FROM clawback_cases c
      ${whereSql}`,
-    params.slice(0, params.length - 1), // drop the trailing limit param
+    params.slice(0, params.length - 2), // drop the trailing limit + offset params
   );
 
   // Distinct warnings + bucket breakdown for the filter dropdown and tiles.
