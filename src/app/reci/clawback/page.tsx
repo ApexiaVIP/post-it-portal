@@ -169,6 +169,15 @@ interface RecentUpload {
 
 const STATUS_LABELS: Record<Status, string> = V2_STATUS_LABELS;
 
+const PAGE_SIZE = 500;
+
+const CASE_VIEWS: { value: string; label: string }[] = [
+  { value: "b:adviser", label: "Sellers' cases" },
+  { value: "b:xstaff", label: "Xstaff" },
+  { value: "b:legacy", label: "Legacy" },
+  { value: "", label: "All cases" },
+];
+
 const BUCKET_LABELS: Record<Bucket, string> = {
   adviser: "Adviser",
   xstaff: "Xstaff",
@@ -211,6 +220,27 @@ export default function ClawbackPage() {
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<Sort>("client_asc");
+  // Paging (Poz 12 Oct 2026). The page resets whenever a filter or the
+  // sort changes, because pageAt is keyed to the filter set it was set on.
+  const filterKey = JSON.stringify([statusFilter, bucketFilter, agentFilter, warningFilter, cbDueFrom, cbDueTo,
+    cbMin, cbMax, masterAgentNo, agentNo, surname, sourceFilter, search, sort]);
+  const [pageAt, setPageAt] = useState<{ key: string; page: number }>({ key: "", page: 0 });
+  const page = pageAt.key === filterKey ? pageAt.page : 0;
+  const goPage = (n: number) => setPageAt({ key: filterKey, page: Math.max(0, n) });
+
+  // View tabs (Poz 12 Oct 2026: Xstaff on its own view, same rules).
+  // Remembered per browser; the views are just preset Agent filters.
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("clawback-view");
+      if (v && CASE_VIEWS.some((x) => x.value === v)) setAgentFilter(v);
+    } catch { /* storage unavailable: default view */ }
+  }, []);
+  const chooseView = (v: string) => {
+    setAgentFilter(v);
+    setBucketFilter("");
+    try { localStorage.setItem("clawback-view", v); } catch { /* ignore */ }
+  };
   const [moreOpen, setMoreOpen] = useState<boolean>(false);
   const [warnings, setWarnings] = useState<WarningRow[]>([]);
 
@@ -349,6 +379,8 @@ export default function ClawbackPage() {
       // sort to look broken because the API was actually sorting by
       // CB value desc.
       p.set("sort",            sort);
+      p.set("limit",           String(PAGE_SIZE));
+      p.set("offset",          String(page * PAGE_SIZE));
       const r = await fetch(`/api/reci/clawback/cases?${p.toString()}`, { cache: "no-store" });
       if (!r.ok) throw new Error(`fetch failed (${r.status})`);
       const j = await r.json();
@@ -363,7 +395,7 @@ export default function ClawbackPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, bucketFilter, agentFilter, warningFilter, cbDueFrom, cbDueTo, cbMin, cbMax, masterAgentNo, agentNo, surname, sourceFilter, search, sort]);
+  }, [statusFilter, bucketFilter, agentFilter, warningFilter, cbDueFrom, cbDueTo, cbMin, cbMax, masterAgentNo, agentNo, surname, sourceFilter, search, sort, page]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -997,8 +1029,30 @@ export default function ClawbackPage() {
         </section>
       )}
 
+      {/* View tabs + pager */}
+      <section className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        {!me?.isJuniorSeller ? (
+          <div className="inline-flex overflow-hidden rounded border border-slate-300 bg-white text-sm">
+            {CASE_VIEWS.map((v) => {
+              const count = v.value === "" ? buckets.reduce((n, b) => n + b.cases, 0)
+                : buckets.filter((b) => `b:${b.agent_bucket}` === v.value).reduce((n, b) => n + b.cases, 0);
+              const active = v.value === "b:adviser"
+                ? agentFilter === "b:adviser" || agentFilter.startsWith("a:")
+                : agentFilter === v.value;
+              return (
+                <button key={v.value || "all"} type="button" onClick={() => chooseView(v.value)}
+                  className={`border-r border-slate-200 px-3 py-1.5 last:border-r-0 ${active ? "bg-slate-900 font-medium text-white" : "text-slate-700 hover:bg-slate-50"}`}>
+                  {v.label} <span className={active ? "text-slate-300" : "text-slate-400"}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : <span />}
+        <Pager page={page} total={summary?.total_cases ?? 0} shown={cases.length} onPage={goPage} />
+      </section>
+
       {/* Cases table */}
-      <section className="mt-4 overflow-x-auto rounded border border-slate-200 bg-white">
+      <section className="mt-2 overflow-x-auto rounded border border-slate-200 bg-white">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
             <tr>
@@ -1140,6 +1194,11 @@ export default function ClawbackPage() {
           </div>
         )}
       </section>
+      {(summary?.total_cases ?? 0) > PAGE_SIZE && (
+        <div className="mt-2 flex justify-end">
+          <Pager page={page} total={summary?.total_cases ?? 0} shown={cases.length} onPage={(n) => { goPage(n); window.scrollTo({ top: 0 }); }} />
+        </div>
+      )}
 
       {/* Recent uploads */}
       {recentUploads.length > 0 && (
@@ -1212,6 +1271,27 @@ export default function ClawbackPage() {
         />
       )}
     </main>
+  );
+}
+
+function Pager({ page, total, shown, onPage }: { page: number; total: number; shown: number; onPage: (n: number) => void }) {
+  if (total === 0) return null;
+  const from = page * PAGE_SIZE + 1;
+  const to = page * PAGE_SIZE + shown;
+  const pages = Math.ceil(total / PAGE_SIZE);
+  return (
+    <div className="flex items-center gap-2 text-sm text-slate-600">
+      <span>Showing <strong>{from.toLocaleString("en-GB")}–{to.toLocaleString("en-GB")}</strong> of <strong>{total.toLocaleString("en-GB")}</strong> cases</span>
+      {pages > 1 && (
+        <>
+          <button type="button" disabled={page === 0} onClick={() => onPage(page - 1)}
+            className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-50 disabled:opacity-40">‹ Previous</button>
+          <span className="text-xs">page {page + 1} of {pages}</span>
+          <button type="button" disabled={page >= pages - 1} onClick={() => onPage(page + 1)}
+            className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-50 disabled:opacity-40">Next ›</button>
+        </>
+      )}
+    </div>
   );
 }
 

@@ -94,6 +94,9 @@ export async function GET(req: Request) {
   const sortKey        = searchParams.get("sort") || "cb_desc";
   const orderBy        = SORTS[sortKey] || SORTS.cb_desc;
   const limit          = Math.min(Number(searchParams.get("limit") || 1000), 5000);
+  // Paging (Poz 12 Oct 2026: with 1,500+ cases the A-Z list silently
+  // stopped at N because only the first 1,000 rows were ever loaded).
+  const offset         = Math.max(0, Math.floor(Number(searchParams.get("offset") || 0)) || 0);
 
   // Build a parameterised WHERE clause from the optional filters.
   // Soft-deleted cases are hidden from every read view.
@@ -163,6 +166,8 @@ export async function GET(req: Request) {
   const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
   params.push(limit);
   const limitParam = `$${params.length}`;
+  params.push(offset);
+  const offsetParam = `$${params.length}`;
 
   const casesQ = await sql.query(
     `SELECT
@@ -219,8 +224,8 @@ export async function GET(req: Request) {
        WHERE h.case_id = c.id AND h.event_type = 'contact_attempt'
      ) lc ON true
      ${whereSql}
-     ORDER BY ${orderBy}
-     LIMIT ${limitParam}`,
+     ORDER BY ${orderBy}, c.id ASC
+     LIMIT ${limitParam} OFFSET ${offsetParam}`,
     params,
   );
 
