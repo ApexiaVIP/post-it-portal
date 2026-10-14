@@ -1,27 +1,32 @@
 /**
  * POST /api/qa/calls/[id]/transcribe
- * Joins the uploaded chunks, transcribes them (Deepgram, EU endpoint),
- * stores the timestamped transcript and deletes the audio. On failure the
- * audio is kept so the transcription can be retried.
+ * Joins the uploaded chunks and starts transcribing them with Amazon
+ * Transcribe in London. Returns straight away; the case page shows
+ * "Transcribing…" until the job finishes (see lib/qa/calls.ts). The
+ * uploaded chunks are kept until the transcript is in, so a failed
+ * transcription can be retried without uploading again.
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { requireCallQA } from "@/lib/qa/db";
-import { transcribeAudio, guessAdviserSpeaker } from "@/lib/qa/transcribe";
+import { ukStatus } from "@/lib/qa/uk";
+import { beginTranscription } from "@/lib/qa/calls";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   const auth = await requireCallQA();
   if (auth instanceof NextResponse) return auth;
+  const uk = ukStatus();
+  if (!uk.ready) return NextResponse.json({ error: uk.reason }, { status: 503 });
   const callId = Number(params.id);
 
-  const call = await sql<{ status: string; mime_type: string | null; size_bytes: string | null }>`
-    SELECT status, mime_type, size_bytes::text AS size_bytes FROM qa_calls WHERE id = ${callId} AND deleted_at IS NULL`;
+  const call = await sql<{ status: string; filename: string | null; mime_type: string | null; size_bytes: string | null }>`
+    SELECT status, filename, mime_type, size_bytes::text AS size_bytes FROM qa_calls WHERE id = ${callId} AND deleted_at IS NULL`;
   if (call.rows.length === 0) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (call.rows[0].status === "transcribing") {
+  if (call.rows[0].status === "transcribing" || call.rows[0].status === "ready") {
     return NextResponse.json({ error: "Already transcribing" }, { status: 409 });
   }
 
@@ -31,21 +36,14 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   const audio = Buffer.concat(chunks.rows.map((r) => Buffer.from(r.data)));
   const expected = Number(call.rows[0].size_bytes) || 0;
   if (audio.length === 0 || (expected > 0 && audio.length !== expected)) {
-    await sql`UPDATE qa_calls SET status = 'failed', error = 'Upload incomplete, please upload the recording again.', updated_at = now() WHERE id = ${callId}`;
+    await sql`DELETE FROM qa_upload_chunks WHERE call_id = ${callId}`;
+    await sql`UPDATE qa_calls SET status = 'failed', error = 'Upload incomplete, please delete this call and upload the recording again.', updated_at = now() WHERE id = ${callId}`;
     return NextResponse.json({ error: "Upload incomplete" }, { status: 400 });
   }
 
-  await sql`UPDATE qa_calls SET status = 'transcribing', error = NULL, updated_at = now() WHERE id = ${callId}`;
   try {
-    const t = await transcribeAudio(audio, call.rows[0].mime_type || "application/octet-stream");
-    if (t.utterances.length === 0) throw new Error("No speech was found in this recording.");
-    await sql.query(
-      `UPDATE qa_calls SET status = 'ready', utterances = $2::jsonb, duration_seconds = $3,
-              adviser_speaker = $4, error = NULL, updated_at = now() WHERE id = $1`,
-      [callId, JSON.stringify(t.utterances), t.durationSeconds, guessAdviserSpeaker(t.utterances)],
-    );
-    await sql`DELETE FROM qa_upload_chunks WHERE call_id = ${callId}`;
-    return NextResponse.json({ ok: true, utterances: t.utterances.length, channels: t.channels });
+    await beginTranscription(callId, audio, call.rows[0].filename, call.rows[0].mime_type);
+    return NextResponse.json({ ok: true, status: "transcribing" }, { status: 202 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await sql`UPDATE qa_calls SET status = 'failed', error = ${msg.slice(0, 500)}, updated_at = now() WHERE id = ${callId}`;

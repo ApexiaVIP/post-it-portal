@@ -2,10 +2,12 @@
  * POST /api/qa/cases/[id]/calls -> start a call upload
  *   { call_type, call_date, filename, mime_type, size_bytes } -> { id }
  * The audio itself follows in chunks (PUT /api/qa/calls/[id]/chunk).
+ * Refused while the UK (London) processing account isn't set up.
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { requireCallQA, getCase } from "@/lib/qa/db";
+import { ukStatus } from "@/lib/qa/uk";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -16,6 +18,10 @@ const CALL_TYPES = ["fact_find", "advice", "one_call", "other"];
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = await requireCallQA();
   if (auth instanceof NextResponse) return auth;
+  // Nothing is accepted until the London processing account is set up,
+  // so client audio never sits here waiting.
+  const uk = ukStatus();
+  if (!uk.ready) return NextResponse.json({ error: `${uk.reason} Nothing was uploaded.` }, { status: 503 });
   const caseId = Number(params.id);
   if (!(await getCase(caseId))) return NextResponse.json({ error: "not found" }, { status: 404 });
 

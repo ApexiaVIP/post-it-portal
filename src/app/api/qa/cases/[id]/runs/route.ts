@@ -7,7 +7,8 @@ import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { waitUntil } from "@vercel/functions";
 import { requireCallQA, getCase, getCalls } from "@/lib/qa/db";
-import { runGate1, runGate2, QA_MODEL } from "@/lib/qa/analyse";
+import { runGate1, runGate2 } from "@/lib/qa/analyse";
+import { ukStatus, ukModel } from "@/lib/qa/uk";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -22,9 +23,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const body = await req.json().catch(() => ({})) as { gate?: number };
   const gate = body.gate === 2 ? 2 : 1;
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: "The AI service is not configured yet." }, { status: 503 });
-  }
+  const uk = ukStatus();
+  if (!uk.ready) return NextResponse.json({ error: uk.reason }, { status: 503 });
   const running = await sql`
     SELECT 1 FROM qa_runs WHERE case_id = ${caseId} AND gate = ${gate} AND status = 'running'
        AND started_at > now() - make_interval(mins => 6)`;
@@ -49,7 +49,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const run = await sql<{ id: number }>`
     INSERT INTO qa_runs (case_id, gate, status, model, started_by)
-    VALUES (${caseId}, ${gate}, 'running', ${QA_MODEL}, ${auth.username})
+    VALUES (${caseId}, ${gate}, 'running', ${ukModel()}, ${auth.username})
     RETURNING id`;
   const runId = run.rows[0].id;
   waitUntil(gate === 1

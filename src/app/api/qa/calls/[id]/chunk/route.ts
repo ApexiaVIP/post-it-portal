@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { requireCallQA } from "@/lib/qa/db";
+import { ukStatus } from "@/lib/qa/uk";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -14,6 +15,8 @@ const MAX_CHUNK = 4 * 1024 * 1024;
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   const auth = await requireCallQA();
   if (auth instanceof NextResponse) return auth;
+  const uk = ukStatus();
+  if (!uk.ready) return NextResponse.json({ error: uk.reason }, { status: 503 });
   const callId = Number(params.id);
   const seq = Number(new URL(req.url).searchParams.get("seq"));
   if (!Number.isInteger(seq) || seq < 0) return NextResponse.json({ error: "bad seq" }, { status: 400 });
