@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { requireCallQA } from "@/lib/qa/db";
+import { dropHeldAudio } from "@/lib/qa/calls";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -36,7 +37,7 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   const auth = await requireCallQA();
   if (auth instanceof NextResponse) return auth;
   const callId = Number(params.id);
-  await sql`DELETE FROM qa_upload_chunks WHERE call_id = ${callId}`;
+  await dropHeldAudio([callId]);
   await sql`UPDATE qa_calls SET deleted_at = now(), utterances = NULL WHERE id = ${callId}`;
   return NextResponse.json({ ok: true });
 }

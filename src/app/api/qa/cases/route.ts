@@ -6,6 +6,8 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { requireCallQA } from "@/lib/qa/db";
+import { ukStatus } from "@/lib/qa/uk";
+import { advanceTranscriptions } from "@/lib/qa/calls";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -13,6 +15,7 @@ export const preferredRegion = "lhr1";
 export async function GET() {
   const auth = await requireCallQA();
   if (auth instanceof NextResponse) return auth;
+  await advanceTranscriptions();
 
   const [cases, advisers] = await Promise.all([
     sql`
@@ -28,7 +31,8 @@ export async function GET() {
        LIMIT 500`,
     sql`SELECT id, name FROM advisers WHERE active = true ORDER BY sort_order, name`,
   ]);
-  return NextResponse.json({ cases: cases.rows, advisers: advisers.rows });
+  const uk = ukStatus();
+  return NextResponse.json({ cases: cases.rows, advisers: advisers.rows, uk: uk.ready ? { ready: true } : { ready: false, reason: uk.reason } });
 }
 
 export async function POST(req: Request) {

@@ -10,18 +10,23 @@
  * The standards (observation form + call guides) are loaded from
  * qa_rulesets, so a new form or script is a content change, not a code
  * change.
+ *
+ * Since 14 Oct 2026 the checks run on Claude Opus 5.5 through Amazon
+ * Bedrock in London (lib/qa/uk.ts), so transcripts and reports are
+ * processed in the UK. Bedrock doesn't offer the structured-output mode
+ * for this model, so each check hands its result back through a single
+ * "record_result" tool and the result is validated here before it is
+ * saved; a malformed result is sent back to be corrected.
  */
-import Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import type { z } from "zod";
+import Anthropic, { APIError } from "@anthropic-ai/sdk";
+import { z } from "zod";
 import { sql } from "@vercel/postgres";
+import { requireUk, ukClaude } from "./uk";
 import { CALL_TYPE_LABELS, type QaCall, type CaseType } from "./shared";
 import {
   ObservationOutput, DisclosureOutput, FactsOutput, ConsistencyOutput, SuitabilityOutput,
   type Gate1Result, type Gate2Result,
 } from "./schemas";
-
-export const QA_MODEL = process.env.QA_MODEL || "claude-opus-5-5";
 
 const SYSTEM_INTRO = `You are the quality assurance checker for TopQuote, a UK firm whose advisers sell protection insurance by phone under Openwork, its network. Before a case is confirmed or submitted, a supervisor uses your report to see quickly whether the calls met Openwork's standards and the firm's call guides, what the client told us, and where a person needs to look.
 
@@ -114,15 +119,31 @@ async function loadStandards(caseType: CaseType): Promise<string> {
 
 interface CheckUsage { input: number; output: number; cache_read: number; cache_write: number; model: string }
 
-async function runCheck<T extends z.ZodType>(
-  client: Anthropic,
+export type Claude = Pick<ReturnType<typeof ukClaude>, "messages">;
+
+const RESULT_TOOL = "record_result";
+const MAX_ATTEMPTS = 3;
+
+function resultTool(schema: z.ZodType): Anthropic.Tool {
+  const { $schema: _ignored, ...inputSchema } = z.toJSONSchema(schema) as Record<string, unknown>;
+  return {
+    name: RESULT_TOOL,
+    description: "Record the completed check. Call this once, with the full result, when you have finished the check.",
+    input_schema: inputSchema as Anthropic.Tool.InputSchema,
+  };
+}
+
+/** One check, with up to three tries at a well-formed result (exported for tests). */
+export async function runCheck<T extends z.ZodType>(
+  client: Claude,
+  model: string,
   system: string,
   transcripts: string,
   task: string,
   schema: T,
   pdf?: Buffer,
 ): Promise<{ data: z.infer<T>; usage: CheckUsage }> {
-  const content: Anthropic.Beta.BetaContentBlockParam[] = [];
+  const content: Anthropic.ContentBlockParam[] = [];
   if (pdf) {
     content.push({
       type: "document",
@@ -132,38 +153,59 @@ async function runCheck<T extends z.ZodType>(
   }
   content.push(
     { type: "text", text: `THE CALL TRANSCRIPTS\n\n${transcripts}`, cache_control: { type: "ephemeral" } },
-    { type: "text", text: task },
+    { type: "text", text: `${task}\n\nWhen you have finished, call ${RESULT_TOOL} once with the complete result.` },
   );
 
-  const stream = client.beta.messages.stream({
-    model: QA_MODEL,
-    max_tokens: 64000,
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    output_config: { effort: "high", format: betaZodOutputFormat(schema) },
-    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content }],
-  });
-  const msg = await stream.finalMessage();
+  const tool = resultTool(schema);
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content }];
+  const usage: CheckUsage = { input: 0, output: 0, cache_read: 0, cache_write: 0, model };
 
-  if (msg.stop_reason === "refusal") {
-    throw new Error(`The model declined this check (${msg.stop_details?.category ?? "no category"}).`);
-  }
-  if (msg.stop_reason === "max_tokens") {
-    throw new Error("The check ran out of room before finishing.");
-  }
-  if (!msg.parsed_output) throw new Error("The check returned an unreadable result.");
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const msg = await client.messages.stream({
+      model,
+      max_tokens: 64000,
+      output_config: { effort: "high" },
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+      tools: [tool],
+      messages,
+    }).finalMessage();
+    usage.input += msg.usage.input_tokens;
+    usage.output += msg.usage.output_tokens;
+    usage.cache_read += msg.usage.cache_read_input_tokens ?? 0;
+    usage.cache_write += msg.usage.cache_creation_input_tokens ?? 0;
 
-  return {
-    data: msg.parsed_output as z.infer<T>,
-    usage: {
-      input: msg.usage.input_tokens,
-      output: msg.usage.output_tokens,
-      cache_read: msg.usage.cache_read_input_tokens ?? 0,
-      cache_write: msg.usage.cache_creation_input_tokens ?? 0,
-      model: msg.model,
-    },
-  };
+    if (msg.stop_reason === "refusal") {
+      throw new Error(`The model declined this check (${msg.stop_details?.category ?? "no category"}). Please review this case by hand.`);
+    }
+    if (msg.stop_reason === "max_tokens") {
+      throw new Error("The check ran out of room before finishing.");
+    }
+
+    const calls = msg.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+    const mine = calls.find((b) => b.name === RESULT_TOOL);
+    const parsed = mine ? schema.safeParse(mine.input) : null;
+    if (parsed?.success) return { data: parsed.data as z.infer<T>, usage };
+
+    // Send it back once more: either no result was recorded, or it didn't
+    // match the expected shape.
+    messages.push({ role: "assistant", content: msg.content });
+    if (calls.length === 0) {
+      messages.push({ role: "user", content: `Please record the result now by calling ${RESULT_TOOL} with the complete result.` });
+    } else {
+      messages.push({
+        role: "user",
+        content: calls.map((b): Anthropic.ToolResultBlockParam => ({
+          type: "tool_result",
+          tool_use_id: b.id,
+          is_error: true,
+          content: b === mine && parsed && !parsed.success
+            ? `The result doesn't match the required format:\n${z.prettifyError(parsed.error).slice(0, 3000)}\nCall ${RESULT_TOOL} again with the complete, corrected result.`
+            : `Only ${RESULT_TOOL} is available. Call it with the complete result.`,
+        })),
+      });
+    }
+  }
+  throw new Error("The check did not return a usable result after several attempts.");
 }
 
 async function finishRun(runId: number, status: "done" | "failed", result: unknown, usage: unknown, error: string | null) {
@@ -174,21 +216,22 @@ async function finishRun(runId: number, status: "done" | "failed", result: unkno
 }
 
 function describeError(e: unknown): string {
-  if (e instanceof Anthropic.APIError) return `AI service error ${e.status ?? ""}: ${e.message}`.trim();
+  if (e instanceof APIError) return `AI service error ${e.status ?? ""}: ${e.message}`.trim();
   return e instanceof Error ? e.message : String(e);
 }
 
 export async function runGate1(runId: number, calls: QaCall[], caseType: CaseType): Promise<void> {
   try {
-    const client = new Anthropic();
+    const uk = requireUk();
+    const client = ukClaude(uk);
     const system = `${SYSTEM_INTRO}\n\nTHE STANDARDS\n\n${await loadStandards(caseType)}`;
     const transcripts = buildTranscriptText(calls);
 
     const [observation, disclosures, facts, consistency] = await Promise.allSettled([
-      runCheck(client, system, transcripts, TASKS.observation, ObservationOutput),
-      runCheck(client, system, transcripts, TASKS.disclosures, DisclosureOutput),
-      runCheck(client, system, transcripts, TASKS.facts, FactsOutput),
-      runCheck(client, system, transcripts, TASKS.consistency, ConsistencyOutput),
+      runCheck(client, uk.model, system, transcripts, TASKS.observation, ObservationOutput),
+      runCheck(client, uk.model, system, transcripts, TASKS.disclosures, DisclosureOutput),
+      runCheck(client, uk.model, system, transcripts, TASKS.facts, FactsOutput),
+      runCheck(client, uk.model, system, transcripts, TASKS.consistency, ConsistencyOutput),
     ]);
 
     const parts = { observation, disclosures, facts, consistency };
@@ -211,10 +254,11 @@ export async function runGate1(runId: number, calls: QaCall[], caseType: CaseTyp
 
 export async function runGate2(runId: number, calls: QaCall[], reportPdf: Buffer, caseType: CaseType): Promise<void> {
   try {
-    const client = new Anthropic();
+    const uk = requireUk();
+    const client = ukClaude(uk);
     const system = `${SYSTEM_INTRO}\n\nTHE STANDARDS\n\n${await loadStandards(caseType)}`;
     const { data, usage } = await runCheck(
-      client, system, buildTranscriptText(calls), TASKS.suitability, SuitabilityOutput, reportPdf,
+      client, uk.model, system, buildTranscriptText(calls), TASKS.suitability, SuitabilityOutput, reportPdf,
     );
     const result: Gate2Result = { suitability: data };
     await finishRun(runId, "done", result, { suitability: usage }, null);

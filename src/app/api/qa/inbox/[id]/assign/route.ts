@@ -2,15 +2,18 @@
  * POST /api/qa/inbox/[id]/assign
  *   { case_id }  or  { new_case: { client_name, case_type } }
  *   plus { call_type, call_date? }
- * Adds the recording to a case: downloads it from SharePoint, transcribes
- * it and stores the transcript (the audio is never stored). If anything
- * fails the recording goes back to the inbox to try again.
+ * Adds the recording to a case: downloads it from SharePoint and starts
+ * transcribing it with Amazon Transcribe in London (lib/qa/calls.ts).
+ * The case page shows "Transcribing…" until the transcript is in; the
+ * audio is deleted as soon as it is. If anything fails the recording
+ * goes back to the inbox to try again.
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { requireCallQA, getCase } from "@/lib/qa/db";
 import { downloadRecording } from "@/lib/qa/sharepoint";
-import { transcribeAudio, guessAdviserSpeaker } from "@/lib/qa/transcribe";
+import { ukStatus } from "@/lib/qa/uk";
+import { beginTranscription } from "@/lib/qa/calls";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -21,6 +24,8 @@ const CALL_TYPES = ["fact_find", "advice", "one_call", "other"];
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = await requireCallQA();
   if (auth instanceof NextResponse) return auth;
+  const uk = ukStatus();
+  if (!uk.ready) return NextResponse.json({ error: uk.reason }, { status: 503 });
   const inboxId = Number(params.id);
   const body = await req.json().catch(() => ({})) as {
     case_id?: number; new_case?: { client_name?: string; case_type?: string };
@@ -74,14 +79,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   try {
     const audio = await downloadRecording(item.drive_id, item.item_id);
-    const t = await transcribeAudio(audio, item.mime_type || "application/octet-stream");
-    if (t.utterances.length === 0) throw new Error("No speech was found in this recording.");
-    await sql.query(
-      `UPDATE qa_calls SET status = 'ready', utterances = $2::jsonb, duration_seconds = $3,
-              adviser_speaker = $4, updated_at = now() WHERE id = $1`,
-      [callId, JSON.stringify(t.utterances), t.durationSeconds, guessAdviserSpeaker(t.utterances)],
-    );
-    return NextResponse.json({ ok: true, case_id: caseId, call_id: callId });
+    await beginTranscription(callId, audio, item.filename, item.mime_type);
+    return NextResponse.json({ ok: true, case_id: caseId, call_id: callId, status: "transcribing" }, { status: 202 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await sql`UPDATE qa_calls SET deleted_at = now(), status = 'failed', error = ${msg.slice(0, 500)} WHERE id = ${callId}`;

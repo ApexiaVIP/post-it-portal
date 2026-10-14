@@ -1,13 +1,17 @@
 /**
  * GET    /api/qa/cases/[id]  -> case, calls (with transcripts), the
  *                               suitability report's details and the
- *                               latest run per gate.
+ *                               latest run per gate, and whether UK
+ *                               processing is set up. Checks on any
+ *                               transcription still running.
  * PATCH  /api/qa/cases/[id]  -> edit client_name / adviser_id / case_type / notes
  * DELETE /api/qa/cases/[id]  -> soft delete (and drop any held audio)
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { requireCallQA, getCase, getCalls } from "@/lib/qa/db";
+import { ukStatus } from "@/lib/qa/uk";
+import { advanceTranscriptions, dropHeldAudio } from "@/lib/qa/calls";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -28,6 +32,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
            finished_at = now()
      WHERE case_id = ${id} AND status = 'running'
        AND started_at < now() - make_interval(mins => ${STALE_RUN_MINUTES})`;
+  await advanceTranscriptions(id);
 
   const [calls, doc, runs] = await Promise.all([
     getCalls(id),
@@ -46,12 +51,14 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         `SELECT run_id, item_key, confirmed_result, note, reviewed_by, reviewed_at::text AS reviewed_at
            FROM qa_review_items WHERE run_id = ANY($1::int[])`, [runIds])
     : { rows: [] };
+  const uk = ukStatus();
   return NextResponse.json({
     case: qaCase,
     calls,
     document: doc.rows[0] ?? null,
     runs: runs.rows,
     reviews: reviews.rows,
+    uk: uk.ready ? { ready: true } : { ready: false, reason: uk.reason },
   });
 }
 
@@ -80,7 +87,8 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   const auth = await requireCallQA();
   if (auth instanceof NextResponse) return auth;
   const id = Number(params.id);
-  await sql`DELETE FROM qa_upload_chunks WHERE call_id IN (SELECT id FROM qa_calls WHERE case_id = ${id})`;
+  const calls = await sql<{ id: number }>`SELECT id FROM qa_calls WHERE case_id = ${id}`;
+  await dropHeldAudio(calls.rows.map((r) => r.id));
   await sql`UPDATE qa_cases SET deleted_at = now() WHERE id = ${id}`;
   return NextResponse.json({ ok: true });
 }

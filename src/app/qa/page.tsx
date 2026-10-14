@@ -48,13 +48,14 @@ export default function CallQaListPage() {
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ client_name: "", adviser_id: "", case_type: "two_call", notes: "" });
   const [saving, setSaving] = useState(false);
+  const [uk, setUk] = useState<{ ready: boolean; reason?: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
       const r = await fetch("/api/qa/cases", { cache: "no-store" });
       if (!r.ok) throw new Error(r.status === 403 ? "You don't have access to Call QA." : `HTTP ${r.status}`);
       const j = await r.json();
-      setCases(j.cases); setAdvisers(j.advisers);
+      setCases(j.cases); setAdvisers(j.advisers); setUk(j.uk ?? null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "load failed");
     }
@@ -100,6 +101,16 @@ export default function CallQaListPage() {
 
       {err && <p className="mt-3 rounded border border-red-300 bg-red-50 p-2 text-sm text-red-800">{err}</p>}
 
+      {uk && !uk.ready && (
+        <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-semibold">Call QA is switched off until the UK processing account is set up.</p>
+          <p className="mt-1">
+            Recordings are transcribed and checked only in Amazon&apos;s London data centre, in TopQuote&apos;s own account.
+            Until that is in place, nothing can be uploaded, sent or stored here.
+          </p>
+        </div>
+      )}
+
       {showNew && (
         <form onSubmit={create} className="mt-4 grid grid-cols-1 gap-3 rounded-lg border border-slate-300 bg-white p-4 text-sm md:grid-cols-4">
           <label className="md:col-span-2">
@@ -138,7 +149,7 @@ export default function CallQaListPage() {
         </form>
       )}
 
-      <RecordingsInbox cases={cases ?? []} onAdded={load} />
+      <RecordingsInbox cases={cases ?? []} ukReady={!!uk?.ready} onAdded={load} />
 
       <h2 className="mt-6 text-lg font-bold">Cases</h2>
       <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-white">
@@ -205,7 +216,7 @@ interface InboxResp {
   counts: Record<string, number>;
 }
 
-function RecordingsInbox({ cases, onAdded }: { cases: CaseRow[]; onAdded: () => void }) {
+function RecordingsInbox({ cases, ukReady, onAdded }: { cases: CaseRow[]; ukReady: boolean; onAdded: () => void }) {
   const [view, setView] = useState<"new" | "ignored">("new");
   const [data, setData] = useState<InboxResp | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -243,8 +254,8 @@ function RecordingsInbox({ cases, onAdded }: { cases: CaseRow[]; onAdded: () => 
         <div>
           <h2 className="font-bold text-teal-900">Recordings inbox</h2>
           <p className="text-xs text-teal-800">
-            Runs once a day: new recordings are picked up each evening, transcribed and sorted into cases overnight,
-            and completed sales are checked ready for the morning. Anything below needs a hand.
+            Recordings from the phone system, grouped by client number. Nothing is listened to automatically:
+            only the calls you add to a case are transcribed and checked.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -286,7 +297,7 @@ function RecordingsInbox({ cases, onAdded }: { cases: CaseRow[]; onAdded: () => 
                 </div>
                 {items.slice().sort((a, b) => (a.call_at ?? "").localeCompare(b.call_at ?? "")).map((it, idx) => (
                   <InboxRow key={it.id} item={it} position={idx} groupSize={items.length} cases={cases}
-                    view={view} onDone={() => { void load(); onAdded(); }} />
+                    view={view} ukReady={ukReady} onDone={() => { void load(); onAdded(); }} />
                 ))}
               </div>
             ))}
@@ -297,9 +308,9 @@ function RecordingsInbox({ cases, onAdded }: { cases: CaseRow[]; onAdded: () => 
   );
 }
 
-function InboxRow({ item, position, groupSize, cases, view, onDone }: {
+function InboxRow({ item, position, groupSize, cases, view, ukReady, onDone }: {
   item: InboxItem; position: number; groupSize: number; cases: CaseRow[];
-  view: "new" | "ignored"; onDone: () => void;
+  view: "new" | "ignored"; ukReady: boolean; onDone: () => void;
 }) {
   const [target, setTarget] = useState<string>(item.suggested_case_id ? String(item.suggested_case_id) : "new");
   const [clientName, setClientName] = useState("");
@@ -311,7 +322,7 @@ function InboxRow({ item, position, groupSize, cases, view, onDone }: {
   async function add() {
     setError(null);
     if (target === "new" && !clientName.trim()) { setError("Enter the client's name."); return; }
-    setBusy("Downloading and transcribing…");
+    setBusy("Sending for transcription…");
     const r = await fetch(`/api/qa/inbox/${item.id}/assign`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(target === "new"
@@ -365,7 +376,8 @@ function InboxRow({ item, position, groupSize, cases, view, onDone }: {
               </select>
             </>
           )}
-          <button type="button" onClick={add} disabled={!!busy}
+          <button type="button" onClick={add} disabled={!!busy || !ukReady}
+            title={ukReady ? undefined : "Switched off until the UK processing account is set up"}
             className="rounded bg-teal-700 px-2 py-0.5 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-50">
             {busy ?? "Add to case"}
           </button>
