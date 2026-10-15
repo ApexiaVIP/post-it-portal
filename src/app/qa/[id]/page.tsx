@@ -3,8 +3,9 @@
 /**
  * Call QA case page (Guy + Poz brief, 6 Oct 2026).
  *
- * Upload the case's call recordings (transcribed with timestamps and
- * speakers; the audio is deleted afterwards), run Gate 1 on the calls,
+ * The case's calls come from the sale (transcribed with timestamps and
+ * speakers once Poz presses Transcribe in the listening pool), run Gate 1
+ * on the calls,
  * upload the suitability report and run Gate 2. The report follows
  * Guy's order, and every piece of evidence links to the moment in the
  * transcript it came from.
@@ -48,8 +49,6 @@ interface ReviewApi {
   get: (runId: number | undefined, key: string) => ReviewRow | undefined;
   save: (runId: number, items: { key: string; confirmed: string | null }[]) => Promise<void>;
 }
-
-const CHUNK = 4 * 1024 * 1024 - 1024;
 
 const RESULT_STYLE: Record<string, string> = {
   PASS: "bg-emerald-100 text-emerald-800",
@@ -191,9 +190,12 @@ export default function CallQaCasePage() {
               target={target?.call === k.id ? target.time : null}
               onChanged={load} />
           ))}
-          {data.calls.length === 0 && <p className="text-sm text-slate-500">No calls yet. Upload the recording(s) for this case below.</p>}
+          {data.calls.length === 0 && <p className="text-sm text-slate-500">No calls yet.</p>}
         </div>
-        <UploadCall caseId={caseId} caseType={c.case_type} existing={data.calls.length} uk={data.uk} onDone={load} />
+        <p className="mt-2 text-xs text-slate-500">
+          Calls are added on the sale and transcribed from the{" "}
+          <Link href="/reci/recordings" className="underline">listening pool</Link>.
+        </p>
       </section>
 
       <section className="no-print mt-6">
@@ -318,169 +320,6 @@ function Transcript({ call, target }: { call: QaCall; target: number | null }) {
           <span>{u.text}</span>
         </div>
       ))}
-    </div>
-  );
-}
-
-interface PendingFile {
-  key: string;
-  file: File;
-  callType: CallType;
-  callDate: string;
-  state: "waiting" | "uploading" | "error";
-  note: string | null;
-}
-
-const AUDIO_EXT = /\.(wav|mp3|m4a|mp4|ogg|opus|flac|webm|amr)$/i;
-
-/** 3CX names recordings with the call's date and time, e.g. ..._20261013142233(12).wav */
-function dateFromName(name: string): string {
-  const m = name.match(/(20\d{2})(\d{2})(\d{2})\d{6}/);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : "";
-}
-
-function UploadCall({ caseId, caseType, existing, uk, onDone }: {
-  caseId: number; caseType: "one_call" | "two_call"; existing: number;
-  uk: Detail["uk"]; onDone: () => void;
-}) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [items, setItems] = useState<PendingFile[]>([]);
-  const [over, setOver] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  // A recording dropped just outside the box shouldn't make the browser
-  // open the file and leave the page.
-  useEffect(() => {
-    const stop = (e: DragEvent) => { if (e.dataTransfer?.types.includes("Files")) e.preventDefault(); };
-    window.addEventListener("dragover", stop);
-    window.addEventListener("drop", stop);
-    return () => { window.removeEventListener("dragover", stop); window.removeEventListener("drop", stop); };
-  }, []);
-
-  function addFiles(list: FileList | null) {
-    if (!list) return;
-    const all = Array.from(list);
-    const audio = all.filter((f) => f.type.startsWith("audio/") || AUDIO_EXT.test(f.name));
-    const skipped = all.length - audio.length;
-    setNotice(skipped ? `${skipped} file${skipped === 1 ? " isn't" : "s aren't"} a recording and ${skipped === 1 ? "was" : "were"} left out.` : null);
-    setItems((cur) => {
-      const have = new Set(cur.map((x) => x.key));
-      const fresh = audio
-        .filter((f) => !have.has(`${f.name}|${f.size}`))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      return [...cur, ...fresh.map((f, i): PendingFile => {
-        const n = existing + cur.length + i;
-        return {
-          key: `${f.name}|${f.size}`, file: f, callDate: dateFromName(f.name), state: "waiting", note: null,
-          callType: caseType === "one_call" ? "one_call" : n === 0 ? "fact_find" : "advice",
-        };
-      })];
-    });
-  }
-
-  const update = (key: string, patch: Partial<PendingFile>) =>
-    setItems((cur) => cur.map((x) => (x.key === key ? { ...x, ...patch } : x)));
-
-  async function sendOne(it: PendingFile) {
-    const file = it.file;
-    update(it.key, { state: "uploading", note: "Starting…" });
-    const r = await fetch(`/api/qa/cases/${caseId}/calls`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ call_type: it.callType, call_date: it.callDate || null, filename: file.name, mime_type: file.type, size_bytes: file.size }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    const callId = j.id as number;
-    const total = Math.ceil(file.size / CHUNK);
-    for (let seq = 0; seq < total; seq++) {
-      update(it.key, { note: `Uploading ${Math.round((seq / total) * 100)}%` });
-      const part = file.slice(seq * CHUNK, Math.min(file.size, (seq + 1) * CHUNK));
-      const pr = await fetch(`/api/qa/calls/${callId}/chunk?seq=${seq}`, {
-        method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: part,
-      });
-      if (!pr.ok) {
-        const pj = await pr.json().catch(() => ({}));
-        throw new Error(pj.error || `Upload failed (HTTP ${pr.status})`);
-      }
-    }
-    update(it.key, { note: "Sending for transcription…" });
-    const tr = await fetch(`/api/qa/calls/${callId}/transcribe`, { method: "POST" });
-    const tj = await tr.json().catch(() => ({}));
-    if (!tr.ok) throw new Error(tj.error || `Transcription didn't start (HTTP ${tr.status})`);
-  }
-
-  async function sendAll() {
-    setRunning(true);
-    for (const it of items.filter((x) => x.state !== "uploading")) {
-      try {
-        await sendOne(it);
-        setItems((cur) => cur.filter((x) => x.key !== it.key));
-      } catch (e) {
-        update(it.key, { state: "error", note: e instanceof Error ? e.message : "upload failed" });
-      }
-      onDone();
-    }
-    setRunning(false);
-  }
-
-  if (!uk.ready) {
-    return (
-      <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-        Uploads are switched off until TopQuote&apos;s UK (London) processing account is set up.
-        Nothing is uploaded, sent or stored until then.
-      </div>
-    );
-  }
-
-  return (
-    <div
-      onDragOver={(e) => { e.preventDefault(); setOver(true); }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => { e.preventDefault(); setOver(false); addFiles(e.dataTransfer.files); }}
-      className={`mt-3 rounded border-2 border-dashed p-4 text-sm ${over ? "border-teal-500 bg-teal-50" : "border-slate-300 bg-slate-50"}`}>
-      <p className="text-center text-slate-600">
-        Drag the recordings for this case here, or{" "}
-        <button type="button" onClick={() => fileRef.current?.click()} className="font-medium text-teal-800 underline">choose files</button>.
-        You can add several at once.
-      </p>
-      <input ref={fileRef} type="file" multiple accept="audio/*,.wav,.mp3,.m4a,.mp4,.ogg,.opus,.flac,.webm,.amr" className="hidden"
-        onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
-      {notice && <p className="mt-2 text-center text-xs text-amber-800">{notice}</p>}
-
-      {items.length > 0 && (
-        <div className="mt-3 space-y-2">
-          {items.map((it) => (
-            <div key={it.key} className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-white px-2 py-1.5">
-              <span className="min-w-0 flex-1 truncate font-medium" title={it.file.name}>{it.file.name}</span>
-              <span className="text-xs text-slate-500">{(it.file.size / 1048576).toFixed(1)} MB</span>
-              <select value={it.callType} disabled={running} onChange={(e) => update(it.key, { callType: e.target.value as CallType })}
-                className="rounded border px-1 py-0.5 text-xs">
-                {(Object.keys(CALL_TYPE_LABELS) as CallType[]).map((t) => <option key={t} value={t}>{CALL_TYPE_LABELS[t]}</option>)}
-              </select>
-              <input type="date" value={it.callDate} disabled={running} onChange={(e) => update(it.key, { callDate: e.target.value })}
-                className="rounded border px-1 py-0.5 text-xs" />
-              {it.note && <span className={`text-xs ${it.state === "error" ? "text-red-700" : "text-amber-700"}`}>{it.note}</span>}
-              {!running && (
-                <button type="button" onClick={() => setItems((cur) => cur.filter((x) => x.key !== it.key))}
-                  className="text-xs text-slate-500 hover:text-red-700">Remove</button>
-              )}
-            </div>
-          ))}
-          <div className="text-right">
-            <button type="button" onClick={sendAll} disabled={running}
-              className="rounded bg-slate-900 px-4 py-1.5 font-medium text-white disabled:opacity-50">
-              {running ? "Uploading…" : `Upload and transcribe ${items.length} recording${items.length === 1 ? "" : "s"}`}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <p className="mt-3 text-xs text-slate-500">
-        Recordings are transcribed in Amazon&apos;s London data centre with bank and card details blanked out, then deleted.
-        Only the transcript is kept. Each call takes a few minutes to transcribe.
-      </p>
     </div>
   );
 }

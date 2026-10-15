@@ -36,7 +36,7 @@ type CancellationDeal = {
 };
 type Cancellations = { weeks: CancellationWeek[]; deals: CancellationDeal[] };
 
-type RecordingCounts = { deal_id: number; held: number; sent: number };
+type RecordingCounts = { deal_id: number; to_listen: number; transcribed: number; saved: number };
 type BundleResp = {
   view: "admin"; adviser: Adviser; deals: Deal[]; tracker: Tracker; cancellations: Cancellations; year: number;
   recordings: RecordingCounts[];
@@ -245,6 +245,7 @@ export default function AdviserKanbanPage() {
                   className="rounded border border-teal-400 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900 hover:bg-teal-100">
             + Deal from recording
           </button>
+          <Link href="/reci/recordings" className="text-sm font-medium text-teal-800 hover:text-teal-950">Listening pool →</Link>
           <PrintButton />
           <Link href="/reci/analytics" className="text-sm text-blue-600 hover:text-blue-800">Analytics →</Link>
           <Link href="/" className="text-sm text-slate-500 hover:text-slate-700 underline">POST IT Admin</Link>
@@ -371,13 +372,15 @@ function DealCard({ deal, rec, onEdit, dragging }: { deal: Deal; rec?: Recording
           <span className="text-slate-600">Week {deal.week}</span>
           <span className="font-medium">{gbp(deal.commission)}</span>
         </div>
-        {rec && rec.held > 0 && (
-          <div className="mt-1 text-xs font-medium text-teal-800" title="Open the deal to listen">
-            {rec.held === 1 ? "Recording to listen to" : `${rec.held} recordings to listen to`}
+        {rec && rec.to_listen > 0 && (
+          <div className="mt-1 text-xs font-medium text-teal-800" title="Open the deal, or the listening pool, to listen">
+            {rec.to_listen === 1 ? "Recording to listen to" : `${rec.to_listen} recordings to listen to`}
           </div>
         )}
-        {rec && rec.held === 0 && rec.sent > 0 && (
-          <div className="mt-1 text-xs text-slate-500">Recording sent to Call QA</div>
+        {rec && rec.to_listen === 0 && (
+          <div className="mt-1 text-xs text-slate-500">
+            {rec.saved} recording{rec.saved === 1 ? "" : "s"}{rec.transcribed ? `, ${rec.transcribed} transcribed` : ""}
+          </div>
         )}
         {deal.status === "cancelled" && deal.cancellation_reason && (
           <div className="text-xs italic text-rose-600 mt-1 truncate" title={deal.cancellation_notes || ""}>

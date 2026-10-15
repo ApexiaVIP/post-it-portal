@@ -1,11 +1,11 @@
 /**
  * GET /api/reci/deals/[id]/recordings  (admins) -> the sale's recordings
- * and, for any sent to Call QA, where they are in it.
+ * and, for any transcribed, where they are in Call QA.
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { canUseCallQA } from "@/lib/auth";
-import { requireAdmin, listDealRecordings, purgeOldRecordings, RECORDING_KEEP_DAYS } from "@/lib/reci/recordings";
+import { requireAdmin, listDealRecordings } from "@/lib/reci/recordings";
 import { ukStatus } from "@/lib/qa/uk";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,6 @@ export const preferredRegion = "lhr1";
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const auth = await requireAdmin();
   if (auth instanceof NextResponse) return auth;
-  await purgeOldRecordings();
   const dealId = Number(params.id);
   const [recordings, adviser] = await Promise.all([
     listDealRecordings(dealId),
@@ -25,7 +24,6 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   return NextResponse.json({
     slug: adviser.rows[0].slug,
     recordings,
-    keep_days: RECORDING_KEEP_DAYS,
     call_qa: canUseCallQA(auth.username),
     uk: uk.ready ? { ready: true } : { ready: false, reason: uk.reason },
   });

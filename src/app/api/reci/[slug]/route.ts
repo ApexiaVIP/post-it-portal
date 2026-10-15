@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { getSession, isDashboardUser } from "@/lib/auth";
-import { boardAccess, purgeOldRecordings } from "@/lib/reci/recordings";
+import { boardAccess, clearAbandonedUploads } from "@/lib/reci/recordings";
 import { getAdviserBySlug, listDealsForAdviser, businessTrackerFor, createDeal, cancellationsFor } from "@/lib/reci/db";
 import { DEAL_STATUSES } from "@/lib/reci/schema";
 import { parseWelcomeFields } from "@/lib/reci/welcome-fields";
@@ -12,7 +12,7 @@ export const preferredRegion = "lhr1";
 export async function GET(req: Request, { params }: { params: { slug: string } }) {
   const access = await boardAccess(params.slug);
   if (access instanceof NextResponse) return access;
-  await purgeOldRecordings();
+  await clearAbandonedUploads();
   const adviser = access.adviser;
 
   // Sales agents (Poz, 15 Oct 2026): their own Not Yet Submitted sales only,
@@ -34,11 +34,13 @@ export async function GET(req: Request, { params }: { params: { slug: string } }
     listDealsForAdviser(adviser.id, year),
     businessTrackerFor(adviser.id, year),
     cancellationsFor(adviser.id, year),
-    sql<{ deal_id: number; held: number; sent: number }>`
-      SELECT r.deal_id, COUNT(*) FILTER (WHERE r.status = 'held')::int AS held,
-             COUNT(*) FILTER (WHERE r.status = 'sent')::int AS sent
+    sql<{ deal_id: number; to_listen: number; transcribed: number; saved: number }>`
+      SELECT r.deal_id,
+             COUNT(*) FILTER (WHERE r.qa_call_id IS NULL AND r.listened_at IS NULL)::int AS to_listen,
+             COUNT(*) FILTER (WHERE r.qa_call_id IS NOT NULL)::int AS transcribed,
+             COUNT(*)::int AS saved
         FROM deal_recordings r JOIN deals d ON d.id = r.deal_id
-       WHERE d.adviser_id = ${adviser.id} AND d.year = ${year} AND r.status IN ('held', 'sent')
+       WHERE d.adviser_id = ${adviser.id} AND d.year = ${year} AND r.status = 'held'
        GROUP BY r.deal_id`,
   ]);
   return NextResponse.json({ view: "admin", adviser, deals, tracker, cancellations, year, recordings: recordings.rows });

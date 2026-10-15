@@ -26,6 +26,7 @@ export default function ReciLandingPage() {
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <h1 className="text-2xl font-semibold">RECI</h1>
         <nav className="flex gap-4 text-sm">
+          <Link href="/reci/recordings" className="font-medium text-teal-800 hover:text-teal-950 underline">Listening pool</Link>
           <Link href="/" className="text-slate-500 hover:text-slate-700 underline">POST IT Admin</Link>
           <Link href="/dashboard" className="text-slate-500 hover:text-slate-700 underline">POST IT Dashboard</Link>
         </nav>

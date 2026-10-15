@@ -1,15 +1,20 @@
 "use client";
 
 /**
- * Drop box for sale recordings (Poz, 15 Oct 2026). Drag the 3CX
- * download(s) in, or choose them; nothing else is asked. Several files at
- * once (e.g. the fact find and the advice call) go on the same sale.
- * Without dealId it creates a new Not Yet Submitted sale.
+ * Drop box for sale recordings (Guy + Poz, 15 Oct 2026). The agent drags
+ * the 3CX download(s) in, picks the call type for each (FF, AC or Both)
+ * and, for a new sale, types the client's surname. Several files at once
+ * go on the same sale. Without dealId it creates a new Not Yet Submitted
+ * sale, which then shows in Poz's listening pool.
  */
 import { useEffect, useRef, useState } from "react";
 
 const CHUNK = 4 * 1024 * 1024 - 1024;
 const AUDIO_EXT = /\.(wav|mp3|m4a|mp4|ogg|opus|flac|webm|amr|wma|aac)$/i;
+
+const CALL_TYPES: [string, string][] = [["fact_find", "FF - Fact Find"], ["advice", "AC - Advice Call"], ["one_call", "Both"]];
+
+interface Picked { file: File; callType: string }
 
 export function RecordingDrop({ slug, dealId, onDone, label }: {
   slug: string;
@@ -18,7 +23,8 @@ export function RecordingDrop({ slug, dealId, onDone, label }: {
   label?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<Picked[]>([]);
+  const [surname, setSurname] = useState("");
   const [over, setOver] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,23 +43,27 @@ export function RecordingDrop({ slug, dealId, onDone, label }: {
     const audio = all.filter((f) => f.type.startsWith("audio/") || AUDIO_EXT.test(f.name));
     setError(audio.length < all.length ? "Only call recordings can be added; other files were left out." : null);
     setFiles((cur) => {
-      const have = new Set(cur.map((f) => `${f.name}|${f.size}`));
-      return [...cur, ...audio.filter((f) => !have.has(`${f.name}|${f.size}`))];
+      const have = new Set(cur.map((x) => `${x.file.name}|${x.file.size}`));
+      return [...cur, ...audio.filter((f) => !have.has(`${f.name}|${f.size}`)).map((file) => ({ file, callType: "" }))];
     });
   }
 
+  const missing = files.length === 0 ? "Add the recording first"
+    : files.some((x) => !x.callType) ? "Choose the call type for each recording"
+    : !dealId && !surname.trim() ? "Enter the client's surname" : null;
+
   async function upload() {
-    if (files.length === 0) return;
+    if (missing) { setError(missing); return; }
     setError(null);
     try {
       const ids: number[] = [];
-      for (const [i, file] of files.entries()) {
+      for (const [i, { file, callType }] of files.entries()) {
         const label = files.length > 1 ? `Recording ${i + 1} of ${files.length}: ` : "";
         setProgress(`${label}starting…`);
         const r = await fetch(`/api/reci/${slug}/recordings`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: file.name, mime_type: file.type, size_bytes: file.size, deal_id: dealId ?? null }),
+          body: JSON.stringify({ filename: file.name, mime_type: file.type, size_bytes: file.size, call_type: callType, deal_id: dealId ?? null }),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
@@ -75,11 +85,12 @@ export function RecordingDrop({ slug, dealId, onDone, label }: {
       const f = await fetch(`/api/reci/${slug}/recordings/finish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recording_ids: ids, deal_id: dealId ?? null }),
+        body: JSON.stringify({ recording_ids: ids, deal_id: dealId ?? null, surname }),
       });
       const fj = await f.json().catch(() => ({}));
       if (!f.ok) throw new Error(fj.error || `HTTP ${f.status}`);
       setFiles([]);
+      setSurname("");
       setProgress(null);
       onDone(fj.deal_id);
     } catch (e) {
@@ -106,24 +117,40 @@ export function RecordingDrop({ slug, dealId, onDone, label }: {
         onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
 
       {files.length > 0 && (
-        <ul className="mx-auto mt-3 max-w-md space-y-1 text-left">
-          {files.map((f) => (
-            <li key={`${f.name}|${f.size}`} className="flex items-center gap-2 rounded border border-slate-200 bg-white px-2 py-1 text-xs">
-              <span className="min-w-0 flex-1 truncate" title={f.name}>{f.name}</span>
-              <span className="text-slate-500">{(f.size / 1048576).toFixed(1)} MB</span>
-              {!busy && (
-                <button type="button" onClick={() => setFiles((cur) => cur.filter((x) => x !== f))}
-                  className="text-slate-400 hover:text-red-700">Remove</button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {files.length > 0 && (
-        <button type="button" onClick={upload} disabled={busy}
-          className="mt-3 rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60">
-          {progress ?? (dealId ? `Add ${files.length === 1 ? "recording" : `${files.length} recordings`}` : "Create the sale")}
-        </button>
+        <div className="mx-auto mt-3 max-w-md space-y-2 text-left">
+          {!dealId && (
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-700">Client surname *</span>
+              <input value={surname} onChange={(e) => setSurname(e.target.value)} disabled={busy} autoFocus
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm" placeholder="e.g. Smith" />
+            </label>
+          )}
+          <ul className="space-y-1">
+            {files.map((x) => (
+              <li key={`${x.file.name}|${x.file.size}`} className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-white px-2 py-1 text-xs">
+                <span className="min-w-0 flex-1 truncate" title={x.file.name}>{x.file.name}</span>
+                <span className="text-slate-500">{(x.file.size / 1048576).toFixed(1)} MB</span>
+                <select value={x.callType} disabled={busy} aria-label="Call type"
+                  onChange={(e) => setFiles((cur) => cur.map((y) => (y === x ? { ...y, callType: e.target.value } : y)))}
+                  className={`rounded border px-1 py-0.5 ${x.callType ? "border-slate-300" : "border-amber-400 bg-amber-50"}`}>
+                  <option value="">Call type…</option>
+                  {CALL_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+                {!busy && (
+                  <button type="button" onClick={() => setFiles((cur) => cur.filter((y) => y !== x))}
+                    className="text-slate-400 hover:text-red-700">Remove</button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="text-center">
+            <button type="button" onClick={upload} disabled={busy || !!missing} title={missing ?? undefined}
+              className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+              {progress ?? (dealId ? `Add ${files.length === 1 ? "recording" : `${files.length} recordings`}` : "Create the sale")}
+            </button>
+            {missing && !busy && <p className="mt-1 text-xs text-slate-500">{missing}</p>}
+          </div>
+        </div>
       )}
       {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
     </div>
