@@ -21,6 +21,8 @@ import {
 import { PrintButton, PrintHeader } from "@/components/print";
 import { NewDealModal, EditDealModal } from "@/components/deal-modal";
 import { WelcomeEmailPanel } from "@/components/welcome-email-panel";
+import { SellerBoard, type SellerBoardData } from "@/components/seller-board";
+import { RecordingDrop } from "@/components/recording-drop";
 
 type Tracker = { week: number; paid: number; on_risk_nyp: number; in_processing: number; nys: number; cxl: number; total: number }[];
 
@@ -34,7 +36,11 @@ type CancellationDeal = {
 };
 type Cancellations = { weeks: CancellationWeek[]; deals: CancellationDeal[] };
 
-type BundleResp = { adviser: Adviser; deals: Deal[]; tracker: Tracker; cancellations: Cancellations; year: number };
+type RecordingCounts = { deal_id: number; held: number; sent: number };
+type BundleResp = {
+  view: "admin"; adviser: Adviser; deals: Deal[]; tracker: Tracker; cancellations: Cancellations; year: number;
+  recordings: RecordingCounts[];
+};
 
 function gbp(n: number | string | null | undefined) {
   const v = Number(n || 0);
@@ -47,6 +53,9 @@ export default function AdviserKanbanPage() {
   const router = useRouter();
   const pathname = usePathname();
   const [data, setData] = useState<BundleResp | null>(null);
+  // Sales agents get their own simplified view (Poz, 15 Oct 2026).
+  const [sellerData, setSellerData] = useState<SellerBoardData | null>(null);
+  const [fromRecording, setFromRecording] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const [activeDealId, setActiveDealId] = useState<number | null>(null);
@@ -65,8 +74,8 @@ export default function AdviserKanbanPage() {
     try {
       const r = await fetch(`/api/reci/${slug}?year=${year}`, { cache: "no-store" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = (await r.json()) as BundleResp;
-      setData(j);
+      const j = (await r.json()) as BundleResp | SellerBoardData;
+      if (j.view === "seller") setSellerData(j); else setData(j);
     } catch (e) { setErr(e instanceof Error ? e.message : "load failed"); }
   }, [slug, year]);
 
@@ -99,6 +108,11 @@ export default function AdviserKanbanPage() {
       router.replace(pathname);
     }
   }, [data, searchParams, router, pathname]);
+
+  const recordingsByDeal = useMemo(
+    () => new Map((data?.recordings ?? []).map((r) => [r.deal_id, r])),
+    [data?.recordings],
+  );
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -178,6 +192,7 @@ export default function AdviserKanbanPage() {
   const activeDeal = activeDealId ? data?.deals.find(d => d.id === activeDealId) : null;
 
   if (err) return <main className="p-8 text-red-600">{err}</main>;
+  if (sellerData) return <SellerBoard slug={slug} data={sellerData} onReload={load} />;
   if (!data) return <main className="p-8 text-slate-500">Loading…</main>;
 
   return (
@@ -225,6 +240,11 @@ export default function AdviserKanbanPage() {
                   className="bg-slate-900 text-white rounded px-3 py-2 text-sm font-medium hover:bg-slate-800">
             + New deal
           </button>
+          <button onClick={() => setFromRecording(true)}
+                  title="Create a sale from the seller's 3CX call recording"
+                  className="rounded border border-teal-400 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900 hover:bg-teal-100">
+            + Deal from recording
+          </button>
           <PrintButton />
           <Link href="/reci/analytics" className="text-sm text-blue-600 hover:text-blue-800">Analytics →</Link>
           <Link href="/" className="text-sm text-slate-500 hover:text-slate-700 underline">POST IT Admin</Link>
@@ -235,7 +255,7 @@ export default function AdviserKanbanPage() {
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
           <div className="grid grid-cols-6 gap-3 min-w-[1440px]">
             {DEAL_STATUSES.map((s) => (
-              <StatusColumn key={s} status={s} deals={dealsByStatus[s]} onEdit={load} />
+              <StatusColumn key={s} status={s} deals={dealsByStatus[s]} recordings={recordingsByDeal} onEdit={load} />
             ))}
           </div>
           <DragOverlay>
@@ -249,6 +269,21 @@ export default function AdviserKanbanPage() {
       <CancellationsBlock cancellations={data.cancellations} year={year} />
 
       {showNew && <NewDealModal slug={slug} year={year} onClose={() => { setShowNew(false); load(); }} />}
+
+      {fromRecording && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4 md:items-center">
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
+            <header className="flex items-center justify-between border-b px-4 py-3">
+              <h2 className="font-semibold">New deal from a call recording</h2>
+              <button type="button" onClick={() => setFromRecording(false)} className="text-slate-400 hover:text-slate-700">✕</button>
+            </header>
+            <div className="p-4">
+              <RecordingDrop slug={slug} label="Drag the sale's call recording here"
+                onDone={() => { setFromRecording(false); load(); }} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {cancelling && (
         <CancellationModal
@@ -280,7 +315,9 @@ export default function AdviserKanbanPage() {
   );
 }
 
-function StatusColumn({ status, deals, onEdit }: { status: DealStatus; deals: Deal[]; onEdit: () => void }) {
+function StatusColumn({ status, deals, recordings, onEdit }: {
+  status: DealStatus; deals: Deal[]; recordings: Map<number, RecordingCounts>; onEdit: () => void;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${status}` });
   const total = deals.reduce((s, d) => s + Number(d.commission || 0), 0);
   const colorMap: Record<DealStatus, string> = {
@@ -299,7 +336,7 @@ function StatusColumn({ status, deals, onEdit }: { status: DealStatus; deals: De
       </div>
       <div className="p-2 space-y-2">
         <SortableContext items={deals.map(d => d.id)} strategy={verticalListSortingStrategy}>
-          {deals.map(d => <DealCard key={d.id} deal={d} onEdit={onEdit} />)}
+          {deals.map(d => <DealCard key={d.id} deal={d} rec={recordings.get(d.id)} onEdit={onEdit} />)}
         </SortableContext>
         {deals.length === 0 && <p className="text-xs text-slate-400 text-center py-4">Drop here</p>}
       </div>
@@ -307,7 +344,7 @@ function StatusColumn({ status, deals, onEdit }: { status: DealStatus; deals: De
   );
 }
 
-function DealCard({ deal, onEdit, dragging }: { deal: Deal; onEdit: () => void; dragging?: boolean }) {
+function DealCard({ deal, rec, onEdit, dragging }: { deal: Deal; rec?: RecordingCounts; onEdit: () => void; dragging?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: deal.id });
   const [editing, setEditing] = useState(false);
   const [welcoming, setWelcoming] = useState(false);
@@ -334,6 +371,14 @@ function DealCard({ deal, onEdit, dragging }: { deal: Deal; onEdit: () => void; 
           <span className="text-slate-600">Week {deal.week}</span>
           <span className="font-medium">{gbp(deal.commission)}</span>
         </div>
+        {rec && rec.held > 0 && (
+          <div className="mt-1 text-xs font-medium text-teal-800" title="Open the deal to listen">
+            {rec.held === 1 ? "Recording to listen to" : `${rec.held} recordings to listen to`}
+          </div>
+        )}
+        {rec && rec.held === 0 && rec.sent > 0 && (
+          <div className="mt-1 text-xs text-slate-500">Recording sent to Call QA</div>
+        )}
         {deal.status === "cancelled" && deal.cancellation_reason && (
           <div className="text-xs italic text-rose-600 mt-1 truncate" title={deal.cancellation_notes || ""}>
             {CANCELLATION_REASON_SHORT[deal.cancellation_reason]}
