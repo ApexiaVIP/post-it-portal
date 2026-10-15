@@ -3,7 +3,8 @@
 /**
  * A sales agent's view of their own RECI board (Poz, 15 Oct 2026): just
  * their Not Yet Submitted sales and a "New deal" button that takes the
- * call recording and nothing else. Poz fills in the details.
+ * call recording(s), the call type and the client's surname. The sale
+ * goes into Poz's listening pool and she fills in the details.
  */
 import { useState } from "react";
 import Link from "next/link";
@@ -76,7 +77,7 @@ export function SellerBoard({ slug, data, onReload }: { slug: string; data: Sell
             </header>
             <div className="p-4">
               <RecordingDrop slug={slug} dealId={adding.dealId}
-                label={adding.dealId ? "Drag the recording here" : "Drag the sale's call recording here"}
+                label={adding.dealId ? "Drag the recording here" : "Drag the sale's call recording(s) here"}
                 onDone={() => {
                   setNotice(adding.dealId ? "Recording added." : "Sale created. Poz will add the details.");
                   setAdding(null);
