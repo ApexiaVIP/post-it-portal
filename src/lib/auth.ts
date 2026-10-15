@@ -124,6 +124,13 @@ const RECI_JUNIOR_SELLER_USERNAMES = parseList(
 // the new lists is populated and RECI_SELLER_USERNAMES is, everyone in it
 // is treated as a junior seller (safer default).
 const LEGACY_SELLER_USERNAMES = parseList(process.env.RECI_SELLER_USERNAMES ?? "");
+// Sales agents who can open their OWN RECI board in the seller view (Poz,
+// 15 Oct 2026): just the Not Yet Submitted column, plus a "New deal"
+// button that takes the 3CX recording of the sale and nothing else.
+// Defaults to the seller lists; RECI_BOARD_SELLER_USERNAMES adds others
+// (e.g. ben). Which board is theirs comes from advisers.username, checked
+// in the API.
+const RECI_BOARD_SELLER_EXTRA = parseList(process.env.RECI_BOARD_SELLER_USERNAMES ?? "");
 // Read-only viewers (Guy) see EVERY seller's cases on the dashboard and the
 // reports page, but cannot edit anything or upload EBAH files.
 const CLAWBACK_VIEWER_USERNAMES = parseList(process.env.CLAWBACK_VIEWER_USERNAMES ?? "guy");
@@ -142,7 +149,8 @@ export function roleFor(username: string | null | undefined): Role {
   if (DATA_ENTRY_USERNAMES.includes(u))        return "data-entry";
   if (RECI_SENIOR_SELLER_USERNAMES.includes(u)
    || RECI_JUNIOR_SELLER_USERNAMES.includes(u)
-   || LEGACY_SELLER_USERNAMES.includes(u))     return "reci-seller";
+   || LEGACY_SELLER_USERNAMES.includes(u)
+   || RECI_BOARD_SELLER_EXTRA.includes(u))     return "reci-seller";
   if (CLAWBACK_VIEWER_USERNAMES.includes(u))   return "clawback-viewer";
   return "none";
 }
@@ -325,6 +333,29 @@ export async function getEditableAdviserId(
   return undefined;
 }
 
+/** Sales agents who may use the seller view of their own RECI board. */
+export function isBoardSeller(username: string | null | undefined): username is string {
+  if (!username) return false;
+  const u = username.toLowerCase();
+  return RECI_SENIOR_SELLER_USERNAMES.includes(u) || RECI_JUNIOR_SELLER_USERNAMES.includes(u)
+      || LEGACY_SELLER_USERNAMES.includes(u) || RECI_BOARD_SELLER_EXTRA.includes(u);
+}
+
+// Board paths a sales agent may reach. Which board is checked in the API
+// against advisers.username, so this only has to keep them away from the
+// RECI admin pages that share the /reci prefix.
+const RECI_RESERVED = new Set([
+  "clawback", "cases", "tracker", "analytics", "confirmations", "weekly",
+  "advisers", "business-tracker", "cancellations", "deals", "weekly-report", "recordings",
+]);
+function isSellerBoardPath(pathname: string): boolean {
+  const page = pathname.match(/^\/reci\/([a-z0-9-]+)$/);
+  if (page) return !RECI_RESERVED.has(page[1]);
+  const api = pathname.match(/^\/api\/reci\/([a-z0-9-]+)(\/recordings(\/finish)?)?$/);
+  if (api) return !RECI_RESERVED.has(api[1]);
+  return /^\/api\/reci\/recordings\/\d+\/chunk$/.test(pathname);
+}
+
 // Any authenticated user with a role (admin OR data-entry). Used by /api/data
 // which both roles need.
 export function isPortalUser(username: string | null | undefined): username is string {
@@ -381,6 +412,7 @@ export function canAccessPath(username: string | null | undefined, pathname: str
         pathname === "/dashboard"
      || pathname.startsWith("/dashboard/")
      || pathname.startsWith("/api/snapshots"))) return true;
+  if (isBoardSeller(username) && isSellerBoardPath(pathname)) return true;
   // Sellers / viewers can reach /reci/clawback even if their primary role
   // is data-entry or none. Same crowd gets the adviser cases workspace
   // (/reci/cases, Poz 6 Aug 2026) — per-adviser scoping happens in the

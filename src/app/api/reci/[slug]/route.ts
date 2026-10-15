@@ -1,24 +1,47 @@
 import { NextResponse } from "next/server";
+import { sql } from "@vercel/postgres";
 import { getSession, isDashboardUser } from "@/lib/auth";
+import { boardAccess, purgeOldRecordings } from "@/lib/reci/recordings";
 import { getAdviserBySlug, listDealsForAdviser, businessTrackerFor, createDeal, cancellationsFor } from "@/lib/reci/db";
 import { DEAL_STATUSES } from "@/lib/reci/schema";
 import { parseWelcomeFields } from "@/lib/reci/welcome-fields";
 
 export const dynamic = "force-dynamic";
+export const preferredRegion = "lhr1";
 
 export async function GET(req: Request, { params }: { params: { slug: string } }) {
-  const session = await getSession();
-  if (!isDashboardUser(session.username)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const access = await boardAccess(params.slug);
+  if (access instanceof NextResponse) return access;
+  await purgeOldRecordings();
+  const adviser = access.adviser;
+
+  // Sales agents (Poz, 15 Oct 2026): their own Not Yet Submitted sales only,
+  // and nothing about money.
+  if (!access.isAdmin) {
+    const deals = await sql<{ id: number; client: string; week: number; year: number; booked_date: string | null; created_at: string; recordings: number }>`
+      SELECT d.id, d.client, d.week, d.year, d.booked_date::text AS booked_date, d.created_at::text AS created_at,
+             (SELECT COUNT(*)::int FROM deal_recordings r WHERE r.deal_id = d.id AND r.status <> 'uploading') AS recordings
+        FROM deals d
+       WHERE d.adviser_id = ${adviser.id} AND d.status = 'not_yet_submitted'
+       ORDER BY d.created_at DESC, d.id DESC
+       LIMIT 300`;
+    return NextResponse.json({ view: "seller", adviser: { name: adviser.name, slug: adviser.slug }, deals: deals.rows });
+  }
+
   const { searchParams } = new URL(req.url);
   const year = Number(searchParams.get("year") || new Date().getFullYear());
-  const adviser = await getAdviserBySlug(params.slug);
-  if (!adviser) return NextResponse.json({ error: "adviser not found" }, { status: 404 });
-  const [deals, tracker, cancellations] = await Promise.all([
+  const [deals, tracker, cancellations, recordings] = await Promise.all([
     listDealsForAdviser(adviser.id, year),
     businessTrackerFor(adviser.id, year),
     cancellationsFor(adviser.id, year),
+    sql<{ deal_id: number; held: number; sent: number }>`
+      SELECT r.deal_id, COUNT(*) FILTER (WHERE r.status = 'held')::int AS held,
+             COUNT(*) FILTER (WHERE r.status = 'sent')::int AS sent
+        FROM deal_recordings r JOIN deals d ON d.id = r.deal_id
+       WHERE d.adviser_id = ${adviser.id} AND d.year = ${year} AND r.status IN ('held', 'sent')
+       GROUP BY r.deal_id`,
   ]);
-  return NextResponse.json({ adviser, deals, tracker, cancellations, year });
+  return NextResponse.json({ view: "admin", adviser, deals, tracker, cancellations, year, recordings: recordings.rows });
 }
 
 export async function POST(req: Request, { params }: { params: { slug: string } }) {

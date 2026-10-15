@@ -21,6 +21,7 @@ import {
 } from "@/lib/reci/schema";
 import { isoWeekNumber } from "@/lib/schema";
 import { WelcomeEmailPanel } from "@/components/welcome-email-panel";
+import { DealRecordingsPanel } from "@/components/deal-recordings-panel";
 
 export function NewDealModal({ slug, year, onClose }: { slug: string; year: number; onClose: () => void }) {
   // Default to the current ISO week in London time so Pauline doesn't have to
@@ -362,6 +363,8 @@ function DealFormModal({ title, initial, canDelete, allowAddAnother, welcomeDeal
           <Field label="Notes" className="col-span-4">
             <textarea value={form.notes} onChange={set("notes")} rows={2} className="w-full border rounded px-2 py-1" />
           </Field>
+
+          {welcomeDealId && <DealRecordingsPanel dealId={welcomeDealId} />}
         </div>
         {err && <p className="text-sm text-red-600 px-4">{err}</p>}
         <footer className="px-4 py-3 border-t flex items-center justify-between">
