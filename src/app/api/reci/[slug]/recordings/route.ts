@@ -27,5 +27,5 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     call_type: body?.call_type,
   });
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  return NextResponse.json({ ok: true, id: r.id }, { status: 201 });
+  return NextResponse.json({ ok: true, id: r.id, other_seller: r.other_seller }, { status: 201 });
 }

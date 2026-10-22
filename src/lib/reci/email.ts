@@ -1078,3 +1078,42 @@ export async function sendWelcomeEmail(i: {
 export function welcomeTestRecipients(): string[] {
   return managementCc();
 }
+
+/**
+ * Call QA (22 Oct 2026): a sale Poz sent for transcription has been
+ * transcribed and checked. Names and counts only; the report itself stays
+ * behind the portal login.
+ */
+export async function sendQaReportReady(i: {
+  caseId: number; client: string; adviser: string | null; ok: boolean;
+  fails: number; reviews: number; disclosuresMissed: number; error: string | null;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const transporter = getTransporter();
+  if (!transporter) return { sent: false, reason: "no SMTP credentials" };
+  const to = (process.env.QA_DIGEST_TO || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const recipients = to.length ? to : managementCc();
+  if (recipients.length === 0) return { sent: false, reason: "no recipients" };
+  const base = (process.env.PUBLIC_DASHBOARD_URL || "https://post-it-portal.vercel.app").replace(/\/$/, "");
+  const addr = process.env.SMTP_USER || process.env.GMAIL_USER || "";
+  const who = `${i.client}${i.adviser ? ` (${i.adviser})` : ""}`;
+  const subject = i.ok ? `Call QA report ready: ${who}` : `Call QA check didn't finish: ${who}`;
+  const lines = i.ok ? [
+    `The call check for ${who} is ready to review.`,
+    "",
+    `${i.fails} fail${i.fails === 1 ? "" : "s"}, ${i.reviews} to review, ${i.disclosuresMissed} disclosure${i.disclosuresMissed === 1 ? "" : "s"} missed or partial.`,
+    "",
+    `Open the report: ${base}/qa/${i.caseId}`,
+  ] : [
+    `The calls for ${who} were transcribed but the check didn't finish.`,
+    "",
+    `Reason: ${i.error ?? "unknown"}`,
+    "",
+    `You can run it again from the case: ${base}/qa/${i.caseId}`,
+  ];
+  try {
+    await transporter.sendMail({ from: `"Top Quote Systems" <${addr}>`, to: recipients.join(", "), subject, text: lines.join("\n") });
+    return { sent: true };
+  } catch (e) {
+    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}

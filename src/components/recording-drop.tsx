@@ -67,6 +67,11 @@ export function RecordingDrop({ slug, dealId, onDone, label }: {
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        if (j.other_seller && !confirm(
+          `${file.name} was recorded on ${j.other_seller}, not this seller's phone.\n\nAdd it to this board anyway?`,
+        )) {
+          throw new Error(`Stopped: that recording belongs to ${j.other_seller}. Open their board and add it there.`);
+        }
         const total = Math.ceil(file.size / CHUNK);
         for (let seq = 0; seq < total; seq++) {
           setProgress(`${label}${Math.round((seq / total) * 100)}%`);
