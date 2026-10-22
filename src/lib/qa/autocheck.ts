@@ -10,7 +10,24 @@ import { runGate1 } from "./analyse";
 import { ukStatus, ukModel } from "./uk";
 import { sendQaReportReady } from "@/lib/reci/email";
 
-/** Sale cases whose calls are all transcribed and haven't been checked since (exported for tests). */
+/** AWS refusing the model for the whole account (not a problem with this sale). */
+const ACCOUNT_BLOCKED = /not available for this account/i;
+
+/** One plain sentence for the email, instead of four copies of the raw error. */
+export function plainReason(error: string | null): string {
+  if (!error) return "Unknown.";
+  if (ACCOUNT_BLOCKED.test(error)) return "The AI service isn't switched on for TopQuote's AWS account yet.";
+  if (/\b429\b|throttl|too many/i.test(error)) return "The AI service was busy. Please run it again in a few minutes.";
+  const parts = Array.from(new Set(error.split(" | ").map((x) => x.replace(/^[a-z]+: /, "").trim())));
+  return parts[0].slice(0, 300);
+}
+
+/**
+ * Sale cases whose calls are all transcribed and haven't been checked
+ * since. A check that failed only because AWS hasn't switched the AI on
+ * for the account is retried quietly every hour, so waiting sales run as
+ * soon as it is (exported for tests).
+ */
 export async function casesReadyForAutoCheck(limit: number) {
   const r = await sql<{ id: number; case_type: "one_call" | "two_call" }>`
     WITH latest AS (
@@ -18,15 +35,18 @@ export async function casesReadyForAutoCheck(limit: number) {
              COUNT(*) FILTER (WHERE status = 'transcribing') AS pending,
              COUNT(*) FILTER (WHERE status = 'ready') AS ready
         FROM qa_calls WHERE deleted_at IS NULL GROUP BY case_id
+    ), last_run AS (
+      SELECT DISTINCT ON (case_id) case_id, status, started_at, started_by, error
+        FROM qa_runs WHERE gate = 1 ORDER BY case_id, started_at DESC
     )
     SELECT c.id, c.case_type
-      FROM qa_cases c JOIN latest l ON l.case_id = c.id
+      FROM qa_cases c JOIN latest l ON l.case_id = c.id LEFT JOIN last_run lr ON lr.case_id = c.id
      WHERE c.deleted_at IS NULL AND c.deal_id IS NOT NULL
        AND l.pending = 0 AND l.ready > 0
-       AND NOT EXISTS (SELECT 1 FROM qa_runs r WHERE r.case_id = c.id AND r.gate = 1
-                        AND (r.started_at >= l.at OR (r.status = 'running' AND r.started_at > now() - interval '6 minutes')))
-       AND (SELECT COUNT(*) FROM qa_runs r WHERE r.case_id = c.id AND r.gate = 1 AND r.status = 'failed'
-             AND r.started_at >= l.at - interval '1 day') < 2
+       AND (lr.case_id IS NULL
+         OR (lr.started_at < l.at AND NOT (lr.status = 'running' AND lr.started_at > now() - interval '6 minutes'))
+         OR (lr.status = 'failed' AND lr.started_by = 'automatic' AND lr.error ~* 'not available for this account'
+             AND lr.started_at < now() - interval '1 hour'))
      ORDER BY l.at
      LIMIT ${limit}`;
   return r.rows;
@@ -53,12 +73,17 @@ export async function autoCheckNext(): Promise<{ caseId: number; status: string 
     disclosures?: { disclosures?: { result: string }[] };
   };
   const checks = res.observation?.checks ?? [];
+  // While AWS has the AI switched off for the account, every sale would
+  // fail the same way: retry quietly instead of emailing each time.
+  if (done.status !== "done" && ACCOUNT_BLOCKED.test(done.error ?? "")) {
+    return { caseId: next.id, status: "waiting for AWS" };
+  }
   const mail = await sendQaReportReady({
     caseId: next.id, client: done.client_name, adviser: done.adviser, ok: done.status === "done",
     fails: checks.filter((k) => k.result === "FAIL").length,
     reviews: checks.filter((k) => k.result === "REVIEW_REQUIRED").length,
     disclosuresMissed: (res.disclosures?.disclosures ?? []).filter((d) => d.result === "MISSING" || d.result === "PARTIAL").length,
-    error: done.error,
+    error: done.status === "done" ? null : plainReason(done.error),
   });
   if (!mail.sent) console.error("[qa] report email not sent:", mail.reason);
   return { caseId: next.id, status: done.status };

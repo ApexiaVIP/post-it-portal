@@ -19,6 +19,7 @@ interface SentSale {
   deal_id: number; client: string; adviser_name: string; adviser_slug: string; year: number;
   case_id: number; calls: number; ready: number; failed: number; sent_at: string;
   check_status: "running" | "done" | "failed" | null;
+  waiting_for_aws: boolean;
 }
 interface Resp { sales: PoolSale[]; sent: SentSale[]; call_qa: boolean; uk: { ready: boolean; reason?: string } }
 
@@ -27,6 +28,9 @@ function progress(s: SentSale): { text: string; tone: string; done: boolean } {
   if (s.failed > 0) return { text: "Transcription failed: open it to retry", tone: "text-red-700", done: true };
   if (s.ready < s.calls) return { text: `Transcribing (${s.ready} of ${s.calls} done)`, tone: "text-amber-700", done: false };
   if (s.check_status === "done") return { text: "Report ready", tone: "text-emerald-700 font-semibold", done: true };
+  if (s.check_status === "failed" && s.waiting_for_aws) {
+    return { text: "Transcribed. The check will run once Amazon switches the AI on", tone: "text-amber-700", done: true };
+  }
   if (s.check_status === "failed") return { text: "Check didn't finish: open it to run again", tone: "text-red-700", done: true };
   if (s.check_status === "running") return { text: "Transcribed, checking now", tone: "text-amber-700", done: false };
   return { text: "Transcribed, check starting shortly", tone: "text-amber-700", done: false };

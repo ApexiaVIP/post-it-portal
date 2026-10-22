@@ -210,6 +210,8 @@ export interface SentSale {
   deal_id: number; client: string; adviser_name: string; adviser_slug: string; year: number;
   case_id: number; calls: number; ready: number; failed: number; sent_at: string;
   check_status: "running" | "done" | "failed" | null;
+  /** The last check failed only because AWS hasn't switched the AI on yet. */
+  waiting_for_aws: boolean;
 }
 
 /** Sales Poz has sent for transcription in the last fortnight, with where each has got to. */
@@ -221,7 +223,9 @@ export async function listSent(): Promise<SentSale[]> {
            COUNT(*) FILTER (WHERE k.status = 'failed')::int AS failed,
            MAX(k.created_at)::text AS sent_at,
            (SELECT r.status FROM qa_runs r WHERE r.case_id = k.case_id AND r.gate = 1
-             ORDER BY r.started_at DESC LIMIT 1) AS check_status
+             ORDER BY r.started_at DESC LIMIT 1) AS check_status,
+           COALESCE((SELECT r.status = 'failed' AND r.error ~* 'not available for this account' FROM qa_runs r
+                      WHERE r.case_id = k.case_id AND r.gate = 1 ORDER BY r.started_at DESC LIMIT 1), false) AS waiting_for_aws
       FROM deal_recordings dr
       JOIN qa_calls k ON k.id = dr.qa_call_id AND k.deleted_at IS NULL
       JOIN deals d ON d.id = dr.deal_id
