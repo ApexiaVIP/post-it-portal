@@ -63,7 +63,7 @@ export async function advanceTranscriptions(caseId: number | null = null): Promi
        SELECT id FROM qa_calls
         WHERE status = 'transcribing' AND deleted_at IS NULL AND transcribe_job IS NOT NULL
           AND (${caseId}::int IS NULL OR case_id = ${caseId}::int)
-          AND (transcribe_checked_at IS NULL OR transcribe_checked_at < now() - interval '8 seconds')
+          AND (transcribe_checked_at IS NULL OR transcribe_checked_at < now() - interval '60 seconds')
         ORDER BY id LIMIT 5)
      RETURNING id, transcribe_job, audio_key`;
 
@@ -72,19 +72,24 @@ export async function advanceTranscriptions(caseId: number | null = null): Promi
       const r = await checkTranscription(c, row.transcribe_job);
       if (r.state === "pending") return;
       if (r.state === "done" && r.utterances.length > 0) {
-        await sql.query(
+        // Only the first check to finish records the result; a slower,
+        // overlapping check (cron and an open page at once) does nothing.
+        const won = await sql.query(
           `UPDATE qa_calls SET status = 'ready', utterances = $2::jsonb, duration_seconds = $3,
-                  adviser_speaker = $4, error = NULL, audio_key = NULL, updated_at = now() WHERE id = $1`,
+                  adviser_speaker = $4, error = NULL, audio_key = NULL, updated_at = now()
+            WHERE id = $1 AND status = 'transcribing'`,
           [row.id, JSON.stringify(r.utterances), r.durationSeconds, guessAdviserSpeaker(r.utterances)],
         );
+        if ((won.rowCount ?? 0) === 0) return;
         await sql`DELETE FROM qa_upload_chunks WHERE call_id = ${row.id}`;
         await cleanUpJob(c, { job: row.transcribe_job, audioKey: row.audio_key, transcriptKey: r.transcriptKey });
         return;
       }
       const reason = r.state === "failed" ? r.reason : "No speech was found in this recording.";
-      await sql`
+      const lost = await sql`
         UPDATE qa_calls SET status = 'failed', error = ${reason.slice(0, 500)}, audio_key = NULL, updated_at = now()
-         WHERE id = ${row.id}`;
+         WHERE id = ${row.id} AND status = 'transcribing'`;
+      if ((lost.rowCount ?? 0) === 0) return;
       await cleanUpJob(c, { job: row.transcribe_job, audioKey: row.audio_key, transcriptKey: r.state === "done" ? r.transcriptKey : null });
       await returnToInbox(row.id, reason);
     } catch (e) {
