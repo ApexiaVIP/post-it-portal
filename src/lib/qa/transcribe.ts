@@ -129,8 +129,18 @@ export async function checkTranscription(c: UkConfig, job: string): Promise<JobC
   const uri = j?.Transcript?.RedactedTranscriptFileUri || j?.Transcript?.TranscriptFileUri;
   if (!uri) return { state: "failed", reason: "Transcription finished but no transcript was produced." };
   const transcriptKey = keyFromUri(uri, c.bucket);
-  const obj = await ukS3(c).send(new GetObjectCommand({ Bucket: c.bucket, Key: transcriptKey }));
-  const text = await obj.Body?.transformToString();
+  let text: string | undefined;
+  try {
+    const obj = await ukS3(c).send(new GetObjectCommand({ Bucket: c.bucket, Key: transcriptKey }));
+    text = await obj.Body?.transformToString();
+  } catch (e) {
+    // The bucket clears anything older than a day, so a transcript nobody
+    // collected in time is gone; the call can simply be transcribed again.
+    if ((e as { name?: string }).name === "NoSuchKey") {
+      return { state: "failed", reason: "The finished transcript was cleared before it was collected. Press Retry transcription." };
+    }
+    throw e;
+  }
   if (!text) return { state: "failed", reason: "The transcript file was empty." };
   return { state: "done", transcriptKey, ...parseTranscribeOutput(JSON.parse(text)) };
 }

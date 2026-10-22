@@ -79,7 +79,7 @@ export function SaleDecision({ dealId, recordings, callQa, uk, onDone }: {
     if (!r.ok) { setMsg({ ok: false, text: j.error || `HTTP ${r.status}` }); return; }
     setMsg({ ok: !j.failed?.length, text: j.failed?.length
       ? `${j.sent} sent; ${j.failed.length} failed: ${j.failed.join(" | ")}`
-      : `${j.sent} recording${j.sent === 1 ? "" : "s"} sent for transcription.` });
+      : `Sent. Transcription takes a few minutes, then the check runs and you'll get an email when the report is ready.` });
     onDone();
   }
   async function listened() {

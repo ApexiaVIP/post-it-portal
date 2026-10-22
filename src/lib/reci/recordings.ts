@@ -68,7 +68,7 @@ export async function clearAbandonedUploads(): Promise<void> {
 export async function startRecording(
   access: BoardAccess,
   f: { filename: string; mime_type: string | null; size_bytes: number; deal_id: number | null; call_type: unknown },
-): Promise<{ id: number } | { error: string; status: number }> {
+): Promise<{ id: number; other_seller: string | null } | { error: string; status: number }> {
   if (!(f.size_bytes > 0)) return { error: "Empty file", status: 400 };
   if (f.size_bytes > MAX_RECORDING_BYTES) return { error: "Recording is larger than 250MB", status: 413 };
   if (!isCallType(f.call_type)) return { error: "Choose the call type (FF, AC or Both)", status: 400 };
@@ -80,8 +80,13 @@ export async function startRecording(
       return { error: "Recordings can only be added to sales that haven't been submitted yet", status: 409 };
     }
   }
-  const ext = await sql<{ extension: string }>`SELECT extension FROM advisers WHERE extension IS NOT NULL AND extension <> ''`;
+  const ext = await sql<{ id: number; name: string; extension: string }>`
+    SELECT id, name, extension FROM advisers WHERE extension IS NOT NULL AND extension <> ''`;
   const p = parseRecordingName(f.filename, new Set(ext.rows.map((r) => r.extension.trim())));
+  // A 3CX file names the extension it was recorded on: flag a recording
+  // from another seller's phone so it isn't filed on the wrong board.
+  const owner = p.extension ? ext.rows.find((r) => r.extension.trim() === p.extension) : undefined;
+  const otherSeller = owner && owner.id !== access.adviser.id ? `${owner.name} (extension ${owner.extension.trim()})` : null;
   const r = await sql<{ id: number }>`
     INSERT INTO deal_recordings (deal_id, adviser_id, filename, mime_type, size_bytes, client_phone, call_started_at, call_type, uploaded_by)
     VALUES (${f.deal_id}, ${access.adviser.id}, ${f.filename.slice(0, 200)}, ${(f.mime_type ?? "").slice(0, 100) || null},
@@ -89,7 +94,7 @@ export async function startRecording(
             CASE WHEN ${p.startedAt}::text IS NULL THEN NULL ELSE (${p.startedAt}::timestamp AT TIME ZONE 'Europe/London') END,
             ${f.call_type}, ${access.username})
     RETURNING id`;
-  return { id: r.rows[0].id };
+  return { id: r.rows[0].id, other_seller: otherSeller };
 }
 
 /**
@@ -199,6 +204,33 @@ export async function listPool(): Promise<PoolSale[]> {
       ORDER BY r.call_started_at NULLS LAST, r.id`, [deals.rows.map((d) => d.deal_id)],
   );
   return deals.rows.map((d) => ({ ...d, recordings: recs.rows.filter((r) => r.deal_id === d.deal_id) }));
+}
+
+export interface SentSale {
+  deal_id: number; client: string; adviser_name: string; adviser_slug: string; year: number;
+  case_id: number; calls: number; ready: number; failed: number; sent_at: string;
+  check_status: "running" | "done" | "failed" | null;
+}
+
+/** Sales Poz has sent for transcription in the last fortnight, with where each has got to. */
+export async function listSent(): Promise<SentSale[]> {
+  const r = await sql<SentSale>`
+    SELECT d.id AS deal_id, d.client, a.name AS adviser_name, a.slug AS adviser_slug, d.year, k.case_id,
+           COUNT(*)::int AS calls,
+           COUNT(*) FILTER (WHERE k.status = 'ready')::int AS ready,
+           COUNT(*) FILTER (WHERE k.status = 'failed')::int AS failed,
+           MAX(k.created_at)::text AS sent_at,
+           (SELECT r.status FROM qa_runs r WHERE r.case_id = k.case_id AND r.gate = 1
+             ORDER BY r.started_at DESC LIMIT 1) AS check_status
+      FROM deal_recordings dr
+      JOIN qa_calls k ON k.id = dr.qa_call_id AND k.deleted_at IS NULL
+      JOIN deals d ON d.id = dr.deal_id
+      JOIN advisers a ON a.id = d.adviser_id
+     WHERE k.created_at > now() - interval '14 days'
+     GROUP BY d.id, d.client, a.name, a.slug, d.year, k.case_id
+     ORDER BY MAX(k.created_at) DESC
+     LIMIT 50`;
+  return r.rows;
 }
 
 /** Poz has listened and doesn't want this sale transcribed: out of the pool, recordings kept. */

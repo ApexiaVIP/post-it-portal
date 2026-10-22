@@ -7,6 +7,7 @@ import { sql } from "@vercel/postgres";
 import { canUseCallQA } from "@/lib/auth";
 import { requireAdmin, listDealRecordings } from "@/lib/reci/recordings";
 import { ukStatus } from "@/lib/qa/uk";
+import { advanceTranscriptions } from "@/lib/qa/calls";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -15,6 +16,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const auth = await requireAdmin();
   if (auth instanceof NextResponse) return auth;
   const dealId = Number(params.id);
+  await advanceTranscriptions();
   const [recordings, adviser] = await Promise.all([
     listDealRecordings(dealId),
     sql<{ slug: string }>`SELECT a.slug FROM deals d JOIN advisers a ON a.id = d.adviser_id WHERE d.id = ${dealId}`,
