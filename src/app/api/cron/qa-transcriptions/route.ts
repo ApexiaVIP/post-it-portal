@@ -1,5 +1,6 @@
 /**
- * Every 5 minutes (Vercel cron): collect finished transcriptions from
+ * Every 5 minutes in UK working hours, hourly otherwise (Vercel cron, see
+ * vercel.json; the off-hours slowdown lets the Neon database sleep): collect finished transcriptions from
  * Amazon Transcribe in London, then run the call check on the next sale
  * whose calls are all transcribed. Does nothing (one database query) when
  * nothing is waiting. Only recordings Poz pressed Transcribe on ever get

@@ -121,11 +121,15 @@ export default function DashboardPage() {
     if (!live) return;
     const isViewingLatest = !selectedTarget || (snap && snap.date === date && snap.target === selectedTarget);
     if (!isViewingLatest) return;
+    // Skip ticks while the tab is hidden (a tab left open overnight would
+    // otherwise keep the database awake) and catch up as soon as it's shown.
+    const refresh = () => { loadLatest(); loadTargets(date); };
     const id = setInterval(() => {
-      loadLatest();
-      loadTargets(date);
+      if (document.visibilityState === "visible") refresh();
     }, REFRESH_INTERVAL_MS);
-    return () => clearInterval(id);
+    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVisible); };
   }, [live, date, selectedTarget, snap, loadLatest, loadTargets]);
 
   async function refreshNow() {
