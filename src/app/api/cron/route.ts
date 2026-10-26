@@ -129,14 +129,23 @@ export async function GET(req: Request) {
     }
   }
 
-  // Stale-case digest for Guy + Poz: fires on the 10:00 UTC run only
-  // (once daily), London weekdays. Runs as a side task BEFORE the POST
-  // IT dispatch check because during BST 10:00 UTC is also the 11:00
-  // London POST IT target -- both must happen on the same invocation.
+  // Stale-case digest for Guy + Poz: 11:00 London time, weekdays. Keyed
+  // to London time, not UTC, so it doesn't move an hour when the clocks
+  // change (it went out at 10:00 after BST ended, Oct 2026). The 10:00 UTC
+  // run hits it in BST and the 11:00 UTC run in GMT. Runs BEFORE the POST
+  // IT dispatch check because 11:00 is also a POST IT target and both
+  // must happen on the same invocation.
   let staleDigest: { attempted: boolean; sent?: boolean; cases?: number; reason?: string } = { attempted: false };
-  if (utcMin >= 600 && utcMin <= 615 && !isLondonWeekend()) {
+  const londonMin = londonMinutesNow();
+  if (londonMin >= 11 * 60 && londonMin <= 11 * 60 + 15 && !isLondonWeekend()) {
     try {
-      staleDigest = { attempted: true, ...(await runStaleDigest()) };
+      // Claim today's run first so the digest can only go once a day.
+      const claim = await sql`
+        INSERT INTO job_runs (job, run_date) VALUES ('stale_digest', (now() AT TIME ZONE 'Europe/London')::date)
+        ON CONFLICT DO NOTHING RETURNING job`;
+      staleDigest = claim.rows.length === 0
+        ? { attempted: false, reason: "already sent today" }
+        : { attempted: true, ...(await runStaleDigest()) };
     } catch (e) {
       console.error("[cron] stale digest failed:", e);
       staleDigest = { attempted: true, sent: false, reason: e instanceof Error ? e.message : String(e) };
@@ -155,7 +164,7 @@ export async function GET(req: Request) {
     journeys = { error: e instanceof Error ? e.message : String(e) };
   }
 
-  const nowMin = londonMinutesNow();
+  const nowMin = londonMin;
   const target = matchingTarget(nowMin);
 
   if (!target) {
