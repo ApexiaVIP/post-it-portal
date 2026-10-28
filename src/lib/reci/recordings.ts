@@ -73,10 +73,11 @@ export async function startRecording(
   if (f.size_bytes > MAX_RECORDING_BYTES) return { error: "Recording is larger than 250MB", status: 413 };
   if (!isCallType(f.call_type)) return { error: "Choose the call type (FF, AC or Both)", status: 400 };
   if (f.deal_id !== null) {
-    const d = await sql<{ adviser_id: number; status: string }>`SELECT adviser_id, status FROM deals WHERE id = ${f.deal_id}`;
+    const d = await sql<{ adviser_id: number; status: string; in_call_recordings: boolean }>`
+      SELECT adviser_id, status, in_call_recordings FROM deals WHERE id = ${f.deal_id}`;
     const deal = d.rows[0];
     if (!deal || deal.adviser_id !== access.adviser.id) return { error: "Sale not found on this board", status: 404 };
-    if (!access.isAdmin && deal.status !== "not_yet_submitted") {
+    if (!access.isAdmin && (deal.status !== "not_yet_submitted" || !deal.in_call_recordings)) {
       return { error: "Recordings can only be added to sales that haven't been submitted yet", status: 409 };
     }
   }
@@ -149,6 +150,8 @@ export async function finishRecordings(
       client_email: null, client_email_2: null, policy_number: null, policy_start_date: null, first_dd_date: null,
     }, access.username);
     id = deal.id;
+    // New sales from a recording start in the Call recordings column.
+    await sql`UPDATE deals SET in_call_recordings = true WHERE id = ${id}`;
   }
   await sql.query(
     `UPDATE deal_recordings SET deal_id = $1, status = 'held' WHERE id = ANY($2::int[])`,

@@ -121,6 +121,9 @@ export interface Deal {
   nys_check_notes: string | null;
   nys_checked_at: string | null;
   nys_checked_by: string | null;
+  // Sale from a call recording, shown in the Call recordings column until
+  // Poz drags it into Not Yet Submitted (28 Oct 2026). Status stays NYS.
+  in_call_recordings: boolean;
   // Confirmation Planner fields (Poz, 2 Sep 2026).
   booked_date: string | null;   // when the seller booked it; defaults to entry day
   policy_type: string | null;   // SLL / JDL / SDL ...
