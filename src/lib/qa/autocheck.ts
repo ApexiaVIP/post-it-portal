@@ -14,8 +14,9 @@ import { ACCOUNT_BLOCKED, plainReason } from "./shared";
 /**
  * Sale cases whose calls are all transcribed and haven't been checked
  * since. A check that failed only because AWS hasn't switched the AI on
- * for the account is retried quietly every hour, so waiting sales run as
- * soon as it is (exported for tests).
+ * for the account (whether it ran automatically or someone pressed Run)
+ * is retried quietly every hour, so waiting sales run as soon as it is
+ * (exported for tests).
  */
 export async function casesReadyForAutoCheck(limit: number) {
   const r = await sql<{ id: number; case_type: "one_call" | "two_call" }>`
@@ -34,7 +35,7 @@ export async function casesReadyForAutoCheck(limit: number) {
        AND l.pending = 0 AND l.ready > 0
        AND (lr.case_id IS NULL
          OR (lr.started_at < l.at AND NOT (lr.status = 'running' AND lr.started_at > now() - interval '6 minutes'))
-         OR (lr.status = 'failed' AND lr.started_by = 'automatic' AND lr.error ~* 'not available for this account'
+         OR (lr.status = 'failed' AND lr.error ~* 'not available for this account'
              AND lr.started_at < now() - interval '1 hour'))
      ORDER BY l.at
      LIMIT ${limit}`;
