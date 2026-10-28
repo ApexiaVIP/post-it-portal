@@ -57,7 +57,7 @@ export async function listDealsForAdviser(adviserId: number, year: number): Prom
 }
 
 export async function createDeal(
-  data: Omit<Deal, "id" | "created_at" | "updated_at" | "position" | "cancellation_reason" | "cancellation_notes" | "cancelled_at" | "cancelled_by" | "in_processing_stage" | "nys_check_status" | "nys_check_notes" | "nys_checked_at" | "nys_checked_by" | "welcome_sent_at" | "welcome_sent_to" | "welcome_sent_by">,
+  data: Omit<Deal, "id" | "created_at" | "updated_at" | "position" | "cancellation_reason" | "cancellation_notes" | "cancelled_at" | "cancelled_by" | "in_processing_stage" | "nys_check_status" | "nys_check_notes" | "nys_checked_at" | "nys_checked_by" | "welcome_sent_at" | "welcome_sent_to" | "welcome_sent_by" | "in_call_recordings">,
   username: string,
 ): Promise<Deal> {
   const { rows } = await sql<Deal>`
@@ -225,6 +225,7 @@ export async function changeDealStatus(
       UPDATE deals SET
         status = ${newStatus},
         position = ${pos},
+        in_call_recordings = false,
         cancellation_reason = ${newReason},
         cancellation_notes  = ${newNotes},
         cancelled_at        = now(),
@@ -239,6 +240,7 @@ export async function changeDealStatus(
       UPDATE deals SET
         status = ${newStatus},
         position = ${pos},
+        in_call_recordings = false,
         cancellation_reason = NULL,
         cancellation_notes  = NULL,
         cancelled_at        = NULL,
@@ -253,6 +255,7 @@ export async function changeDealStatus(
       UPDATE deals SET
         status = ${newStatus},
         position = ${pos},
+        in_call_recordings = false,
         updated_at = now()
       WHERE id = ${id}
       RETURNING *
@@ -495,4 +498,22 @@ export async function cancellationsAll(year: number): Promise<{
     byAdviser: Array.from(advMap.values()),
     byWeek:    Array.from(wkMap.values()).sort((a, b) => b.week - a.week),
   };
+}
+
+/**
+ * Move a Not Yet Submitted sale into or out of the Call recordings column
+ * (Poz, 28 Oct 2026). Only the column changes; the status stays NYS.
+ */
+export async function setCallRecordingsLane(id: number, on: boolean, username: string): Promise<Deal | null> {
+  const r = await sql<Deal>`
+    UPDATE deals SET in_call_recordings = ${on}, updated_at = now()
+     WHERE id = ${id} AND status = 'not_yet_submitted' AND in_call_recordings <> ${on}
+    RETURNING *`;
+  const deal = r.rows[0];
+  if (!deal) return null;
+  await sql`
+    INSERT INTO deal_history (deal_id, changed_by, old_status, new_status, old_commission, new_commission, note)
+    VALUES (${id}, ${username}, ${deal.status}, ${deal.status}, ${deal.commission}, ${deal.commission},
+            ${on ? "moved to Call recordings" : "moved from Call recordings to Not Yet Submitted"})`;
+  return deal;
 }

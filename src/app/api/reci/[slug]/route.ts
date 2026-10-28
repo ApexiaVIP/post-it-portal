@@ -15,14 +15,14 @@ export async function GET(req: Request, { params }: { params: { slug: string } }
   await clearAbandonedUploads();
   const adviser = access.adviser;
 
-  // Sales agents (Poz, 15 Oct 2026): their own Not Yet Submitted sales only,
-  // and nothing about money.
+  // Sales agents (Poz, 15 Oct 2026): their own sales in the Call recordings
+  // column only (28 Oct 2026), and nothing about money.
   if (!access.isAdmin) {
     const deals = await sql<{ id: number; client: string; week: number; year: number; booked_date: string | null; created_at: string; recordings: number }>`
       SELECT d.id, d.client, d.week, d.year, d.booked_date::text AS booked_date, d.created_at::text AS created_at,
              (SELECT COUNT(*)::int FROM deal_recordings r WHERE r.deal_id = d.id AND r.status <> 'uploading') AS recordings
         FROM deals d
-       WHERE d.adviser_id = ${adviser.id} AND d.status = 'not_yet_submitted'
+       WHERE d.adviser_id = ${adviser.id} AND d.status = 'not_yet_submitted' AND d.in_call_recordings
        ORDER BY d.created_at DESC, d.id DESC
        LIMIT 300`;
     return NextResponse.json({ view: "seller", adviser: { name: adviser.name, slug: adviser.slug }, deals: deals.rows });

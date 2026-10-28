@@ -37,6 +37,14 @@ type CancellationDeal = {
 type Cancellations = { weeks: CancellationWeek[]; deals: CancellationDeal[] };
 
 type RecordingCounts = { deal_id: number; to_listen: number; transcribed: number; saved: number };
+
+// Board columns (Poz, 28 Oct 2026): Call recordings sits in front of Not
+// Yet Submitted for sales the agents create from a recording. Clawback is
+// hidden unless asked for; nobody moves deals into it any more.
+type Column = DealStatus | "call_recordings";
+const COLUMN_LABELS: Record<Column, string> = { ...STATUS_LABELS, call_recordings: "Call recordings" };
+const columnOf = (d: Deal): Column =>
+  d.status === "not_yet_submitted" && d.in_call_recordings ? "call_recordings" : d.status;
 type BundleResp = {
   view: "admin"; adviser: Adviser; deals: Deal[]; tracker: Tracker; cancellations: Cancellations; year: number;
   recordings: RecordingCounts[];
@@ -69,6 +77,7 @@ export default function AdviserKanbanPage() {
   const [editFromUrl, setEditFromUrl] = useState<Deal | null>(null);
   // Live search across all kanban columns. Matches multiple text fields.
   const [search, setSearch] = useState("");
+  const [showClawback, setShowClawback] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -117,8 +126,8 @@ export default function AdviserKanbanPage() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const dealsByStatus = useMemo(() => {
-    const out: Record<DealStatus, Deal[]> = {
-      not_yet_submitted: [], in_processing: [], on_risk_nyp: [], paid: [], cancelled: [], clawback: [],
+    const out: Record<Column, Deal[]> = {
+      call_recordings: [], not_yet_submitted: [], in_processing: [], on_risk_nyp: [], paid: [], cancelled: [], clawback: [],
     };
     if (!data) return out;
     const q = search.trim().toLowerCase();
@@ -131,8 +140,8 @@ export default function AdviserKanbanPage() {
       ];
       return fields.some((f) => f && String(f).toLowerCase().includes(q));
     };
-    for (const d of data.deals) if (matches(d)) out[d.status].push(d);
-    for (const s of DEAL_STATUSES) {
+    for (const d of data.deals) if (matches(d)) out[columnOf(d)].push(d);
+    for (const s of Object.keys(out) as Column[]) {
       out[s].sort((a, b) => a.week - b.week || a.position - b.position || a.id - b.id);
     }
     return out;
@@ -146,7 +155,7 @@ export default function AdviserKanbanPage() {
 
   async function moveStatus(dealId: number, newStatus: DealStatus, extra?: { reason?: CancellationReason; notes?: string }) {
     // optimistic update
-    setData((d) => d && ({ ...d, deals: d.deals.map(x => x.id === dealId ? { ...x, status: newStatus } : x) }));
+    setData((d) => d && ({ ...d, deals: d.deals.map(x => x.id === dealId ? { ...x, status: newStatus, in_call_recordings: false } : x) }));
     const r = await fetch(`/api/reci/deals/${dealId}/status`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -163,6 +172,20 @@ export default function AdviserKanbanPage() {
     if (newStatus === "on_risk_nyp" && moved && !moved.welcome_sent_at) setWelcomeFor(dealId);
   }
 
+  async function moveLane(dealId: number, on: boolean) {
+    setData((d) => d && ({ ...d, deals: d.deals.map(x => x.id === dealId ? { ...x, in_call_recordings: on } : x) }));
+    const r = await fetch(`/api/reci/deals/${dealId}/lane`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ call_recordings: on }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      alert(`Move failed: ${j.error || `HTTP ${r.status}`}`);
+    }
+    load();
+  }
+
   function onDragStart(e: DragStartEvent) {
     setActiveDealId(Number(e.active.id));
   }
@@ -171,16 +194,30 @@ export default function AdviserKanbanPage() {
     const dealId = Number(e.active.id);
     const overId = e.over?.id;
     if (!overId) return;
-    let newStatus: DealStatus | null = null;
+    let target: Column | null = null;
     if (typeof overId === "string" && overId.startsWith("col:")) {
-      newStatus = overId.slice(4) as DealStatus;
+      target = overId.slice(4) as Column;
     } else {
       const targetDeal = data?.deals.find(d => d.id === Number(overId));
-      if (targetDeal) newStatus = targetDeal.status;
+      if (targetDeal) target = columnOf(targetDeal);
     }
-    if (!newStatus) return;
+    if (!target) return;
     const currentDeal = data?.deals.find(d => d.id === dealId);
-    if (!currentDeal || currentDeal.status === newStatus) return;
+    if (!currentDeal || columnOf(currentDeal) === target) return;
+    // Call recordings and Not Yet Submitted are the same status: only the column changes.
+    if (target === "call_recordings") {
+      if (currentDeal.status !== "not_yet_submitted") {
+        alert("Only Not Yet Submitted sales can go back to Call recordings.");
+        return;
+      }
+      moveLane(dealId, true);
+      return;
+    }
+    if (target === "not_yet_submitted" && currentDeal.status === "not_yet_submitted") {
+      moveLane(dealId, false);
+      return;
+    }
+    const newStatus: DealStatus = target;
     // Intercept move-to-cancelled — open the reason modal first.
     if (newStatus === "cancelled") {
       setCancelling({ deal: currentDeal });
@@ -254,15 +291,23 @@ export default function AdviserKanbanPage() {
 
       <div className="no-print">
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-          <div className="grid grid-cols-6 gap-3 min-w-[1440px]">
-            {DEAL_STATUSES.map((s) => (
-              <StatusColumn key={s} status={s} deals={dealsByStatus[s]} recordings={recordingsByDeal} onEdit={load} />
-            ))}
+          <div className={`grid ${showClawback ? "grid-cols-7 min-w-[1680px]" : "grid-cols-6 min-w-[1440px]"} gap-3`}>
+            {(["call_recordings", ...DEAL_STATUSES] as Column[])
+              .filter((s) => s !== "clawback" || showClawback)
+              .map((s) => (
+                <StatusColumn key={s} status={s} deals={dealsByStatus[s]} recordings={recordingsByDeal} onEdit={load} />
+              ))}
           </div>
           <DragOverlay>
             {activeDeal ? <DealCard deal={activeDeal} dragging onEdit={() => {}} /> : null}
           </DragOverlay>
         </DndContext>
+      </div>
+
+      <div className="no-print -mt-3 text-right">
+        <button type="button" onClick={() => setShowClawback((v) => !v)} className="text-xs text-slate-500 hover:text-slate-800 underline">
+          {showClawback ? "Hide Clawback column" : `Show Clawback column (${dealsByStatus.clawback.length})`}
+        </button>
       </div>
 
       <BusinessTracker tracker={data.tracker} />
@@ -317,11 +362,12 @@ export default function AdviserKanbanPage() {
 }
 
 function StatusColumn({ status, deals, recordings, onEdit }: {
-  status: DealStatus; deals: Deal[]; recordings: Map<number, RecordingCounts>; onEdit: () => void;
+  status: Column; deals: Deal[]; recordings: Map<number, RecordingCounts>; onEdit: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${status}` });
   const total = deals.reduce((s, d) => s + Number(d.commission || 0), 0);
-  const colorMap: Record<DealStatus, string> = {
+  const colorMap: Record<Column, string> = {
+    call_recordings: "bg-teal-50 border-teal-300",
     not_yet_submitted: "bg-slate-100 border-slate-300",
     in_processing: "bg-amber-50 border-amber-300",
     on_risk_nyp: "bg-sky-50 border-sky-300",
@@ -332,7 +378,7 @@ function StatusColumn({ status, deals, recordings, onEdit }: {
   return (
     <div ref={setNodeRef} className={`rounded-lg border ${colorMap[status]} ${isOver ? "ring-2 ring-slate-400" : ""} min-h-[400px]`}>
       <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-        <div className="font-medium text-sm">{STATUS_LABELS[status]}</div>
+        <div className="font-medium text-sm">{COLUMN_LABELS[status]}</div>
         <div className="text-xs text-slate-600 tabular-nums">{deals.length} · {gbp(total)}</div>
       </div>
       <div className="p-2 space-y-2">

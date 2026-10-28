@@ -4,8 +4,8 @@
  * Drop box for sale recordings (Guy + Poz, 15 Oct 2026). The agent drags
  * the 3CX download(s) in, picks the call type for each (FF, AC or Both)
  * and, for a new sale, types the client's surname. Several files at once
- * go on the same sale. Without dealId it creates a new Not Yet Submitted
- * sale, which then shows in Poz's listening pool.
+ * go on the same sale. Without dealId it creates a new sale in the Call
+ * recordings column, which then shows in Poz's listening pool.
  */
 import { useEffect, useRef, useState } from "react";
 

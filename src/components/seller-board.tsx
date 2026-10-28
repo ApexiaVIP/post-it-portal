@@ -2,9 +2,10 @@
 
 /**
  * A sales agent's view of their own RECI board (Poz, 15 Oct 2026): just
- * their Not Yet Submitted sales and a "New deal" button that takes the
- * call recording(s), the call type and the client's surname. The sale
- * goes into Poz's listening pool and she fills in the details.
+ * their sales in the Call recordings column (28 Oct 2026) and a "New deal"
+ * button that takes the call recording(s), the call type and the client's
+ * surname. The sale goes into Poz's listening pool and she fills in the
+ * details, then moves it on to Not Yet Submitted.
  */
 import { useState } from "react";
 import Link from "next/link";
@@ -35,7 +36,7 @@ export function SellerBoard({ slug, data, onReload }: { slug: string; data: Sell
         <div>
           <div className="text-sm text-slate-500"><Link href="/" className="hover:underline">Home</Link> / RECI</div>
           <h1 className="text-2xl font-semibold">{data.adviser.name}: new sales</h1>
-          <p className="text-sm text-slate-600">Sales not yet submitted. Poz adds the details.</p>
+          <p className="text-sm text-slate-600">Sales you&apos;ve added from a call recording. Poz adds the details.</p>
         </div>
         <button type="button" onClick={() => { setNotice(null); setAdding({}); }}
           className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
@@ -47,7 +48,7 @@ export function SellerBoard({ slug, data, onReload }: { slug: string; data: Sell
 
       <section className="rounded-lg border border-slate-300 bg-slate-100">
         <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-          <span className="text-sm font-medium">Not Yet Submitted</span>
+          <span className="text-sm font-medium">Call recordings</span>
           <span className="text-xs text-slate-600 tabular-nums">{data.deals.length}</span>
         </div>
         <div className="space-y-2 p-2">
