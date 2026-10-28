@@ -14,7 +14,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
-  CALL_TYPE_LABELS, OUTCOME_LABELS, fmtTime,
+  CALL_TYPE_LABELS, OUTCOME_LABELS, fmtTime, plainReason,
   type QaCall, type QaCase, type CallType, type CaseOutcome,
 } from "@/lib/qa/shared";
 import { CONFIRM_OPTIONS, CONFIRM_LABELS, aiAsConfirmed, type ReviewSection } from "@/lib/qa/review";
@@ -403,7 +403,7 @@ function GateControl({ caseId, gate, run, title, blurb, disabledReason, onStarte
           {running && " · usually 2 to 4 minutes, this page updates itself"}
         </p>
       )}
-      {run?.status === "failed" && run.error && <p className="mt-1 text-xs text-red-700">{run.error}</p>}
+      {run?.status === "failed" && run.error && <p className="mt-1 text-xs text-red-700" title={run.error}>{plainReason(run.error)}</p>}
       {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
     </div>
   );

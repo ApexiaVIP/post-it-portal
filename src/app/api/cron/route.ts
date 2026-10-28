@@ -18,6 +18,9 @@ import { sendStaleCaseDigest, type StaleDigestCase } from "@/lib/reci/email";
 import { processDueJourneySends, type JourneyTickResult } from "@/lib/reci/journey-engine";
 
 export const dynamic = "force-dynamic";
+// No cookies are read here, so Next.js would cache the database fetches
+// on a warm instance (see api/cron/qa-transcriptions).
+export const fetchCache = "force-no-store";
 export const runtime = "nodejs";
 
 // Target London-local times (hours * 60 + minutes)

@@ -10,6 +10,9 @@ import {
 } from "@/lib/schema";
 
 export const dynamic = "force-dynamic";
+// No cookies are read here, so Next.js would cache the database fetches
+// on a warm instance (see api/cron/qa-transcriptions).
+export const fetchCache = "force-no-store";
 
 export async function GET(req: Request) {
   if (!verifyApiToken(req.headers.get("authorization"))) {

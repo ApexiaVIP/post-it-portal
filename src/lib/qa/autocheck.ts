@@ -9,18 +9,7 @@ import { getCalls } from "./db";
 import { runGate1 } from "./analyse";
 import { ukStatus, ukModel } from "./uk";
 import { sendQaReportReady } from "@/lib/reci/email";
-
-/** AWS refusing the model for the whole account (not a problem with this sale). */
-const ACCOUNT_BLOCKED = /not available for this account/i;
-
-/** One plain sentence for the email, instead of four copies of the raw error. */
-export function plainReason(error: string | null): string {
-  if (!error) return "Unknown.";
-  if (ACCOUNT_BLOCKED.test(error)) return "The AI service isn't switched on for TopQuote's AWS account yet.";
-  if (/\b429\b|throttl|too many/i.test(error)) return "The AI service was busy. Please run it again in a few minutes.";
-  const parts = Array.from(new Set(error.split(" | ").map((x) => x.replace(/^[a-z]+: /, "").trim())));
-  return parts[0].slice(0, 300);
-}
+import { ACCOUNT_BLOCKED, plainReason } from "./shared";
 
 /**
  * Sale cases whose calls are all transcribed and haven't been checked
