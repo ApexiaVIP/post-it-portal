@@ -83,3 +83,15 @@ export function fmtTime(seconds: number): string {
   const ss = String(sec).padStart(2, "0");
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
+
+/** AWS refusing the model for the whole account (not a problem with this sale). */
+export const ACCOUNT_BLOCKED = /not available for this account/i;
+
+/** One plain sentence for an AI check failure, instead of four copies of the raw error. */
+export function plainReason(error: string | null): string {
+  if (!error) return "Unknown.";
+  if (ACCOUNT_BLOCKED.test(error)) return "The AI service isn't switched on for TopQuote's AWS account yet.";
+  if (/\b429\b|throttl|too many/i.test(error)) return "The AI service was busy. Please run it again in a few minutes.";
+  const parts = Array.from(new Set(error.split(" | ").map((x) => x.replace(/^[a-z]+: /, "").trim())));
+  return parts[0].slice(0, 300);
+}
