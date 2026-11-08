@@ -13,6 +13,7 @@
 import { sql } from "@vercel/postgres";
 import { ukStatus, requireUk } from "./uk";
 import { startTranscription, checkTranscription, cleanUpJob, guessAdviserSpeaker } from "./transcribe";
+import { markQaBusy } from "./busy";
 
 /** Start transcribing a call's audio and mark the call as transcribing. */
 export async function beginTranscription(
@@ -24,6 +25,7 @@ export async function beginTranscription(
     UPDATE qa_calls SET status = 'transcribing', error = NULL, transcribe_job = ${job},
            audio_key = ${audioKey}, transcribe_checked_at = now(), updated_at = now()
      WHERE id = ${callId}`;
+  await markQaBusy();
 }
 
 /** A call taken off the SharePoint inbox goes back there if it can't be transcribed. */
