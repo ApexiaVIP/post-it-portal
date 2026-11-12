@@ -24,7 +24,7 @@ import { requireUk, ukClaude } from "./uk";
 import { CALL_TYPE_LABELS, type QaCall, type CaseType } from "./shared";
 import {
   ObservationOutput, DisclosureOutput, FactsOutput, ConsistencyOutput, SuitabilityOutput,
-  type Gate1Result, type Gate2Result,
+  type Gate2Result,
 } from "./schemas";
 
 const SYSTEM_INTRO = `You are the quality assurance checker for TopQuote, a UK firm whose advisers sell protection insurance by phone under Openwork, its network. Before a case is confirmed or submitted, a supervisor uses your report to see quickly whether the calls met Openwork's standards and the firm's call guides, what the client told us, and where a person needs to look.
@@ -221,6 +221,52 @@ function describeError(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+const GATE1_PARTS = [
+  { name: "observation", task: TASKS.observation, schema: ObservationOutput },
+  { name: "disclosures", task: TASKS.disclosures, schema: DisclosureOutput },
+  { name: "facts", task: TASKS.facts, schema: FactsOutput },
+  { name: "consistency", task: TASKS.consistency, schema: ConsistencyOutput },
+] as const;
+
+/** Adds one finished part to a run as soon as it is done, so it survives a time-out. */
+async function savePart(runId: number, name: string, data: unknown, usage: CheckUsage | null) {
+  await sql`
+    UPDATE qa_runs
+       SET result = CASE WHEN jsonb_typeof(result) = 'object' THEN result ELSE '{}'::jsonb END
+                    || jsonb_build_object(${name}::text, ${JSON.stringify(data)}::jsonb),
+           usage = CASE WHEN ${usage === null} THEN usage
+                        ELSE (CASE WHEN jsonb_typeof(usage) = 'object' THEN usage ELSE '{}'::jsonb END)
+                             || jsonb_build_object(${name}::text, ${JSON.stringify(usage)}::jsonb) END
+     WHERE id = ${runId}`;
+}
+
+/**
+ * Parts already finished by the sale's last failed check on the same calls
+ * (it was stopped at the time limit, or the service was busy for one part),
+ * so a retry only runs what is missing. A check that finished is never
+ * reused: running it again by hand starts afresh.
+ */
+async function carriedParts(runId: number): Promise<Record<string, unknown>> {
+  const r = await sql<{ result: Record<string, unknown> | null }>`
+    SELECT prev.result
+      FROM qa_runs me
+      JOIN qa_runs prev ON prev.case_id = me.case_id AND prev.gate = 1 AND prev.id <> me.id
+     WHERE me.id = ${runId} AND prev.status = 'failed' AND jsonb_typeof(prev.result) = 'object'
+       AND prev.started_at > (SELECT MAX(updated_at) FROM qa_calls
+                               WHERE case_id = me.case_id AND deleted_at IS NULL)
+     ORDER BY prev.started_at DESC LIMIT 1`;
+  return r.rows[0]?.result ?? {};
+}
+
+/** Runs the jobs two at a time. */
+async function twoAtATime<T>(items: readonly T[], job: (item: T) => Promise<void>) {
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) await job(items[next++]);
+  };
+  await Promise.all([lane(), lane()]);
+}
+
 export async function runGate1(runId: number, calls: QaCall[], caseType: CaseType): Promise<void> {
   try {
     const uk = requireUk();
@@ -228,28 +274,30 @@ export async function runGate1(runId: number, calls: QaCall[], caseType: CaseTyp
     const system = `${SYSTEM_INTRO}\n\nTHE STANDARDS\n\n${await loadStandards(caseType)}`;
     const transcripts = buildTranscriptText(calls);
 
-    const [observation, disclosures, facts, consistency] = await Promise.allSettled([
-      runCheck(client, uk.model, system, transcripts, TASKS.observation, ObservationOutput),
-      runCheck(client, uk.model, system, transcripts, TASKS.disclosures, DisclosureOutput),
-      runCheck(client, uk.model, system, transcripts, TASKS.facts, FactsOutput),
-      runCheck(client, uk.model, system, transcripts, TASKS.consistency, ConsistencyOutput),
-    ]);
+    const carried = await carriedParts(runId);
+    for (const [name, data] of Object.entries(carried)) await savePart(runId, name, data, null);
+    const todo = GATE1_PARTS.filter((p) => !(p.name in carried));
 
-    const parts = { observation, disclosures, facts, consistency };
-    const result: Partial<Gate1Result> = {};
-    const usage: Record<string, CheckUsage> = {};
+    // Two at a time: all four parts of an hour-long call at once went over
+    // the AWS account's per-minute limit (12 Nov 2026).
     const failures: string[] = [];
-    for (const [name, p] of Object.entries(parts)) {
-      if (p.status === "fulfilled") {
-        (result as Record<string, unknown>)[name] = p.value.data;
-        usage[name] = p.value.usage;
-      } else {
-        failures.push(`${name}: ${describeError(p.reason)}`);
+    await twoAtATime(todo, async (p) => {
+      try {
+        const { data, usage } = await runCheck(client, uk.model, system, transcripts, p.task, p.schema);
+        await savePart(runId, p.name, data, usage);
+      } catch (e) {
+        failures.push(`${p.name}: ${describeError(e)}`);
       }
-    }
-    await finishRun(runId, failures.length ? "failed" : "done", result, usage, failures.join(" | ") || null);
+    });
+
+    await sql`
+      UPDATE qa_runs SET status = ${failures.length ? "failed" : "done"},
+             error = ${failures.join(" | ") || null}, finished_at = now()
+       WHERE id = ${runId}`;
   } catch (e) {
-    await finishRun(runId, "failed", null, null, describeError(e));
+    await sql`
+      UPDATE qa_runs SET status = 'failed', error = ${describeError(e)}, finished_at = now()
+       WHERE id = ${runId}`;
   }
 }
 

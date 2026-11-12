@@ -9,17 +9,32 @@ import { getCalls } from "./db";
 import { runGate1 } from "./analyse";
 import { ukStatus, ukModel } from "./uk";
 import { sendQaReportReady } from "@/lib/reci/email";
-import { ACCOUNT_BLOCKED, plainReason } from "./shared";
+import { ACCOUNT_BLOCKED, SERVICE_BUSY, plainReason } from "./shared";
 
-/** A sale whose check keeps timing out is tried this many times before it is left for a person. */
-const MAX_TIMEOUTS = 2;
+/**
+ * A check that was stopped at the time limit, or turned away because the
+ * AWS account's per-minute limit was reached, is tried again quietly (only
+ * its missing parts run, see runGate1) up to this many times in all for the
+ * same calls before the outcome is emailed and it is left for a person.
+ */
+const MAX_RETRIES = 4;
+
+/** Retryable failures for a sale since its calls last changed. */
+async function retriesSoFar(caseId: number): Promise<number> {
+  const r = await sql<{ n: number }>`
+    SELECT COUNT(*)::int AS n FROM qa_runs t
+     WHERE t.case_id = ${caseId} AND t.gate = 1
+       AND (t.error LIKE 'Timed out:%' OR t.error ~* '429|throttl|too many')
+       AND t.started_at > (SELECT MAX(updated_at) FROM qa_calls WHERE case_id = ${caseId} AND deleted_at IS NULL)`;
+  return r.rows[0]?.n ?? 0;
+}
 
 /**
  * Sale cases whose calls are all transcribed and haven't been checked
  * since. A check that failed only because AWS hasn't switched the AI on
  * for the account (whether it ran automatically or someone pressed Run)
- * is retried quietly every hour, so waiting sales run as soon as it is
- * (exported for tests).
+ * is retried quietly every hour, so waiting sales run as soon as it is.
+ * Timed-out and busy checks are retried after 10 minutes (exported for tests).
  */
 export async function casesReadyForAutoCheck(limit: number) {
   const r = await sql<{ id: number; case_type: "one_call" | "two_call" }>`
@@ -40,10 +55,12 @@ export async function casesReadyForAutoCheck(limit: number) {
          OR (lr.started_at < l.at AND NOT (lr.status = 'running' AND lr.started_at > now() - interval '15 minutes'))
          OR (lr.status = 'failed' AND lr.error ~* 'not available for this account'
              AND lr.started_at < now() - interval '1 hour')
-         OR (lr.status = 'failed' AND lr.error LIKE 'Timed out:%'
+         OR (lr.status = 'failed' AND (lr.error LIKE 'Timed out:%' OR lr.error ~* '429|throttl|too many')
+             AND lr.started_at < now() - interval '10 minutes'
              AND (SELECT COUNT(*) FROM qa_runs t
-                   WHERE t.case_id = c.id AND t.gate = 1 AND t.error LIKE 'Timed out:%'
-                     AND t.started_at > l.at) < ${MAX_TIMEOUTS}))
+                   WHERE t.case_id = c.id AND t.gate = 1
+                     AND (t.error LIKE 'Timed out:%' OR t.error ~* '429|throttl|too many')
+                     AND t.started_at > l.at) < ${MAX_RETRIES}))
      ORDER BY l.at
      LIMIT ${limit}`;
   return r.rows;
@@ -89,6 +106,9 @@ export async function autoCheckNext(): Promise<{ caseId: number; status: string 
   // fail the same way: retry quietly instead of emailing each time.
   if (done.status !== "done" && ACCOUNT_BLOCKED.test(done.error ?? "")) {
     return { caseId: next.id, status: "waiting for AWS" };
+  }
+  if (done.status !== "done" && SERVICE_BUSY.test(done.error ?? "") && (await retriesSoFar(next.id)) < MAX_RETRIES) {
+    return { caseId: next.id, status: "busy, will retry" };
   }
   const mail = await sendQaReportReady({
     caseId: next.id, client: done.client_name, adviser: done.adviser, ok: done.status === "done",

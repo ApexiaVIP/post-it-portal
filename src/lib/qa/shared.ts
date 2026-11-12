@@ -87,11 +87,14 @@ export function fmtTime(seconds: number): string {
 /** AWS refusing the model for the whole account (not a problem with this sale). */
 export const ACCOUNT_BLOCKED = /not available for this account/i;
 
+/** AWS turning a request away because the account's per-minute limit was reached. */
+export const SERVICE_BUSY = /\b429\b|throttl|too many/i;
+
 /** One plain sentence for an AI check failure, instead of four copies of the raw error. */
 export function plainReason(error: string | null): string {
   if (!error) return "Unknown.";
   if (ACCOUNT_BLOCKED.test(error)) return "The AI service isn't switched on for TopQuote's AWS account yet.";
-  if (/\b429\b|throttl|too many/i.test(error)) return "The AI service was busy. Please run it again in a few minutes.";
+  if (SERVICE_BUSY.test(error)) return "The AI service was busy. Please run it again in a few minutes.";
   const parts = Array.from(new Set(error.split(" | ").map((x) => x.replace(/^[a-z]+: /, "").trim())));
   return parts[0].slice(0, 300);
 }
