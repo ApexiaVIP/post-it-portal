@@ -20,12 +20,16 @@ import AnthropicBedrock from "@anthropic-ai/bedrock-sdk";
 export const UK_REGION = "eu-west-2";
 
 /**
- * Claude Opus 5.5, called by its base model ID in London. AWS runs it
- * in-region there (since 30 Sep 2026): the request is processed in London
- * and never leaves it. A "global." / "eu." / "us." prefix would route the
- * request to other regions, so those are refused.
+ * Opus 4.6, called by its base model ID in London. AWS runs it in-region
+ * there: the request is processed in London and never leaves it. A
+ * "global." / "eu." / "us." prefix would route the request to other regions,
+ * so those are refused.
+ *
+ * Opus 5.5 (anthropic.claude-opus-5-5) is the intended model, but AWS refuses
+ * every model from Opus 4.7 onwards on TopQuote's account ("not available for
+ * this account", Nov 2026). Switch back here, or with QA_MODEL, once AWS lifts it.
  */
-const DEFAULT_MODEL = "anthropic.claude-opus-5-5";
+const DEFAULT_MODEL = "anthropic.claude-opus-4-6-v1";
 const CROSS_REGION_PREFIX = /^(global|eu|us|apac|jp|au|ca|us-gov)\./i;
 
 export interface UkConfig {

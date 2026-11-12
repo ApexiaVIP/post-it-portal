@@ -11,10 +11,9 @@
  * qa_rulesets, so a new form or script is a content change, not a code
  * change.
  *
- * Since 14 Oct 2026 the checks run on Claude Opus 5.5 through Amazon
- * Bedrock in London (lib/qa/uk.ts), so transcripts and reports are
- * processed in the UK. Bedrock doesn't offer the structured-output mode
- * for this model, so each check hands its result back through a single
+ * The checks run through Amazon Bedrock in London (model and region in
+ * lib/qa/uk.ts), so transcripts and reports are processed in the UK.
+ * Each check hands its result back through a single
  * "record_result" tool and the result is validated here before it is
  * saved; a malformed result is sent back to be corrected.
  */
