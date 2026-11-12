@@ -164,6 +164,8 @@ export async function runCheck<T extends z.ZodType>(
     const msg = await client.messages.stream({
       model,
       max_tokens: 64000,
+      // Some model versions only reason before answering when asked to.
+      thinking: { type: "adaptive" },
       output_config: { effort: "high" },
       system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
       tools: [tool],
