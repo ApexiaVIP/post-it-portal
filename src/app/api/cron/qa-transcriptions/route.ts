@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 // inserts silently did nothing between 06:00 and 20:00.
 export const fetchCache = "force-no-store";
 export const preferredRegion = "lhr1";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;

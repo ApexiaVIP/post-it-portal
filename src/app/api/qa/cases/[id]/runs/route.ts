@@ -12,7 +12,7 @@ import { ukStatus, ukModel } from "@/lib/qa/uk";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = await requireCallQA();

@@ -11,6 +11,9 @@ import { ukStatus, ukModel } from "./uk";
 import { sendQaReportReady } from "@/lib/reci/email";
 import { ACCOUNT_BLOCKED, plainReason } from "./shared";
 
+/** A sale whose check keeps timing out is tried this many times before it is left for a person. */
+const MAX_TIMEOUTS = 2;
+
 /**
  * Sale cases whose calls are all transcribed and haven't been checked
  * since. A check that failed only because AWS hasn't switched the AI on
@@ -34,17 +37,36 @@ export async function casesReadyForAutoCheck(limit: number) {
      WHERE c.deleted_at IS NULL AND c.deal_id IS NOT NULL
        AND l.pending = 0 AND l.ready > 0
        AND (lr.case_id IS NULL
-         OR (lr.started_at < l.at AND NOT (lr.status = 'running' AND lr.started_at > now() - interval '6 minutes'))
+         OR (lr.started_at < l.at AND NOT (lr.status = 'running' AND lr.started_at > now() - interval '15 minutes'))
          OR (lr.status = 'failed' AND lr.error ~* 'not available for this account'
-             AND lr.started_at < now() - interval '1 hour'))
+             AND lr.started_at < now() - interval '1 hour')
+         OR (lr.status = 'failed' AND lr.error LIKE 'Timed out:%'
+             AND (SELECT COUNT(*) FROM qa_runs t
+                   WHERE t.case_id = c.id AND t.gate = 1 AND t.error LIKE 'Timed out:%'
+                     AND t.started_at > l.at) < ${MAX_TIMEOUTS}))
      ORDER BY l.at
      LIMIT ${limit}`;
   return r.rows;
 }
 
+/**
+ * A check the server stopped at its time limit (maxDuration on the routes
+ * that run checks) never gets to record an outcome and would show as
+ * running for ever, blocking its sale from being checked again. Anything
+ * still running after 15 minutes is marked as timed out (12 Nov 2026: the
+ * first real check, Bailey's hour-long call, hit the old 5-minute limit).
+ */
+async function expireStaleRuns() {
+  await sql`
+    UPDATE qa_runs SET status = 'failed', finished_at = now(),
+           error = 'Timed out: the check took longer than the server allows.'
+     WHERE status = 'running' AND started_at < now() - interval '15 minutes'`;
+}
+
 /** Check the next waiting sale, if any, and email the outcome. */
 export async function autoCheckNext(): Promise<{ caseId: number; status: string } | null> {
   if (!ukStatus().ready) return null;
+  await expireStaleRuns();
   const [next] = await casesReadyForAutoCheck(1);
   if (!next) return null;
 
