@@ -12,6 +12,7 @@ import { sql } from "@vercel/postgres";
 import { requireCallQA, getCase, getCalls } from "@/lib/qa/db";
 import { ukStatus } from "@/lib/qa/uk";
 import { advanceTranscriptions, dropHeldAudio } from "@/lib/qa/calls";
+import { runCostUsd } from "@/lib/qa/cost";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -46,6 +47,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
          ORDER BY gate, started_at DESC`,
   ]);
   const runIds = runs.rows.map((r) => r.id as number);
+  // Every run on the sale counts towards its cost, retries included.
+  const allUsage = await sql`SELECT usage FROM qa_runs WHERE case_id = ${id}`;
+  const costUsd = allUsage.rows.reduce((sum, r) => sum + (runCostUsd(r.usage) ?? 0), 0);
   const reviews = runIds.length
     ? await sql.query(
         `SELECT run_id, item_key, confirmed_result, note, reviewed_by, reviewed_at::text AS reviewed_at
@@ -56,7 +60,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     case: qaCase,
     calls,
     document: doc.rows[0] ?? null,
-    runs: runs.rows,
+    runs: runs.rows.map((r) => ({ ...r, cost_usd: runCostUsd(r.usage) })),
+    cost_usd: costUsd,
     reviews: reviews.rows,
     uk: uk.ready ? { ready: true } : { ready: false, reason: uk.reason },
   });

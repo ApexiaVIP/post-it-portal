@@ -18,6 +18,7 @@ import {
   type QaCall, type QaCase, type CallType, type CaseOutcome,
 } from "@/lib/qa/shared";
 import { CONFIRM_OPTIONS, CONFIRM_LABELS, aiAsConfirmed, type ReviewSection } from "@/lib/qa/review";
+import { formatUsd } from "@/lib/qa/cost";
 import type {
   Gate1Result, Gate2Result, ConsistencyResult, EvidenceItem, ExceptionItem,
 } from "@/lib/qa/schemas";
@@ -32,12 +33,14 @@ interface Run {
   started_by: string | null;
   started_at: string;
   finished_at: string | null;
+  cost_usd: number | null;
 }
 interface Detail {
   case: QaCase;
   calls: QaCall[];
   document: { id: number; filename: string | null; size_bytes: number; uploaded_by: string | null; uploaded_at: string } | null;
   runs: Run[];
+  cost_usd: number;
   reviews: ReviewRow[];
   uk: { ready: boolean; reason?: string };
 }
@@ -218,6 +221,12 @@ export default function CallQaCasePage() {
           blurb="Run once the report is produced, before it is issued. Compares the report with what was said on the calls."
           disabledReason={readyCalls.length === 0 ? "Upload and transcribe the call(s) first." : !data.document ? "Upload the suitability report first." : null}
           onStarted={load} />
+        {data.cost_usd > 0 && (
+          <p className="text-xs text-slate-500 md:col-span-2">
+            Estimated cost of checks on this sale so far: <strong>{formatUsd(data.cost_usd)}</strong>, retries included.
+            An estimate from list prices; the bill is in the AWS management account under AWS Marketplace.
+          </p>
+        )}
       </section>
 
       {(gate1?.status === "done" || gate2?.status === "done") && (
@@ -404,7 +413,8 @@ function GateControl({ caseId, gate, run, title, blurb, disabledReason, onStarte
         <p className="mt-2 text-xs text-slate-500">
           {running ? "Running since " : run.status === "done" ? "Last run " : "Last run failed, "}
           {new Date(run.started_at).toLocaleString("en-GB")} by {run.started_by}
-          {running && " · usually 2 to 4 minutes, this page updates itself"}
+          {running && " · an hour-long call can take 20 to 30 minutes, this page updates itself"}
+          {run.cost_usd != null && !running && ` · estimated cost ${formatUsd(run.cost_usd)}`}
         </p>
       )}
       {run?.status === "failed" && run.error && <p className="mt-1 text-xs text-red-700" title={run.error}>{plainReason(run.error)}</p>}
