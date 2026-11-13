@@ -92,6 +92,31 @@ export const ConsistencyOutput = z.object({
     label: Label,
     evidence: z.array(Evidence),
   })),
+  /**
+   * Poz, 13 Nov 2026: the adviser recaps the client's priorities and concerns
+   * at the end of the fact find, and every one of them is then quoted for,
+   * addressed and sold (or declined) on the advice call.
+   */
+  priorities_followthrough: z.object({
+    recap: z.object({
+      result: z.enum(["DONE", "PARTIAL", "NOT_DONE", "REVIEW_REQUIRED"]),
+      finding: z.string(),
+      evidence: z.array(Evidence),
+    }).describe("Whether the adviser recapped the client's priorities and concerns at the end of the fact find"),
+    items: z.array(z.object({
+      text: z.string().describe("The priority or concern in one plain sentence, as the client expressed it"),
+      kind: z.enum(["PRIORITY", "CONCERN"]),
+      raised: z.array(Evidence).describe("Where the client raised it"),
+      recapped: z.enum(["YES", "PARTIAL", "NO", "REVIEW_REQUIRED"]),
+      quoted: z.enum(["YES", "NO", "NOT_APPLICABLE", "REVIEW_REQUIRED"]),
+      addressed: z.enum(["YES", "PARTIAL", "NO", "REVIEW_REQUIRED"]),
+      sold: z.enum(["YES", "DECLINED", "DEFERRED", "NO", "NOT_APPLICABLE", "REVIEW_REQUIRED"]),
+      finding: z.string(),
+      evidence: z.array(Evidence).describe("Evidence from the advice for how it was quoted, addressed and sold"),
+    })),
+    result: z.enum(["PASS", "FAIL", "REVIEW_REQUIRED"]),
+    summary: z.string(),
+  }),
   consistency: z.object({
     result: z.enum(["CONSISTENT", "ISSUES_FOUND", "REVIEW_REQUIRED"]),
     summary: z.string(),

@@ -19,7 +19,7 @@ import {
 } from "@/lib/qa/shared";
 import { CONFIRM_OPTIONS, CONFIRM_LABELS, aiAsConfirmed, type ReviewSection } from "@/lib/qa/review";
 import type {
-  Gate1Result, Gate2Result, EvidenceItem, ExceptionItem,
+  Gate1Result, Gate2Result, ConsistencyResult, EvidenceItem, ExceptionItem,
 } from "@/lib/qa/schemas";
 
 interface Run {
@@ -52,6 +52,8 @@ interface ReviewApi {
 
 const RESULT_STYLE: Record<string, string> = {
   PASS: "bg-emerald-100 text-emerald-800",
+  DONE: "bg-emerald-100 text-emerald-800",
+  YES: "bg-emerald-100 text-emerald-800",
   DELIVERED_IN_FULL: "bg-emerald-100 text-emerald-800",
   MATCHES: "bg-emerald-100 text-emerald-800",
   CONSISTENT: "bg-emerald-100 text-emerald-800",
@@ -59,6 +61,8 @@ const RESULT_STYLE: Record<string, string> = {
   FACT: "bg-slate-100 text-slate-700",
   INFERENCE: "bg-violet-100 text-violet-800",
   FAIL: "bg-red-600 text-white",
+  NOT_DONE: "bg-red-600 text-white",
+  NO: "bg-red-100 text-red-800",
   MISSING: "bg-red-600 text-white",
   DOES_NOT_MATCH: "bg-red-600 text-white",
   IN_REPORT_NOT_SUPPORTED_BY_CALL: "bg-red-100 text-red-800",
@@ -450,6 +454,8 @@ function Report({ gate1, gate2, onJump, review }: {
   const facts = g1?.facts;
   const cons = g1?.consistency;
   const suit = g2?.suitability;
+  // Reports from before 13 Nov 2026 have no follow-through section.
+  const pf = (cons as Partial<ConsistencyResult> | undefined)?.priorities_followthrough;
 
   // Section 8 collects everything a person needs to look at.
   const exceptions: (ExceptionItem & { from: string })[] = [];
@@ -468,6 +474,17 @@ function Report({ gate1, gate2, onJump, review }: {
     if (d.result === "MISSING" || d.result === "PARTIAL" || d.result === "REVIEW_REQUIRED") {
       exceptions.push({ title: `${d.name}: ${d.result.replace(/_/g, " ").toLowerCase()}`, detail: d.differences, severity: d.result === "MISSING" ? "HIGH" : "MEDIUM", evidence: d.evidence, from: "Disclosures" });
     }
+  }
+  if (pf && pf.recap.result !== "DONE") {
+    exceptions.push({ title: `Priorities and concerns recap: ${pf.recap.result.replace(/_/g, " ").toLowerCase()}`, detail: pf.recap.finding, severity: pf.recap.result === "NOT_DONE" ? "HIGH" : "MEDIUM", evidence: pf.recap.evidence, from: "Priorities and concerns" });
+  }
+  for (const p of pf?.items ?? []) {
+    const gap = p.addressed === "NO" ? ["not addressed", "HIGH"] as const
+      : p.addressed === "PARTIAL" ? ["only partly addressed", "MEDIUM"] as const
+      : p.quoted === "NO" ? ["not quoted for", "MEDIUM"] as const
+      : p.recapped === "NO" ? ["left out of the recap", "LOW"] as const
+      : null;
+    if (gap) exceptions.push({ title: `${p.kind === "CONCERN" ? "Concern" : "Priority"} ${gap[0]}: ${p.text}`, detail: p.finding, severity: gap[1], evidence: [...p.raised, ...p.evidence], from: "Priorities and concerns" });
   }
   for (const f of cons?.consistency.findings ?? []) {
     exceptions.push({ title: f.issue, detail: f.explanation, severity: f.severity, evidence: f.evidence, from: "Consistency" });
@@ -494,6 +511,12 @@ function Report({ gate1, gate2, onJump, review }: {
         <div className="mt-3 flex flex-wrap gap-4 text-sm">
           <span><strong className="text-red-700">{fails}</strong> form checks failed</span>
           <span><strong className="text-amber-700">{reviews}</strong> need review</span>
+          {pf && (
+            <span>
+              Priorities and concerns <Chip v={pf.result} />{" "}
+              <strong>{pf.items.filter((p) => p.addressed === "NO" || p.addressed === "PARTIAL").length}</strong> not fully addressed
+            </span>
+          )}
           <span><strong>{exceptions.filter((x) => x.severity === "HIGH").length}</strong> high-priority exceptions</span>
           <span className="text-slate-500">
             Gate 1 {gate1 ? (gate1.status === "done" ? `run ${new Date(gate1.started_at).toLocaleString("en-GB")}` : gate1.status) : "not run"} ·
@@ -587,8 +610,41 @@ function Report({ gate1, gate2, onJump, review }: {
         </table>
       ) : <Missing gate={gate1} />}
 
-      <SectionTitle n={4} title="Priorities and concerns" />
-      {facts ? (
+      <SectionTitle n={4} title="Priorities and concerns" note="recapped at the end of the fact find, then quoted for, addressed and sold" />
+      {pf ? (
+        <div className="mt-2 text-sm">
+          <p><Chip v={pf.result} /> <span className="ml-1">{pf.summary}</span></p>
+          <div className="mt-2 rounded border border-slate-200 bg-white p-2">
+            <p><strong>Recap at the end of the fact find</strong> <Chip v={pf.recap.result} /></p>
+            <p className="mt-0.5">{pf.recap.finding}</p>
+            <EvidenceLinks ev={pf.recap.evidence} onJump={onJump} />
+          </div>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+                <tr><th className="px-2 py-1">Priority or concern</th><th className="px-2 py-1">Recapped</th><th className="px-2 py-1">Quoted</th><th className="px-2 py-1">Addressed</th><th className="px-2 py-1">Sold</th><th className="px-2 py-1">Finding</th></tr>
+              </thead>
+              <tbody>
+                {pf.items.map((p, i) => (
+                  <tr key={i} className="border-t border-slate-100 align-top">
+                    <td className="px-2 py-1.5">
+                      <p>{p.text}</p>
+                      <p className="text-xs text-slate-500">{p.kind === "CONCERN" ? "Concern" : "Priority"}</p>
+                      <EvidenceLinks ev={p.raised} onJump={onJump} />
+                    </td>
+                    <td className="px-2 py-1.5"><Chip v={p.recapped} /></td>
+                    <td className="px-2 py-1.5"><Chip v={p.quoted} /></td>
+                    <td className="px-2 py-1.5"><Chip v={p.addressed} /></td>
+                    <td className="px-2 py-1.5"><Chip v={p.sold} /></td>
+                    <td className="px-2 py-1.5"><p>{p.finding}</p><EvidenceLinks ev={p.evidence} onJump={onJump} /></td>
+                  </tr>
+                ))}
+                {pf.items.length === 0 && <tr><td colSpan={6} className="px-2 py-1.5 text-slate-500">None recorded.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : facts ? (
         <div className="mt-2 grid grid-cols-1 gap-4 md:grid-cols-2">
           {([["Priorities", facts.priorities], ["Concerns", facts.concerns]] as const).map(([label, list]) => (
             <div key={label}>

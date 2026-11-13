@@ -100,7 +100,9 @@ export async function autoCheckNext(): Promise<{ caseId: number; status: string 
   const res = (done.result ?? {}) as {
     observation?: { checks?: { result: string }[] };
     disclosures?: { disclosures?: { result: string }[] };
+    consistency?: { priorities_followthrough?: { recap: { result: string }; items: { addressed: string }[] } };
   };
+  const pf = res.consistency?.priorities_followthrough;
   const checks = res.observation?.checks ?? [];
   // While AWS has the AI switched off for the account, every sale would
   // fail the same way: retry quietly instead of emailing each time.
@@ -116,6 +118,10 @@ export async function autoCheckNext(): Promise<{ caseId: number; status: string 
     reviews: checks.filter((k) => k.result === "REVIEW_REQUIRED").length,
     disclosuresMissed: (res.disclosures?.disclosures ?? []).filter((d) => d.result === "MISSING" || d.result === "PARTIAL").length,
     error: done.status === "done" ? null : plainReason(done.error),
+    priorities: pf ? {
+      recap: pf.recap.result,
+      notAddressed: pf.items.filter((p) => p.addressed === "NO" || p.addressed === "PARTIAL").length,
+    } : null,
   });
   if (!mail.sent) console.error("[qa] report email not sent:", mail.reason);
   return { caseId: next.id, status: done.status };
