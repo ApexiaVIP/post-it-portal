@@ -121,20 +121,47 @@ async function loadStandards(caseType: CaseType): Promise<string> {
     .join("\n\n");
 }
 
-interface CheckUsage { input: number; output: number; cache_read: number; cache_write: number; model: string }
+interface CheckUsage {
+  input: number; output: number; cache_read: number; cache_write: number; model: string;
+  /** Of cache_write, how much was kept for an hour (charged at a higher rate than five minutes). */
+  cache_write_1h?: number;
+}
 
 export type Claude = Pick<ReturnType<typeof ukClaude>, "messages">;
 
 const RESULT_TOOL = "record_result";
 const MAX_ATTEMPTS = 3;
 
-function resultTool(schema: z.ZodType): Anthropic.Tool {
+function resultTool(schema: z.ZodType, name = RESULT_TOOL): Anthropic.Tool {
   const { $schema: _ignored, ...inputSchema } = z.toJSONSchema(schema) as Record<string, unknown>;
   return {
-    name: RESULT_TOOL,
+    name,
     description: "Record the completed check. Call this once, with the full result, when you have finished the check.",
     input_schema: inputSchema as Anthropic.Tool.InputSchema,
   };
+}
+
+interface CheckOptions {
+  /** Every tool to offer, so parts that share them also share a cached prompt. */
+  tools?: Anthropic.Tool[];
+  /** The tool this check must record its result with. */
+  toolName?: string;
+  /** Keep the system prompt and transcripts cached for an hour instead of five minutes. */
+  longCache?: boolean;
+}
+
+function cacheControl(longCache?: boolean): Anthropic.CacheControlEphemeral {
+  return longCache ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+}
+
+function addUsage(usage: CheckUsage, u: Anthropic.Usage, longCache?: boolean) {
+  usage.input += u.input_tokens;
+  usage.output += u.output_tokens;
+  usage.cache_read += u.cache_read_input_tokens ?? 0;
+  const written = u.cache_creation_input_tokens ?? 0;
+  usage.cache_write += written;
+  const hour = u.cache_creation?.ephemeral_1h_input_tokens ?? (longCache ? written : 0);
+  if (hour) usage.cache_write_1h = (usage.cache_write_1h ?? 0) + hour;
 }
 
 /** One check, with up to three tries at a well-formed result (exported for tests). */
@@ -146,7 +173,10 @@ export async function runCheck<T extends z.ZodType>(
   task: string,
   schema: T,
   pdf?: Buffer,
+  opts: CheckOptions = {},
 ): Promise<{ data: z.infer<T>; usage: CheckUsage }> {
+  const toolName = opts.toolName ?? RESULT_TOOL;
+  const tools = opts.tools ?? [resultTool(schema, toolName)];
   const content: Anthropic.ContentBlockParam[] = [];
   if (pdf) {
     content.push({
@@ -156,11 +186,10 @@ export async function runCheck<T extends z.ZodType>(
     });
   }
   content.push(
-    { type: "text", text: `THE CALL TRANSCRIPTS\n\n${transcripts}`, cache_control: { type: "ephemeral" } },
-    { type: "text", text: `${task}\n\nWhen you have finished, call ${RESULT_TOOL} once with the complete result.` },
+    { type: "text", text: `THE CALL TRANSCRIPTS\n\n${transcripts}`, cache_control: cacheControl(opts.longCache) },
+    { type: "text", text: `${task}\n\nWhen you have finished, call ${toolName} once with the complete result.` },
   );
 
-  const tool = resultTool(schema);
   const messages: Anthropic.MessageParam[] = [{ role: "user", content }];
   const usage: CheckUsage = { input: 0, output: 0, cache_read: 0, cache_write: 0, model };
 
@@ -168,17 +197,15 @@ export async function runCheck<T extends z.ZodType>(
     const msg = await client.messages.stream({
       model,
       max_tokens: 64000,
-      // Some model versions only reason before answering when asked to.
-      thinking: { type: "adaptive" },
+      // No thinking step (13 Nov 2026): it was about two thirds of the
+      // output billed on an hour-long call, for checks that quote the
+      // transcript line by line anyway.
       output_config: { effort: "high" },
-      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      tools: [tool],
+      system: [{ type: "text", text: system, cache_control: cacheControl(opts.longCache) }],
+      tools,
       messages,
     }).finalMessage();
-    usage.input += msg.usage.input_tokens;
-    usage.output += msg.usage.output_tokens;
-    usage.cache_read += msg.usage.cache_read_input_tokens ?? 0;
-    usage.cache_write += msg.usage.cache_creation_input_tokens ?? 0;
+    addUsage(usage, msg.usage, opts.longCache);
 
     if (msg.stop_reason === "refusal") {
       throw new Error(`The model declined this check (${msg.stop_details?.category ?? "no category"}). Please review this case by hand.`);
@@ -188,7 +215,7 @@ export async function runCheck<T extends z.ZodType>(
     }
 
     const calls = msg.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-    const mine = calls.find((b) => b.name === RESULT_TOOL);
+    const mine = calls.find((b) => b.name === toolName);
     const parsed = mine ? schema.safeParse(mine.input) : null;
     if (parsed?.success) return { data: parsed.data as z.infer<T>, usage };
 
@@ -196,7 +223,7 @@ export async function runCheck<T extends z.ZodType>(
     // match the expected shape.
     messages.push({ role: "assistant", content: msg.content });
     if (calls.length === 0) {
-      messages.push({ role: "user", content: `Please record the result now by calling ${RESULT_TOOL} with the complete result.` });
+      messages.push({ role: "user", content: `Please record the result now by calling ${toolName} with the complete result.` });
     } else {
       messages.push({
         role: "user",
@@ -205,8 +232,8 @@ export async function runCheck<T extends z.ZodType>(
           tool_use_id: b.id,
           is_error: true,
           content: b === mine && parsed && !parsed.success
-            ? `The result doesn't match the required format:\n${z.prettifyError(parsed.error).slice(0, 3000)}\nCall ${RESULT_TOOL} again with the complete, corrected result.`
-            : `Only ${RESULT_TOOL} is available. Call it with the complete result.`,
+            ? `The result doesn't match the required format:\n${z.prettifyError(parsed.error).slice(0, 3000)}\nCall ${toolName} again with the complete, corrected result.`
+            : `This check is recorded with ${toolName}. Call it with the complete result.`,
         })),
       });
     }
@@ -233,6 +260,38 @@ const GATE1_PARTS = [
   { name: "consistency", task: TASKS.consistency, schema: ConsistencyOutput },
 ] as const;
 
+/**
+ * Every Gate 1 part is offered the same four tools in the same order, so the
+ * start of each request (tools, standards, transcripts) is identical and the
+ * transcripts are paid for in full once, then read from the cache. With a
+ * different tool per part, nothing was ever read from the cache.
+ */
+const GATE1_TOOLS = GATE1_PARTS.map((p) => resultTool(p.schema, `record_${p.name}`));
+
+/**
+ * Puts the standards and transcripts in the cache for an hour with a
+ * one-token request, before the parts start, so none of them pays the full
+ * price for reading an hour-long call again.
+ */
+async function warmCache(client: Claude, model: string, system: string, transcripts: string, long: boolean): Promise<CheckUsage> {
+  const usage: CheckUsage = { input: 0, output: 0, cache_read: 0, cache_write: 0, model };
+  const msg = await client.messages.create({
+    model,
+    max_tokens: 1,
+    system: [{ type: "text", text: system, cache_control: cacheControl(long) }],
+    tools: GATE1_TOOLS,
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: `THE CALL TRANSCRIPTS\n\n${transcripts}`, cache_control: cacheControl(long) },
+        { type: "text", text: "Reply OK. The checks follow separately." },
+      ],
+    }],
+  });
+  addUsage(usage, msg.usage, long);
+  return usage;
+}
+
 /** Adds one finished part to a run as soon as it is done, so it survives a time-out. */
 async function savePart(runId: number, name: string, data: unknown, usage: CheckUsage | null) {
   await sql`
@@ -242,6 +301,15 @@ async function savePart(runId: number, name: string, data: unknown, usage: Check
            usage = CASE WHEN ${usage === null} THEN usage
                         ELSE (CASE WHEN jsonb_typeof(usage) = 'object' THEN usage ELSE '{}'::jsonb END)
                              || jsonb_build_object(${name}::text, ${JSON.stringify(usage)}::jsonb) END
+     WHERE id = ${runId}`;
+}
+
+/** Records usage that has no result of its own, such as the cache warm-up. */
+async function saveUsage(runId: number, name: string, usage: CheckUsage) {
+  await sql`
+    UPDATE qa_runs
+       SET usage = (CASE WHEN jsonb_typeof(usage) = 'object' THEN usage ELSE '{}'::jsonb END)
+                   || jsonb_build_object(${name}::text, ${JSON.stringify(usage)}::jsonb)
      WHERE id = ${runId}`;
 }
 
@@ -282,13 +350,32 @@ export async function runGate1(runId: number, calls: QaCall[], caseType: CaseTyp
     const carried = await carriedParts(runId);
     for (const [name, data] of Object.entries(carried)) await savePart(runId, name, data, null);
     const todo = GATE1_PARTS.filter((p) => !(p.name in carried));
+    // The warm-up also finds out whether the hour-long cache is accepted; if
+    // not, everything uses the standard five-minute cache instead.
+    let longCache = false;
+    if (todo.length > 1) {
+      try {
+        await saveUsage(runId, "transcript_cache", await warmCache(client, uk.model, system, transcripts, true));
+        longCache = true;
+      } catch (e) {
+        if (e instanceof APIError && e.status === 400) {
+          try {
+            await saveUsage(runId, "transcript_cache", await warmCache(client, uk.model, system, transcripts, false));
+          } catch {
+            // Only a saving: the parts still run, each reading the call in full.
+          }
+        }
+      }
+    }
 
     // Two at a time: all four parts of an hour-long call at once went over
     // the AWS account's per-minute limit (12 Nov 2026).
     const failures: string[] = [];
     await twoAtATime(todo, async (p) => {
       try {
-        const { data, usage } = await runCheck(client, uk.model, system, transcripts, p.task, p.schema);
+        const { data, usage } = await runCheck(client, uk.model, system, transcripts, p.task, p.schema, undefined, {
+          tools: GATE1_TOOLS, toolName: `record_${p.name}`, longCache,
+        });
         await savePart(runId, p.name, data, usage);
       } catch (e) {
         failures.push(`${p.name}: ${describeError(e)}`);
