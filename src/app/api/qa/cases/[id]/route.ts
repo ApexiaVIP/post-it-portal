@@ -18,7 +18,7 @@ export const preferredRegion = "lhr1";
 
 // A run still "running" after this long was cut off by the platform's
 // time limit; report it as failed rather than spinning forever.
-const STALE_RUN_MINUTES = 6;
+const STALE_RUN_MINUTES = 15;
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const auth = await requireCallQA();
@@ -28,7 +28,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (!qaCase) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   await sql`
-    UPDATE qa_runs SET status = 'failed', error = 'Timed out before finishing. Please run it again.',
+    UPDATE qa_runs SET status = 'failed', error = 'Timed out: the check took longer than the server allows.',
            finished_at = now()
      WHERE case_id = ${id} AND status = 'running'
        AND started_at < now() - make_interval(mins => ${STALE_RUN_MINUTES})`;

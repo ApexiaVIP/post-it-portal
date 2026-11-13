@@ -24,7 +24,7 @@ async function retriesSoFar(caseId: number): Promise<number> {
   const r = await sql<{ n: number }>`
     SELECT COUNT(*)::int AS n FROM qa_runs t
      WHERE t.case_id = ${caseId} AND t.gate = 1
-       AND (t.error LIKE 'Timed out:%' OR t.error ~* '429|throttl|too many')
+       AND (t.error ILIKE 'Timed out%' OR t.error ~* '429|throttl|too many')
        AND t.started_at > (SELECT MAX(updated_at) FROM qa_calls WHERE case_id = ${caseId} AND deleted_at IS NULL)`;
   return r.rows[0]?.n ?? 0;
 }
@@ -55,11 +55,11 @@ export async function casesReadyForAutoCheck(limit: number) {
          OR (lr.started_at < l.at AND NOT (lr.status = 'running' AND lr.started_at > now() - interval '15 minutes'))
          OR (lr.status = 'failed' AND lr.error ~* 'not available for this account'
              AND lr.started_at < now() - interval '1 hour')
-         OR (lr.status = 'failed' AND (lr.error LIKE 'Timed out:%' OR lr.error ~* '429|throttl|too many')
+         OR (lr.status = 'failed' AND (lr.error ILIKE 'Timed out%' OR lr.error ~* '429|throttl|too many')
              AND lr.started_at < now() - interval '10 minutes'
              AND (SELECT COUNT(*) FROM qa_runs t
                    WHERE t.case_id = c.id AND t.gate = 1
-                     AND (t.error LIKE 'Timed out:%' OR t.error ~* '429|throttl|too many')
+                     AND (t.error ILIKE 'Timed out%' OR t.error ~* '429|throttl|too many')
                      AND t.started_at > l.at) < ${MAX_RETRIES}))
      ORDER BY l.at
      LIMIT ${limit}`;
