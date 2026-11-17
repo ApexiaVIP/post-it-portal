@@ -1088,6 +1088,8 @@ export async function sendQaReportReady(i: {
   caseId: number; client: string; adviser: string | null; ok: boolean;
   fails: number; reviews: number; disclosuresMissed: number; error: string | null;
   priorities?: { recap: string; notAddressed: number } | null;
+  /** Shortfalls that come from the script rather than the seller. */
+  scriptGaps?: number;
 }): Promise<{ sent: boolean; reason?: string }> {
   const transporter = getTransporter();
   if (!transporter) return { sent: false, reason: "no SMTP credentials" };
@@ -1105,6 +1107,9 @@ export async function sendQaReportReady(i: {
       `Priorities and concerns: recap ${i.priorities.recap.replace(/_/g, " ").toLowerCase()}, ${i.priorities.notAddressed} not fully addressed.`,
     ] : []),
     `${i.fails} fail${i.fails === 1 ? "" : "s"}, ${i.reviews} to review, ${i.disclosuresMissed} disclosure${i.disclosuresMissed === 1 ? "" : "s"} missed or partial.`,
+    ...(i.scriptGaps ? [
+      `${i.scriptGaps} script gap${i.scriptGaps === 1 ? "" : "s"}: points the script doesn't cover, not counted against the seller.`,
+    ] : []),
     "",
     `Open the report: ${base}/qa/${i.caseId}`,
   ] : [

@@ -13,6 +13,16 @@ export const Evidence = z.object({
 
 export const Label = z.enum(["FACT", "INFERENCE", "NOT_ESTABLISHED"]);
 
+/**
+ * Poz, 13 Nov 2026: the check must be fair to the seller. A shortfall that
+ * comes from the script (no wording for something the form needs, or the
+ * script's own wording falls short) is flagged as a script gap, not counted
+ * against the adviser.
+ */
+const ScriptGap = z.boolean().describe(
+  "True when the shortfall traces back to the script in force rather than the adviser: the script has no wording or prompt for this, or the adviser followed the script and its wording falls short. False otherwise, including every pass.",
+);
+
 export const Exception = z.object({
   title: z.string(),
   detail: z.string(),
@@ -28,6 +38,7 @@ export const ObservationOutput = z.object({
     requirement: z.string(),
     mandatory: z.boolean().describe("True for asterisked standards"),
     result: z.enum(["PASS", "FAIL", "REVIEW_REQUIRED", "NOT_APPLICABLE"]),
+    script_gap: ScriptGap,
     finding: z.string().describe("One or two plain-English sentences"),
     evidence: z.array(Evidence),
   })),
@@ -39,13 +50,14 @@ export const ObservationOutput = z.object({
   exceptions: z.array(Exception),
 });
 
-/** Mandatory disclosures: the SAY AS WRITTEN passages in the call guides. */
+/** Mandatory disclosures: the wording the call script gives the adviser to say. */
 export const DisclosureOutput = z.object({
   disclosures: z.array(z.object({
     name: z.string(),
-    source: z.string().describe("Guide and section the required wording comes from"),
+    source: z.string().describe("Script (with its issue date) and section the required wording comes from"),
     form_refs: z.array(z.string()),
     result: z.enum(["DELIVERED_IN_FULL", "PARTIAL", "MISSING", "REVIEW_REQUIRED", "NOT_APPLICABLE"]),
+    script_gap: ScriptGap,
     differences: z.string().describe("What was missing or changed; empty if delivered in full"),
     evidence: z.array(Evidence),
   })),

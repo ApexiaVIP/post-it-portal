@@ -98,12 +98,13 @@ export async function autoCheckNext(): Promise<{ caseId: number; status: string 
       FROM qa_runs r JOIN qa_cases c ON c.id = r.case_id LEFT JOIN advisers a ON a.id = c.adviser_id
      WHERE r.id = ${run.rows[0].id}`).rows[0];
   const res = (done.result ?? {}) as {
-    observation?: { checks?: { result: string }[] };
-    disclosures?: { disclosures?: { result: string }[] };
+    observation?: { checks?: { result: string; script_gap?: boolean }[] };
+    disclosures?: { disclosures?: { result: string; script_gap?: boolean }[] };
     consistency?: { priorities_followthrough?: { recap: { result: string }; items: { addressed: string }[] } };
   };
   const pf = res.consistency?.priorities_followthrough;
   const checks = res.observation?.checks ?? [];
+  const disclosures = res.disclosures?.disclosures ?? [];
   // While AWS has the AI switched off for the account, every sale would
   // fail the same way: retry quietly instead of emailing each time.
   if (done.status !== "done" && ACCOUNT_BLOCKED.test(done.error ?? "")) {
@@ -114,9 +115,12 @@ export async function autoCheckNext(): Promise<{ caseId: number; status: string 
   }
   const mail = await sendQaReportReady({
     caseId: next.id, client: done.client_name, adviser: done.adviser, ok: done.status === "done",
-    fails: checks.filter((k) => k.result === "FAIL").length,
-    reviews: checks.filter((k) => k.result === "REVIEW_REQUIRED").length,
-    disclosuresMissed: (res.disclosures?.disclosures ?? []).filter((d) => d.result === "MISSING" || d.result === "PARTIAL").length,
+    // Shortfalls the script caused are reported on their own, not as the seller's.
+    fails: checks.filter((k) => k.result === "FAIL" && !k.script_gap).length,
+    reviews: checks.filter((k) => k.result === "REVIEW_REQUIRED" && !k.script_gap).length,
+    disclosuresMissed: disclosures.filter((d) => (d.result === "MISSING" || d.result === "PARTIAL") && !d.script_gap).length,
+    scriptGaps: checks.filter((k) => k.script_gap && k.result !== "PASS" && k.result !== "NOT_APPLICABLE").length
+      + disclosures.filter((d) => d.script_gap && d.result !== "DELIVERED_IN_FULL" && d.result !== "NOT_APPLICABLE").length,
     error: done.status === "done" ? null : plainReason(done.error),
     priorities: pf ? {
       recap: pf.recap.result,

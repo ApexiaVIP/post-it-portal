@@ -34,6 +34,8 @@ interface Run {
   started_at: string;
   finished_at: string | null;
   cost_usd: number | null;
+  /** Versions of the standards the check used (checks from 17 Nov 2026). */
+  standards?: { doc: string; title: string; effective_from: string; call_date: string | null }[] | null;
 }
 interface Detail {
   case: QaCase;
@@ -80,7 +82,21 @@ const RESULT_STYLE: Record<string, string> = {
   NOT_APPLICABLE: "bg-slate-100 text-slate-500",
   DECLINED: "bg-slate-100 text-slate-700",
   DEFERRED: "bg-slate-100 text-slate-700",
+  SCRIPT_GAP: "bg-indigo-100 text-indigo-800",
 };
+
+/** Shown next to a result that comes from the script rather than the seller. */
+function ScriptGapChip() {
+  return (
+    <span title="The script in force doesn't cover this, or its wording falls short. Not counted against the seller.">
+      <Chip v="SCRIPT_GAP" />
+    </span>
+  );
+}
+
+function fmtDay(d: string): string {
+  return new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
 
 function Chip({ v }: { v: string }) {
   return (
@@ -477,12 +493,12 @@ function Report({ gate1, gate2, onJump, review }: {
   }
   for (const k of obs?.checks ?? []) {
     if (k.result === "FAIL" || k.result === "REVIEW_REQUIRED") {
-      exceptions.push({ title: `Form ${k.ref}: ${k.requirement}`, detail: k.finding, severity: k.result === "FAIL" ? (k.mandatory ? "HIGH" : "MEDIUM") : "LOW", evidence: k.evidence, from: "Observation form" });
+      exceptions.push({ title: `${k.script_gap ? "Script gap, form" : "Form"} ${k.ref}: ${k.requirement}`, detail: k.finding, severity: k.result === "FAIL" ? (k.mandatory ? "HIGH" : "MEDIUM") : "LOW", evidence: k.evidence, from: k.script_gap ? "Script gap" : "Observation form" });
     }
   }
   for (const d of disc?.disclosures ?? []) {
     if (d.result === "MISSING" || d.result === "PARTIAL" || d.result === "REVIEW_REQUIRED") {
-      exceptions.push({ title: `${d.name}: ${d.result.replace(/_/g, " ").toLowerCase()}`, detail: d.differences, severity: d.result === "MISSING" ? "HIGH" : "MEDIUM", evidence: d.evidence, from: "Disclosures" });
+      exceptions.push({ title: `${d.script_gap ? "Script gap, " : ""}${d.name}: ${d.result.replace(/_/g, " ").toLowerCase()}`, detail: d.differences, severity: d.result === "MISSING" ? "HIGH" : "MEDIUM", evidence: d.evidence, from: d.script_gap ? "Script gap" : "Disclosures" });
     }
   }
   if (pf && pf.recap.result !== "DONE") {
@@ -508,8 +524,12 @@ function Report({ gate1, gate2, onJump, review }: {
   const order = { HIGH: 0, MEDIUM: 1, LOW: 2 } as const;
   exceptions.sort((a, b) => order[a.severity] - order[b.severity]);
 
-  const fails = (obs?.checks ?? []).filter((k) => k.result === "FAIL").length;
-  const reviews = (obs?.checks ?? []).filter((k) => k.result === "REVIEW_REQUIRED").length;
+  // A shortfall the script caused is counted on its own, not as the seller's.
+  const fails = (obs?.checks ?? []).filter((k) => k.result === "FAIL" && !k.script_gap).length;
+  const reviews = (obs?.checks ?? []).filter((k) => k.result === "REVIEW_REQUIRED" && !k.script_gap).length;
+  const scriptGaps = (obs?.checks ?? []).filter((k) => k.script_gap && k.result !== "PASS" && k.result !== "NOT_APPLICABLE").length
+    + (disc?.disclosures ?? []).filter((d) => d.script_gap && d.result !== "DELIVERED_IN_FULL" && d.result !== "NOT_APPLICABLE").length;
+  const standards = gate1?.standards ?? gate2?.standards ?? null;
 
   return (
     <div className="mt-8">
@@ -521,6 +541,11 @@ function Report({ gate1, gate2, onJump, review }: {
         <div className="mt-3 flex flex-wrap gap-4 text-sm">
           <span><strong className="text-red-700">{fails}</strong> form checks failed</span>
           <span><strong className="text-amber-700">{reviews}</strong> need review</span>
+          {scriptGaps > 0 && (
+            <span title="Shortfalls that come from the script rather than the seller: not counted in the fails above.">
+              <strong className="text-indigo-700">{scriptGaps}</strong> script gap{scriptGaps === 1 ? "" : "s"}
+            </span>
+          )}
           {pf && (
             <span>
               Priorities and concerns <Chip v={pf.result} />{" "}
@@ -533,6 +558,19 @@ function Report({ gate1, gate2, onJump, review }: {
             Gate 2 {gate2 ? (gate2.status === "done" ? `run ${new Date(gate2.started_at).toLocaleString("en-GB")}` : gate2.status) : "not run"}
           </span>
         </div>
+        <p className="mt-2 text-xs text-slate-600">
+          {standards && standards.length > 0 ? (
+            <>
+              Checked against the versions in force on the day of each call:{" "}
+              {standards.map((x, i) => (
+                <span key={x.doc}>
+                  {i > 0 && "; "}
+                  {x.title}{x.call_date ? ` (call on ${fmtDay(x.call_date)})` : ""}
+                </span>
+              ))}.
+            </>
+          ) : "Checked against the 6 Oct 2026 call guides (before the scripts themselves were used). Run Gate 1 again to check against the scripts in force on the day of each call."}
+        </p>
       </div>
 
       <SectionTitle n={1} title="Openwork observation check" note="numbered as on the form" />
@@ -561,7 +599,7 @@ function Report({ gate1, gate2, onJump, review }: {
                     <tr className="border-t border-slate-100 align-top">
                       <td className="px-2 py-1.5 font-mono text-xs">{k.ref}</td>
                       <td className="px-2 py-1.5">{k.requirement}{k.mandatory && <span className="ml-1 text-xs font-bold text-red-700">*</span>}</td>
-                      <td className="px-2 py-1.5"><Chip v={k.result} /></td>
+                      <td className="px-2 py-1.5"><Chip v={k.result} />{k.script_gap && <div className="mt-1"><ScriptGapChip /></div>}</td>
                       <td className="px-2 py-1.5"><p>{k.finding}</p><EvidenceLinks ev={k.evidence} onJump={onJump} /></td>
                       <td className="px-2 py-1.5"><ReviewCell section="observation" aiResult={k.result} runId={gate1?.id} itemKey={`obs:${i}`} review={review} /></td>
                     </tr>
@@ -573,7 +611,7 @@ function Report({ gate1, gate2, onJump, review }: {
         </>
       ) : <Missing gate={gate1} />}
 
-      <SectionTitle n={2} title="Mandatory disclosures" note="SAY AS WRITTEN passages and mandatory questions" />
+      <SectionTitle n={2} title="Mandatory disclosures" note="wording the script gives the seller, and mandatory questions" />
       {disc ? (
         <>
         <ReviewBar
@@ -589,7 +627,7 @@ function Report({ gate1, gate2, onJump, review }: {
             {disc.disclosures.map((d, i) => (
               <tr key={i} className="border-t border-slate-100 align-top">
                 <td className="px-2 py-1.5"><p className="font-medium">{d.name}</p><p className="text-xs text-slate-500">{d.source}{d.form_refs.length ? ` · form ${d.form_refs.join(", ")}` : ""}</p></td>
-                <td className="px-2 py-1.5"><Chip v={d.result} /></td>
+                <td className="px-2 py-1.5"><Chip v={d.result} />{d.script_gap && <div className="mt-1"><ScriptGapChip /></div>}</td>
                 <td className="px-2 py-1.5">{d.differences && <p>{d.differences}</p>}<EvidenceLinks ev={d.evidence} onJump={onJump} /></td>
                 <td className="px-2 py-1.5"><ReviewCell section="disclosure" aiResult={d.result} runId={gate1?.id} itemKey={`disc:${i}`} review={review} /></td>
               </tr>

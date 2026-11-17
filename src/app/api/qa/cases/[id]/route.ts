@@ -41,7 +41,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
                uploaded_by, uploaded_at::text AS uploaded_at
           FROM qa_documents WHERE case_id = ${id} AND deleted_at IS NULL
          ORDER BY uploaded_at DESC LIMIT 1`,
-    sql`SELECT DISTINCT ON (gate) id, gate, status, model, result, error, usage, started_by,
+    sql`SELECT DISTINCT ON (gate) id, gate, status, model, result, error, usage, standards, started_by,
                started_at::text AS started_at, finished_at::text AS finished_at
           FROM qa_runs WHERE case_id = ${id}
          ORDER BY gate, started_at DESC`,
