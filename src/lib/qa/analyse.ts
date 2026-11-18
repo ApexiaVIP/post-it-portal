@@ -52,7 +52,7 @@ Complete the Openwork ICOBS Competency Assessment Observation Form for these cal
 Use the script and the Fact Find sheet to judge what each standard requires in practice; the script names the form items each of its sections covers. For section 6 (medical underwriting), judge what the adviser actually did on the call before and during the medical questions: the reminder given before recording medical information, how accuracy was checked (including changes between application and inception), the consequences of non-disclosure explained to the client, and the verification steps the provider may take.
 Mark NOT_APPLICABLE only where a standard genuinely does not apply to these calls (for example 3.1a when nothing is being replaced) and say why in the finding.
 Then give an outcome per stage: a stage fails if any asterisked standard in it fails.
-Set script_gap on every standard as described above.
+Set script_gap on every standard as described above, judged the same way as in the disclosures check. Where a standard needs the client to be told something on the call and the script in force only has an "Adviser:" note for it, or says to deal with it in the follow-up email, a miss is a script gap.
 Add exceptions for anything else in the calls that creates a compliance, suitability or customer-outcome concern, including vulnerability indicators that were not picked up.`,
 
   disclosures: `MANDATORY DISCLOSURES.
@@ -238,6 +238,17 @@ function addUsage(usage: CheckUsage, u: Anthropic.Usage, longCache?: boolean) {
   if (hour) usage.cache_write_1h = (usage.cache_write_1h ?? 0) + hour;
 }
 
+/**
+ * Bailey's call was checked twice on 17 and 18 Nov 2026 against the same
+ * scripts and came back with 7 form fails one night and 13 the next: at the
+ * default setting the model can score a borderline standard differently each
+ * time. Temperature 0 keeps repeat checks of the same call steady. Opus 4.7
+ * and later refuse the setting, so it is only sent to the earlier models.
+ */
+export function steadyScoring(model: string): boolean {
+  return /claude-(opus|sonnet|haiku)-4-[0-6](-|$)/.test(model);
+}
+
 /** One check, with up to three tries at a well-formed result (exported for tests). */
 export async function runCheck<T extends z.ZodType>(
   client: Claude,
@@ -267,18 +278,29 @@ export async function runCheck<T extends z.ZodType>(
   const messages: Anthropic.MessageParam[] = [{ role: "user", content }];
   const usage: CheckUsage = { input: 0, output: 0, cache_read: 0, cache_write: 0, model };
 
+  let steady = steadyScoring(model);
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const msg = await client.messages.stream({
+    const send = () => client.messages.stream({
       model,
       max_tokens: 64000,
       // No thinking step (13 Nov 2026): it was about two thirds of the
       // output billed on an hour-long call, for checks that quote the
       // transcript line by line anyway.
       output_config: { effort: "high" },
+      ...(steady ? { temperature: 0 } : {}),
       system: [{ type: "text", text: system, cache_control: cacheControl(opts.longCache) }],
       tools,
       messages,
     }).finalMessage();
+    let msg: Anthropic.Message;
+    try {
+      msg = await send();
+    } catch (e) {
+      // If the model turns the setting down, carry on without it.
+      if (!(steady && e instanceof APIError && e.status === 400 && /temperature/i.test(e.message))) throw e;
+      steady = false;
+      msg = await send();
+    }
     addUsage(usage, msg.usage, opts.longCache);
 
     if (msg.stop_reason === "refusal") {
