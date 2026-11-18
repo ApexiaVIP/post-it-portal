@@ -40,6 +40,9 @@ const VERSIONS = [
   { doc: "onecall_script", from: "2026-10-06", title: "TopQuote Fact Find and Advice call script, one call, issued 6 Oct 2026", file: "onecall_script_2026-10-06.txt", source: "TopQuote_OneCall_Script_06.10.26.docx", sort: 2, applies: "one_call", datedBy: "fact_find" },
   { doc: "onecall_script", from: "2026-10-21", title: "TopQuote Fact Find and Advice call script, one call, issued 21 Oct 2026", file: "onecall_script_2026-10-21.txt", source: "TopQuote_OneCall_Script_04.11.26_TRACKED.docx, 4 Nov changes undone", sort: 2, applies: "one_call", datedBy: "fact_find" },
   { doc: "onecall_script", from: "2026-11-04", title: "TopQuote Fact Find and Advice call script, one call, issued 4 Nov 2026", file: "onecall_script_2026-11-04.txt", source: "TopQuote_OneCall_Script_04.11.26_CLEAN.docx", sort: 2, applies: "one_call", datedBy: "fact_find" },
+  // Reissued 18 Nov: the 4 Nov copy was not fully updated (Poz, 18 Nov 2026). Puts back the ID check,
+  // privacy notice, accident and sickness and funeral wording; adds pension, assets and level of cover questions.
+  { doc: "onecall_script", from: "2026-11-18", title: "TopQuote Fact Find and Advice call script, one call, issued 18 Nov 2026", file: "onecall_script_2026-11-18.txt", source: "TopQuote_OneCall_Script_18.11.26_CLEAN.docx", sort: 2, applies: "one_call", datedBy: "fact_find" },
 
   { doc: "advice_script", from: "2026-10-06", title: "TopQuote Advice and Recommendation call script, issued 6 Oct 2026", file: "advice_script_2026-10-06.txt", source: "TopQuote_AdviceCall_Script_06.10.26.docx", sort: 3, applies: "two_call", datedBy: "advice" },
   { doc: "advice_script", from: "2026-11-04", title: "TopQuote Advice and Recommendation call script, issued 4 Nov 2026", file: "advice_script_2026-11-04.txt", source: "TopQuote_AdviceCall_Script_04.11.26_CLEAN.docx", sort: 3, applies: "two_call", datedBy: "advice" },
