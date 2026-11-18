@@ -20,7 +20,7 @@ export const Label = z.enum(["FACT", "INFERENCE", "NOT_ESTABLISHED"]);
  * against the adviser.
  */
 const ScriptGap = z.boolean().describe(
-  "True when the shortfall traces back to the script in force rather than the adviser: the script has no wording or prompt for this, or the adviser followed the script and its wording falls short. False otherwise, including every pass.",
+  "True when the shortfall traces back to the script in force rather than the adviser: the script gives the adviser nothing to say to the client on the call about this (an \"Adviser:\" note alone, or an instruction to cover it outside the call such as in the follow-up email, does not count), or the adviser followed the script and its wording falls short. False where the script tells the adviser to cover it on the call in their own words, and for every pass.",
 );
 
 export const Exception = z.object({
