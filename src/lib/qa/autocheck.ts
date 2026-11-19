@@ -10,6 +10,8 @@ import { runGate1 } from "./analyse";
 import { ukStatus, ukModel } from "./uk";
 import { sendQaReportReady } from "@/lib/reci/email";
 import { ACCOUNT_BLOCKED, SERVICE_BUSY, plainReason } from "./shared";
+import { triage } from "./triage";
+import type { Gate1Result } from "./schemas";
 
 /**
  * A check that was stopped at the time limit, or turned away because the
@@ -126,6 +128,10 @@ export async function autoCheckNext(): Promise<{ caseId: number; status: string 
       recap: pf.recap.result,
       notAddressed: pf.items.filter((p) => p.addressed === "NO" || p.addressed === "PARTIAL").length,
     } : null,
+    summary: done.status === "done" ? (() => {
+      const t = triage(done.result as Partial<Gate1Result>, null);
+      return { verdict: t.verdict, ...t.counts };
+    })() : null,
   });
   if (!mail.sent) console.error("[qa] report email not sent:", mail.reason);
   return { caseId: next.id, status: done.status };

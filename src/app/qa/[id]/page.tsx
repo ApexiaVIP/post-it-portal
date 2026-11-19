@@ -19,6 +19,8 @@ import {
 } from "@/lib/qa/shared";
 import { CONFIRM_OPTIONS, CONFIRM_LABELS, aiAsConfirmed, type ReviewSection } from "@/lib/qa/review";
 import { formatUsd } from "@/lib/qa/cost";
+import { triage } from "@/lib/qa/triage";
+import { EvidenceLinks, Summary } from "@/components/qa-summary";
 import type {
   Gate1Result, Gate2Result, ConsistencyResult, EvidenceItem, ExceptionItem,
 } from "@/lib/qa/schemas";
@@ -441,22 +443,6 @@ function GateControl({ caseId, gate, run, title, blurb, disabledReason, onStarte
 
 // ---------------------------------------------------------------- report
 
-function EvidenceLinks({ ev, onJump }: { ev: EvidenceItem[]; onJump: (e: EvidenceItem) => void }) {
-  if (!ev || ev.length === 0) return <span className="text-xs text-slate-400">no evidence cited</span>;
-  return (
-    <div className="space-y-0.5">
-      {ev.map((e, i) => (
-        <div key={i} className="text-xs">
-          <button type="button" onClick={() => onJump(e)} className="no-print-link mr-1 font-mono text-teal-800 hover:underline">
-            C{e.call} {e.time}
-          </button>
-          <span className="italic text-slate-600">&ldquo;{e.quote}&rdquo;</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function SectionTitle({ n, title, note }: { n: number; title: string; note?: string }) {
   return (
     <h2 className="mt-8 border-b border-slate-300 pb-1 text-lg font-bold">
@@ -471,6 +457,9 @@ function Report({ gate1, gate2, onJump, review }: {
 }) {
   const g1 = (gate1?.result ?? null) as Partial<Gate1Result> | null;
   const g2 = (gate2?.result ?? null) as Partial<Gate2Result> | null;
+  // The summary is the front page (Poz, 19 Nov 2026); the full report is one click away.
+  const [view, setView] = useState<"summary" | "full">("summary");
+  const tri = useMemo(() => triage(g1, g2), [g1, g2]);
   if (!g1 && !g2) {
     return <p className="mt-8 rounded border border-slate-200 bg-white p-4 text-sm text-slate-500">No report yet. Run Gate 1 once the calls are transcribed.</p>;
   }
@@ -533,6 +522,19 @@ function Report({ gate1, gate2, onJump, review }: {
 
   return (
     <div className="mt-8">
+      <div className="no-print flex flex-wrap items-end gap-1 border-b border-slate-300">
+        {(["summary", "full"] as const).map((v) => (
+          <button key={v} type="button" onClick={() => setView(v)}
+            className={`-mb-px rounded-t border px-4 py-1.5 text-sm ${view === v ? "border-slate-300 border-b-white bg-white font-bold" : "border-transparent text-slate-500 hover:text-slate-800"}`}>
+            {v === "summary" ? "Summary" : "Full report"}
+          </button>
+        ))}
+        <span className="ml-auto pb-1 text-xs text-slate-500">Print prints the tab you are on. Transcripts are under Calls above.</span>
+      </div>
+      {view === "summary" ? (
+        <Summary t={tri} onJump={onJump} onFull={() => setView("full")} />
+      ) : (
+      <div className="mt-4">
       <div className="rounded-lg border-2 border-slate-900 bg-white p-4">
         <h2 className="text-xl font-bold">QA report</h2>
         <p className="mt-1 text-sm text-slate-600">
@@ -801,6 +803,8 @@ function Report({ gate1, gate2, onJump, review }: {
         ))}
         {exceptions.length === 0 && <li className="text-slate-500">Nothing flagged.</li>}
       </ul>
+      </div>
+      )}
     </div>
   );
 }

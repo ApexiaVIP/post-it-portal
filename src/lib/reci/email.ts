@@ -1090,6 +1090,8 @@ export async function sendQaReportReady(i: {
   priorities?: { recap: string; notAddressed: number } | null;
   /** Shortfalls that come from the script rather than the seller. */
   scriptGaps?: number;
+  /** The summary's red / amber / green counts (from 19 Nov 2026); leads the email when given. */
+  summary?: { verdict: "red" | "amber" | "green"; red: number; amber: number; script: number; green: number } | null;
 }): Promise<{ sent: boolean; reason?: string }> {
   const transporter = getTransporter();
   if (!transporter) return { sent: false, reason: "no SMTP credentials" };
@@ -1100,7 +1102,16 @@ export async function sendQaReportReady(i: {
   const addr = process.env.SMTP_USER || process.env.GMAIL_USER || "";
   const who = `${i.client}${i.adviser ? ` (${i.adviser})` : ""}`;
   const subject = i.ok ? `Call QA report ready: ${who}` : `Call QA check didn't finish: ${who}`;
-  const lines = i.ok ? [
+  const s = i.summary;
+  const lines = i.ok && s ? [
+    `The call check for ${who} is ready to review.`,
+    "",
+    `Overall: ${s.verdict === "red" ? "Red" : s.verdict === "amber" ? "Amber" : "Green"}.`,
+    `${s.red} to put right, ${s.amber} to go through with the seller, ${s.green} met.`,
+    ...(s.script ? [`${s.script} script gap${s.script === 1 ? "" : "s"} for Guy, not counted against the seller.`] : []),
+    "",
+    `Open the summary: ${base}/qa/${i.caseId}`,
+  ] : i.ok ? [
     `The call check for ${who} is ready to review.`,
     "",
     ...(i.priorities ? [
