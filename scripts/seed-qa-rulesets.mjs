@@ -40,6 +40,10 @@ const VERSIONS = [
   { doc: "factfind_script", from: "2026-10-06", title: "TopQuote Fact Find call script, issued 6 Oct 2026", file: "factfind_script_2026-10-06.txt", source: "TopQuote_FactFind_Script_06.10.26.docx", sort: 2, applies: "two_call", datedBy: "fact_find" },
   { doc: "factfind_script", from: "2026-10-29", title: "TopQuote Fact Find call script, issued 29 Oct 2026", file: "factfind_script_2026-10-29.txt", source: "TopQuote_FactFind_Script_04.11.26_TRACKED.docx, 4 Nov changes undone", sort: 2, applies: "two_call", datedBy: "fact_find" },
   { doc: "factfind_script", from: "2026-11-04", title: "TopQuote Fact Find call script, issued 4 Nov 2026", file: "factfind_script_2026-11-04.txt", source: "TopQuote_FactFind_Script_04.11.26_CLEAN.docx", sort: 2, applies: "two_call", datedBy: "fact_find" },
+  // Issued 19 Nov 2026 as the "Fact Find call guide": the full script under a new name (Poz, 19 Nov 2026).
+  // Brings in the 18 Nov One Call additions (pension incl. state pension, other assets, level of cover,
+  // funeral WOL whether or not the client has savings) and adds Life 2 for any partner.
+  { doc: "factfind_script", from: "2026-11-19", title: "TopQuote Fact Find call guide (the full call script), issued 19 Nov 2026", file: "factfind_script_2026-11-19.txt", source: "TopQuote_FactFind_Call_Guide_19.11.26.docx", sort: 2, applies: "two_call", datedBy: "fact_find" },
 
   { doc: "onecall_script", from: "2026-10-06", title: "TopQuote Fact Find and Advice call script, one call, issued 6 Oct 2026", file: "onecall_script_2026-10-06.txt", source: "TopQuote_OneCall_Script_06.10.26.docx", sort: 2, applies: "one_call", datedBy: "fact_find" },
   { doc: "onecall_script", from: "2026-10-21", title: "TopQuote Fact Find and Advice call script, one call, issued 21 Oct 2026", file: "onecall_script_2026-10-21.txt", source: "TopQuote_OneCall_Script_04.11.26_TRACKED.docx, 4 Nov changes undone", sort: 2, applies: "one_call", datedBy: "fact_find" },
@@ -54,6 +58,7 @@ const VERSIONS = [
   { doc: "factfind_sheet", from: "2026-10-07", title: "TopQuote Fact Find sheet (completed by the adviser on the call), issued 7 Oct 2026", file: "factfind_sheet_2026-10-07.txt", source: "TopQuote_FactFind_Sheet_04.11.26_LARGE_PRINT_TRACKED.docx, 4 Nov changes undone", sort: 4, applies: "all", datedBy: "fact_find" },
   // The Word copy still says 7 October in its heading; the issued (printed) sheet says 4 November.
   { doc: "factfind_sheet", from: "2026-11-04", title: "TopQuote Fact Find sheet (completed by the adviser on the call), issued 4 Nov 2026", file: "factfind_sheet_2026-11-04.txt", source: "TopQuote_FactFind_Sheet_04.11.26_LARGE_PRINT_CLEAN.docx", sort: 4, applies: "all", datedBy: "fact_find", relabel: [["7th October 2026", "4th November 2026"]] },
+  { doc: "factfind_sheet", from: "2026-11-19", title: "TopQuote Fact Find sheet (completed by the adviser on the call), issued 19 Nov 2026", file: "factfind_sheet_2026-11-19.txt", source: "TopQuote_FactFind_Sheet_19.11.26.docx", sort: 4, applies: "all", datedBy: "fact_find" },
 ];
 
 // No longer used: the checks read the scripts themselves.
