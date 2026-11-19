@@ -3,7 +3,8 @@
 
 // Jack removed from POST IT 13 Aug 2026 (Poz): moved to Xstaff in June,
 // stays on the RECI boards / Business Tracker for his completed business.
-export const ADVISERS = ["Tan", "Hayder", "Gurdaht", "Atikur", "Ben", "Josh"] as const;
+// Josh removed 19 Nov 2026 (Poz): left TopQuote, no numbers or sales on file.
+export const ADVISERS = ["Tan", "Hayder", "Gurdaht", "Atikur", "Ben"] as const;
 export type Adviser = (typeof ADVISERS)[number];
 
 export const ADVISER_FIELDS = [

@@ -51,7 +51,7 @@ function loadCredentials(): Credential[] {
   for (let i = 1; i <= 10; i++) {
     const u = process.env[`ADMIN${i}_USERNAME`];
     const h = process.env[`ADMIN${i}_PASSWORD_HASH`];
-    if (u && h) out.push({ username: u, hash: h });
+    if (u && h && !LEFT_USERNAMES.includes(u.trim().toLowerCase())) out.push({ username: u, hash: h });
   }
   return out;
 }
@@ -88,12 +88,17 @@ export async function verifyCredentials(
 // Both lists are comma-separated and case insensitive. Even a user with a
 // valid admin credential is rejected unless they appear in one of the lists.
 // ---------------------------------------------------------------------------
+// Leavers get no access at all, even while a login slot or a role list on
+// Vercel still names them: their login is refused and an open session is
+// turned away on the next page load. Josh left 19 Nov 2026 (Poz).
+const LEFT_USERNAMES = ["josh"];
+
 function parseList(raw: string | undefined): string[] {
   return (raw ?? "")
     .toLowerCase()
     .split(",")
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter((s) => s && !LEFT_USERNAMES.includes(s));
 }
 
 const DASHBOARD_USERNAMES  = parseList(process.env.DASHBOARD_USERNAMES  ?? "jimmy,pauline,poz");
