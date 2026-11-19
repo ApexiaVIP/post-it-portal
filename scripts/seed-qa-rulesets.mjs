@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Load the Call QA standards into qa_rulesets from text exports of the
- * source documents: the Openwork observation form, TopQuote's call scripts
- * and the Fact Find sheet.
+ * source documents: the Openwork observation form and Openwork's criteria for
+ * it, TopQuote's call scripts and the Fact Find sheet.
  *
  *   node --env-file=.env.local scripts/seed-qa-rulesets.mjs <dir> [<dir2> ...]
  *
@@ -30,8 +30,12 @@ if (dirs.length === 0) {
 // applies: "all" = every case; "one_call" / "two_call" = that case type only.
 // datedBy: which call's date picks the version, the fact find (first) or the advice (last).
 const FORM = "Openwork ICOBS Competency Assessment Observation Form, telephone sales advice (June 2023 v5)";
+const CRITERIA = "Openwork ICOB assessment criteria (v1, April 2026): what each standard on the observation form should consist of";
 const VERSIONS = [
-  { key: "observation_form", doc: "observation_form", from: "2023-06-01", title: FORM, file: "icob-competency-assessment-observation-form-telephone-sales-v5.txt", source: "icob-competency-assessment-observation-form-telephone-sales-v5.docx", sort: 1, applies: "all", datedBy: "fact_find" },
+  { key: "observation_form", doc: "observation_form", from: "2023-06-01", title: FORM, file: "icob-competency-assessment-observation-form-telephone-sales-v5.txt", source: "icob-competency-assessment-observation-form-telephone-sales-v5.docx", sort: 0, applies: "all", datedBy: "fact_find" },
+  // Openwork's criteria for the form, sent by Poz on 19 Nov 2026. Written for face-to-face role plays, with its
+  // own numbering: the checks match each criterion to the form standard it covers by subject.
+  { doc: "observation_criteria", from: "2026-04-01", title: CRITERIA, file: "observation_criteria_2026-04.txt", source: "openwork-icob-assessment-criteria-document-v1-april-2026.docx", sort: 1, applies: "all", datedBy: "fact_find" },
 
   { doc: "factfind_script", from: "2026-10-06", title: "TopQuote Fact Find call script, issued 6 Oct 2026", file: "factfind_script_2026-10-06.txt", source: "TopQuote_FactFind_Script_06.10.26.docx", sort: 2, applies: "two_call", datedBy: "fact_find" },
   { doc: "factfind_script", from: "2026-10-29", title: "TopQuote Fact Find call script, issued 29 Oct 2026", file: "factfind_script_2026-10-29.txt", source: "TopQuote_FactFind_Script_04.11.26_TRACKED.docx, 4 Nov changes undone", sort: 2, applies: "two_call", datedBy: "fact_find" },

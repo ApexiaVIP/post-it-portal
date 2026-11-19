@@ -7,8 +7,8 @@
  * recommendation / consistency check. Gate 2 compares the suitability
  * report PDF with the calls.
  *
- * The standards (the Openwork observation form, the TopQuote call scripts
- * and the Fact Find sheet) are loaded from qa_rulesets, so a new form or
+ * The standards (the Openwork observation form and Openwork's criteria for
+ * it, the TopQuote call scripts and the Fact Find sheet) are loaded from qa_rulesets, so a new form or
  * script is a content change, not a code change. Every issued version is
  * kept, and each call is checked against the version in force on the day
  * it was made (17 Nov 2026: Guy reissued the scripts on 21 Oct, 29 Oct and
@@ -34,7 +34,7 @@ const SYSTEM_INTRO = `You are the quality assurance checker for TopQuote, a UK f
 
 Why this matters: Openwork reviews cases in two stages. Its AQT team reads the suitability report without hearing the call, and its supervision team later listens to the recording. A case fails if the calls miss mandatory disclosures, or if what was written does not match what was said.
 
-The standards: the Openwork observation form is what Openwork assesses. TopQuote's call script shows how the firm meets it, with the wording the adviser is given, and the Fact Find sheet is the form the adviser completes on the call. The scripts are reissued from time to time, so each document below is the version in force on the date of the call it applies to: judge the calls only against those versions. In the scripts, lines starting "Adviser:" are instructions to the adviser and the rest is wording for the client, with details to fill in shown in brackets. Sections headed MANDATORY, and the form items they name, are required.
+The standards: the Openwork observation form is what Openwork assesses, and Openwork's assessment criteria say what each standard on it should consist of. The criteria were written for face-to-face role-play assessments and use their own numbering: match each criterion to the form standard it covers by subject, and read meetings, business cards and handing over brochures or documents as their telephone equivalents (giving contact details on the call, sending documents by email or post). The form's asterisks decide which standards are mandatory. TopQuote's call script shows how the firm meets it, with the wording the adviser is given, and the Fact Find sheet is the form the adviser completes on the call. The scripts are reissued from time to time, so each document below is the version in force on the date of the call it applies to: judge the calls only against those versions. In the scripts, lines starting "Adviser:" are instructions to the adviser and the rest is wording for the client, with details to fill in shown in brackets. Sections headed MANDATORY, and the form items they name, are required.
 
 How to work:
 - Establish facts, check them against the standards, compare, show evidence and flag. A person makes every decision. You never decide whether advice was suitable, never try to make a case fit, and never fill a gap with an assumption.
@@ -49,7 +49,7 @@ How to work:
 const TASKS = {
   observation: `CHECK 1: OPENWORK OBSERVATION FORM.
 Complete the Openwork ICOBS Competency Assessment Observation Form for these calls. Return one entry per standard on the form, in form order, covering sections 1 to 6. Where several standards share a reference number, list each separately with the same reference. Set mandatory to true for asterisked standards.
-Use the script and the Fact Find sheet to judge what each standard requires in practice; the script names the form items each of its sections covers. For section 6 (medical underwriting), judge what the adviser actually did on the call before and during the medical questions: the reminder given before recording medical information, how accuracy was checked (including changes between application and inception), the consequences of non-disclosure explained to the client, and the verification steps the provider may take.
+Judge each standard against what Openwork's criteria say it should consist of, and use the script and the Fact Find sheet to see how the firm meets it in practice; the script names the form items each of its sections covers. For section 6 (medical underwriting), judge what the adviser actually did on the call before and during the medical questions: the reminder given before recording medical information, how accuracy was checked (including changes between application and inception), the consequences of non-disclosure explained to the client, and the verification steps the provider may take.
 Mark NOT_APPLICABLE only where a standard genuinely does not apply to these calls (for example 3.1a when nothing is being replaced) and say why in the finding.
 Then give an outcome per stage: a stage fails if any asterisked standard in it fails.
 Set script_gap on every standard as described above, judged the same way as in the disclosures check. Where a standard needs the client to be told something on the call and the script in force only has an "Adviser:" note for it, or says to deal with it in the follow-up email, a miss is a script gap.
