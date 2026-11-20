@@ -130,7 +130,10 @@ export async function autoCheckNext(): Promise<{ caseId: number; status: string 
     } : null,
     summary: done.status === "done" ? (() => {
       const t = triage(done.result as Partial<Gate1Result>, null);
-      return { verdict: t.verdict, ...t.counts };
+      return {
+        outcome: t.outcome, decide: t.routes.decide, coach: t.routes.coach, script: t.routes.script, met: t.routes.met,
+        callback: t.callback.reduce((k, g) => k + g.items.length, 0),
+      };
     })() : null,
   });
   if (!mail.sent) console.error("[qa] report email not sent:", mail.reason);

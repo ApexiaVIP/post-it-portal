@@ -11,6 +11,7 @@ import { sql } from "@vercel/postgres";
 import { ukStatus } from "@/lib/qa/uk";
 import { advanceTranscriptions } from "@/lib/qa/calls";
 import { autoCheckNext } from "@/lib/qa/autocheck";
+import { autoDraftNext } from "@/lib/qa/letter-run";
 import { isQaBusy, markQaBusy } from "@/lib/qa/busy";
 
 export const dynamic = "force-dynamic";
@@ -32,8 +33,11 @@ export async function GET(req: Request) {
   if (!hourly && !(await isQaBusy())) return NextResponse.json({ ok: true, idle: true });
   await advanceTranscriptions();
   const checked = await autoCheckNext();
+  // The draft suitability report follows on the next run after a check, so
+  // one run never has to fit both inside the time limit.
+  const drafted = checked ? null : await autoDraftNext();
   const waiting = await sql`
     SELECT 1 FROM qa_calls WHERE status = 'transcribing' AND deleted_at IS NULL LIMIT 1`;
-  if (checked || waiting.rows.length > 0) await markQaBusy();
-  return NextResponse.json({ ok: true, checked });
+  if (checked || drafted || waiting.rows.length > 0) await markQaBusy();
+  return NextResponse.json({ ok: true, checked, drafted });
 }

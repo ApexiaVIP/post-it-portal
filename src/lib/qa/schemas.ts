@@ -163,6 +163,32 @@ export const SuitabilityOutput = z.object({
   exceptions: z.array(Exception),
 });
 
+/**
+ * The draft suitability report wording (Guy, 20 Nov 2026): written from the
+ * calls for the seller to check and use in ConcertHub. It goes to the seller
+ * and Pauline only. Where the calls didn't establish something a section
+ * needs, the text carries "[To confirm: ...]" and a gap says what to ask.
+ */
+export const LETTER_SECTIONS = [
+  "circumstances", "needs", "budget", "recommendation", "reasons", "not_recommended", "existing_cover",
+] as const;
+export type LetterSection = (typeof LETTER_SECTIONS)[number];
+
+export const LetterOutput = z.object({
+  sections: z.array(z.object({
+    key: z.enum(LETTER_SECTIONS),
+    text: z.string().describe("The wording for this section, as the adviser writing to the client. Plain paragraphs, with [To confirm: ...] wherever the calls didn't establish what is needed."),
+    evidence: z.array(Evidence).describe("The main moments in the calls this section is written from, up to four"),
+  })),
+  gaps: z.array(z.object({
+    section: z.enum(LETTER_SECTIONS),
+    missing: z.string().describe("What the section needs that the calls didn't establish, in one plain sentence"),
+    ask: z.string().describe("What the adviser should ask or tell the client on the callback, in one plain sentence"),
+    callback_point: z.number().int().nullable().describe("The number of the callback point this is part of, or null if it isn't on the callback list"),
+  })),
+  seller_notes: z.array(z.string()).describe("Anything the adviser must check before using the wording, such as a name or figure the transcript may have misheard. Empty if none."),
+});
+
 export type ObservationResult = z.infer<typeof ObservationOutput>;
 export type DisclosureResult = z.infer<typeof DisclosureOutput>;
 export type FactsResult = z.infer<typeof FactsOutput>;
@@ -179,4 +205,10 @@ export interface Gate1Result {
 }
 export interface Gate2Result {
   suitability: SuitabilityResult;
+}
+/** A letter run (gate 3): the draft, and the call check it was written alongside. */
+export interface LetterResult {
+  letter: z.infer<typeof LetterOutput>;
+  /** The Gate 1 run whose callback list the gaps are numbered against. */
+  from_run: number;
 }

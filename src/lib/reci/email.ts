@@ -422,6 +422,88 @@ export async function sendNysCheckEmail(i: NysCheckEmailInput): Promise<{ sent: 
   });
 }
 
+// ---------------------------------------------------------------------------
+// Call QA callback list and draft suitability report (Poz and Guy, 19 and 20
+// Nov 2026): sent to the seller from the case summary. The list is built by
+// callbackListText() in src/lib/qa/triage.ts and the draft by letterText()
+// in src/lib/qa/letter.ts.
+// ---------------------------------------------------------------------------
+
+/**
+ * Call QA (Poz and Guy, 19 and 20 Nov 2026): Pauline sends the seller what
+ * to put right with the client (the callback list), the learning points for
+ * next time, and the draft suitability report written from the call. Guy:
+ * this goes to the seller and Pauline only.
+ */
+export async function sendQaCallbackEmail(i: {
+  adviser: { name: string; email: string | null };
+  client: string;
+  sentBy: string;
+  /** The callback list and the learning points for next time. */
+  list: string | null;
+  /** There are points to go back to the client about. */
+  callback: boolean;
+  /** The draft suitability report as text, if one was written. */
+  letter: string | null;
+  /** Some points are about the recommendation itself. */
+  adviceCheck: boolean;
+  /** The sale has already gone to the insurer. */
+  submitted: boolean;
+}): Promise<{ sent: boolean; reason?: string }> {
+  // Pauline only from the management list (Guy, 20 Nov 2026); the whole list
+  // if her address can't be picked out.
+  const mgmt = managementCc();
+  const poz = mgmt.filter((a) => /pauline|poz/i.test(a));
+  const ccList = poz.length > 0 ? poz : mgmt;
+  const to: string[] = [];
+  const cc: string[] = [];
+  if (i.adviser.email) {
+    to.push(i.adviser.email);
+    cc.push(...ccList.filter((a) => a.toLowerCase() !== i.adviser.email!.toLowerCase()));
+  } else if (ccList.length > 0) {
+    to.push(...ccList);
+  } else {
+    return { sent: false, reason: "no recipient" };
+  }
+  const who = /^(poz|pauline)$/i.test(i.sentBy) ? "Pauline" : i.sentBy.charAt(0).toUpperCase() + i.sentBy.slice(1);
+  const when = i.submitted
+    ? "as soon as you can, within the 30-day cancellation period"
+    : "before the application is submitted";
+  const intro = i.callback ? [
+    `Hi ${i.adviser.name},`,
+    ``,
+    `${who} has checked the call with ${i.client}. A few things weren't covered on the call, so please call the client back ${when} and go through the points below. The times show where each one came up in the recording.`,
+    ``,
+    i.adviceCheck
+      ? `Some of these points are about whether the recommendation still fits. Once you've spoken to the client, let ${who} know what they said, so the advice can be checked before the deal goes any further.`
+      : `Let ${who} know once it's done.`,
+    ``,
+  ] : [
+    `Hi ${i.adviser.name},`,
+    ``,
+    `${who} has checked the call with ${i.client}. There's nothing to go back to the client about.${i.list ? " The learning points for your next calls are below." : ""}`,
+    ``,
+  ];
+  const letterIntro = i.callback
+    ? `After the list is a draft of the suitability report, written from the call. Check every line, add what the client tells you on the callback in place of anything marked "To confirm", and change anything that isn't right before you use it in Concert. It's your report.`
+    : `${i.list ? "After those" : "Below"} is a draft of the suitability report, written from the call. Check every line and change anything that isn't right before you use it in Concert. It's your report.`;
+  const blocks: string[] = [];
+  if (i.list) blocks.push(i.list);
+  if (i.letter) blocks.push(`YOUR DRAFT SUITABILITY REPORT\n\n${i.letter}`);
+  if (i.letter) intro.push(letterIntro, ``);
+  const text = [...intro, blocks.join("\n\n"), ``, `RECI portal`].join("\n");
+  const block = (b: string) =>
+    `<div style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap;border-left:3px solid #0f766e;padding-left:12px;margin:16px 0">${escapeHtml(b)}</div>`;
+  const html =
+    intro.filter(Boolean).map((p) => `<p>${escapeHtml(p)}</p>`).join("") +
+    blocks.map(block).join("") +
+    `<p style="color:#888;font-size:12px">RECI portal</p>`;
+  const subject = i.callback
+    ? `[Call QA] Please call ${i.client} back ${i.submitted ? "as soon as you can" : "before submitting"}`
+    : `[Call QA] Draft suitability report for ${i.client}`;
+  return dispatchMail({ label: "qa-callback", fromName: "RECI", to, cc, subject, text, html });
+}
+
 function escapeHtml(s: string) {
   return s
     .replace(/&/g, "&amp;")
@@ -1090,8 +1172,8 @@ export async function sendQaReportReady(i: {
   priorities?: { recap: string; notAddressed: number } | null;
   /** Shortfalls that come from the script rather than the seller. */
   scriptGaps?: number;
-  /** The summary's red / amber / green counts (from 19 Nov 2026); leads the email when given. */
-  summary?: { verdict: "red" | "amber" | "green"; red: number; amber: number; script: number; green: number } | null;
+  /** What the summary says to do (from 20 Nov 2026); leads the email when given. */
+  summary?: { outcome: string; callback: number; decide: number; coach: number; script: number; met: number } | null;
 }): Promise<{ sent: boolean; reason?: string }> {
   const transporter = getTransporter();
   if (!transporter) return { sent: false, reason: "no SMTP credentials" };
@@ -1103,12 +1185,18 @@ export async function sendQaReportReady(i: {
   const who = `${i.client}${i.adviser ? ` (${i.adviser})` : ""}`;
   const subject = i.ok ? `Call QA report ready: ${who}` : `Call QA check didn't finish: ${who}`;
   const s = i.summary;
+  const n = (k: number, w: string) => `${k} ${w}${k === 1 ? "" : "s"}`;
+  const seller = i.adviser ?? "The seller";
   const lines = i.ok && s ? [
-    `The call check for ${who} is ready to review.`,
+    `The call check for ${who} is ready.`,
     "",
-    `Overall: ${s.verdict === "red" ? "Red" : s.verdict === "amber" ? "Amber" : "Green"}.`,
-    `${s.red} to put right, ${s.amber} to go through with the seller, ${s.green} met.`,
-    ...(s.script ? [`${s.script} script gap${s.script === 1 ? "" : "s"} for Guy, not counted against the seller.`] : []),
+    ...(s.decide ? [`${n(s.decide, "point")} for your decision first.`] : []),
+    ...(s.callback ? [`${seller} should call the client back: ${n(s.callback, "point")} on the callback list.`]
+      : s.decide ? [] : ["Nothing to put right with the client."]),
+    ...(s.outcome === "callback_review" ? ["Some of them are about the recommendation itself, so check the advice still fits after the callback."] : []),
+    `${n(s.coach, "learning point")} for next time${s.script ? `, ${n(s.script, "script gap")} for Guy` : ""}, ${s.met} met.`,
+    "",
+    "The draft suitability report will be on the case within about 10 minutes.",
     "",
     `Open the summary: ${base}/qa/${i.caseId}`,
   ] : i.ok ? [

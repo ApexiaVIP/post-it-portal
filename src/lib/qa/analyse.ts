@@ -26,8 +26,8 @@ import { sql } from "@vercel/postgres";
 import { requireUk, ukClaude } from "./uk";
 import { CALL_TYPE_LABELS, type QaCall, type CaseType } from "./shared";
 import {
-  ObservationOutput, DisclosureOutput, FactsOutput, ConsistencyOutput, SuitabilityOutput,
-  type Gate2Result,
+  ObservationOutput, DisclosureOutput, FactsOutput, ConsistencyOutput, SuitabilityOutput, LetterOutput,
+  type Gate2Result, type LetterResult,
 } from "./schemas";
 
 const SYSTEM_INTRO = `You are the quality assurance checker for TopQuote, a UK firm whose advisers sell protection insurance by phone under Openwork, its network. Before a case is confirmed or submitted, a supervisor uses your report to see quickly whether the calls met Openwork's standards and the firm's call scripts, what the client told us, and where a person needs to look.
@@ -87,6 +87,24 @@ The suitability report for this case is attached. Compare it with the calls in b
 - Rationale: are the report's reasons the reasons the adviser gave on the calls?
 - Replacement business: where existing cover is replaced, were the reasons and consequences explained on the calls as the report says?
 Report what the report says, what the calls show, and the result for each point. Flag anything in the report the calls do not support, and anything material said on the calls that is missing from the report. Standard template wording in the report (such as "I highlighted the consequences of replacing your plan") still needs support on a call, so check it. Note any errors within the report itself, such as a lump sum shown as a monthly amount.`,
+
+  letter: `DRAFT THE SUITABILITY REPORT WORDING.
+This task is not a check. Draft the wording the adviser will put into the suitability report for this sale on ConcertHub: the written record of their advice that goes to the client. Your draft goes only to the adviser and to Pauline, the supervisor. The adviser reads it, changes anything that isn't right and decides what to use. Nothing goes to the client, Openwork or the provider from here.
+
+Write as the adviser, in the first person, to the client ("you told me", "I recommended"). Write it the way a careful adviser writes after a good call: plain British English, specific, warm but businesslike, in short paragraphs, using the client's own words and figures and the names of the people involved as given on the call. Vary the sentences. Avoid stock phrases and anything that reads like a template or marketing copy; use a phrase such as "peace of mind" only if the client used it. Write only the wording for each section: no greeting, sign-off, headings, bold or bullet points (ConcertHub adds the letter around it), except that several plans may be set out as a short list with their figures. Never use dashes as punctuation or exclamation marks. Give £ figures exactly as stated on the calls.
+
+Why accuracy matters more than polish: Openwork's AQT team reads the report without hearing the call and challenges anything vague or unsupported, and its supervision team then listens to the recording and checks the report matches it. So every statement must come from the calls. Never add a fact, figure, reason or client choice the calls don't support, and never write that something was done or explained if the calls don't show it. Where a section needs something the calls didn't establish, write [To confirm: what is missing] at that point in the text and add a gap for it, saying what the adviser should ask or tell the client on the callback. Where the report needs the adviser's own judgment that the calls don't show (for example that the plan represents fair value), add a seller note asking them to write it in their own words rather than a gap. Transcripts can mishear names and figures: where one looks wrong or unclear, use it as heard and add a seller note. Don't repeat health details beyond what the recommendation depends on.
+
+The sections, in this order. Leave a section out only where it genuinely doesn't apply (for example existing_cover when the client has none and is replacing nothing):
+- circumstances: family and dependants, work and income, home and mortgage, monthly outgoings and what is left over, savings and emergency fund, as the client gave them.
+- needs: each need identified and what the money would be for, in the client's terms, and the client's priorities and concerns.
+- budget: what the client said they could afford, and how the premium sits within it.
+- recommendation: each plan recommended and agreed: product, provider, who is covered, amount of cover, term, monthly premium, guaranteed or reviewable, and options such as waiver of premium or indexation.
+- reasons: why each plan meets the needs above, as the adviser explained it on the calls: why this amount, term and type of cover, and the choices the client made.
+- not_recommended: each need identified but not covered, and any cover the client declined, deferred or reduced, with the client's own reason as said on the calls. Where whole of life was costed, give the figures and the client's reason for choosing term instead.
+- existing_cover: existing cover being kept, reduced or replaced, and for any replacement the comparison, the reasons and the consequences as explained on the calls.
+
+Below is the callback list: the points the adviser will already be calling the client back about, numbered. When a gap is part of one of those points, give its number as callback_point. When it is something only the report needs, set callback_point to null and it will be added to the end of the list.`,
 } as const;
 
 function hms(seconds: number): string {
@@ -357,12 +375,18 @@ const GATE1_PARTS = [
 ] as const;
 
 /**
- * Every Gate 1 part is offered the same four tools in the same order, so the
+ * Every Gate 1 part is offered the same tools in the same order, so the
  * start of each request (tools, standards, transcripts) is identical and the
  * transcripts are paid for in full once, then read from the cache. With a
  * different tool per part, nothing was ever read from the cache.
  */
-const GATE1_TOOLS = GATE1_PARTS.map((p) => resultTool(p.schema, `record_${p.name}`));
+const LETTER_TOOL_NAME = "record_letter";
+const GATE1_TOOLS = [
+  ...GATE1_PARTS.map((p) => resultTool(p.schema, `record_${p.name}`)),
+  // The draft letter (from 20 Nov 2026) is offered the same tools, so when it
+  // runs straight after a check it reads the call from the same cache.
+  resultTool(LetterOutput, LETTER_TOOL_NAME),
+];
 
 /**
  * Puts the standards and transcripts in the cache for an hour with a
@@ -505,6 +529,38 @@ export async function runGate2(runId: number, calls: QaCall[], reportPdf: Buffer
     );
     const result: Gate2Result = { suitability: data };
     await finishRun(runId, "done", result, { suitability: usage }, null);
+  } catch (e) {
+    await finishRun(runId, "failed", null, null, describeError(e));
+  }
+}
+
+/**
+ * Drafts the suitability report wording from the calls (Guy, 20 Nov 2026),
+ * for the seller to check and use. Its gaps are numbered against the callback
+ * list of the call check it was written alongside (fromRun).
+ */
+export async function runLetter(runId: number, calls: QaCall[], caseType: CaseType, fromRun: number, callbackPoints: string): Promise<void> {
+  try {
+    const uk = requireUk();
+    const client = ukClaude(uk);
+    const standards = await loadStandards(caseType, calls);
+    await saveStandards(runId, standards.used);
+    const system = `${SYSTEM_INTRO}\n\nTHE STANDARDS\n\n${standards.text}`;
+    const transcripts = buildTranscriptText(calls);
+    const task = `${TASKS.letter}\n\nTHE CALLBACK LIST\n\n${callbackPoints.trim() || "There are no callback points."}`;
+    const run = (longCache: boolean) => runCheck(client, uk.model, system, transcripts, task, LetterOutput, undefined, {
+      tools: GATE1_TOOLS, toolName: LETTER_TOOL_NAME, longCache,
+    });
+    let out: Awaited<ReturnType<typeof run>>;
+    try {
+      out = await run(true);
+    } catch (e) {
+      // The hour-long cache isn't accepted everywhere: fall back to the standard one.
+      if (!(e instanceof APIError && e.status === 400)) throw e;
+      out = await run(false);
+    }
+    const result: LetterResult = { letter: out.data, from_run: fromRun };
+    await finishRun(runId, "done", result, { letter: out.usage }, null);
   } catch (e) {
     await finishRun(runId, "failed", null, null, describeError(e));
   }

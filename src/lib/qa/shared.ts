@@ -31,6 +31,12 @@ export interface QaCase {
   created_at: string;
   deal_id: number | null;
   deal_label: string | null;
+  /** The linked sale's RECI status and Checked flag. */
+  deal_status?: string | null;
+  deal_check_status?: string | null;
+  /** When the callback list went to the seller (19 Nov 2026). */
+  callback_sent_at?: string | null;
+  callback_sent_by?: string | null;
   client_phone: string | null;
   outcome: CaseOutcome | null;
   outcome_notes: string | null;
@@ -64,7 +70,8 @@ export interface QaCall {
 export interface QaRun {
   id: number;
   case_id: number;
-  gate: 1 | 2;
+  /** 1: the calls, 2: the suitability report, 3: the draft suitability report. */
+  gate: 1 | 2 | 3;
   status: "running" | "done" | "failed";
   model: string | null;
   result: unknown;

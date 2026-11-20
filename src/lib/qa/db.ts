@@ -27,7 +27,9 @@ export async function getCase(id: number): Promise<QaCase | null> {
            c.deal_id, c.client_phone,
            CASE WHEN d.id IS NULL THEN NULL
                 ELSE d.client || COALESCE(' · ' || d.provider, '') || ' · week ' || d.week || ' ' || d.year END AS deal_label,
-           c.outcome, c.outcome_notes, c.outcome_by, c.outcome_at::text AS outcome_at
+           c.outcome, c.outcome_notes, c.outcome_by, c.outcome_at::text AS outcome_at,
+           d.status AS deal_status, d.nys_check_status AS deal_check_status,
+           c.callback_sent_at::text AS callback_sent_at, c.callback_sent_by
       FROM qa_cases c
       LEFT JOIN advisers a ON a.id = c.adviser_id
       LEFT JOIN deals d ON d.id = c.deal_id

@@ -1,20 +1,40 @@
 /**
  * Call QA summary (Poz and Guy, 19 Nov 2026). The full report runs to about
- * 60 pages and lists the same shortfall in several places, so the front page
- * is built from it: one line per real issue, rated red / amber / green, with
- * what went wrong, where in the call and what to do about it. It reads the
- * checker's existing results, so a sale needs no re-run to get one.
+ * 60 pages and lists the same shortfall in several places, and a list of
+ * failures still leaves Pauline to work out what to do about each one. So
+ * every issue is given a route, and each sale comes down to one decision:
  *
- * Red follows Openwork's own rule: failing an asterisked standard fails the
- * section. Also red: a client priority left unaddressed, a consistency
- * finding the checker rated high, and a suitability report that doesn't
- * match the calls. Script statements under a standard are listed on that
- * standard's line instead of as lines of their own. Script gaps go to Guy
- * and are not counted against the seller.
+ *   callback  the seller calls the client back and covers it. Sales sit in
+ *             Not Yet Submitted for about two days, so most shortfalls can
+ *             be put right before the application goes to the insurer.
+ *   decide    only Pauline can settle it (vulnerability, the suitability
+ *             report).
+ *   coach     no client contact needed: a learning point for the seller.
+ *   script    the script doesn't cover it: for Guy, not the seller.
+ *   met       nothing to do.
+ *
+ * It reads the checker's existing results, so a sale needs no re-run.
+ * Red / amber / green is kept as the at-a-glance rating: red follows
+ * Openwork's rule that failing an asterisked standard fails the section,
+ * plus a client priority left unaddressed, a consistency finding the
+ * checker rated high, and a suitability report that doesn't match the calls.
  */
 import type { EvidenceItem, Gate1Result, Gate2Result } from "./schemas";
 
 export type Rag = "red" | "amber" | "green" | "script";
+export type Route = "callback" | "decide" | "coach" | "script" | "met";
+/** "letter" holds points only the draft suitability report needs (see lib/qa/letter.ts). */
+export type Topic = "needs" | "options" | "plan" | "rights" | "application" | "letter";
+
+export const TOPIC_LABEL: Record<Topic, string> = {
+  needs: "Their needs, budget and cover",
+  options: "The options for their cover",
+  plan: "The plan you recommended",
+  rights: "Their rights and our disclosures",
+  application: "The application and medical answers",
+  letter: "For the suitability report",
+};
+const TOPIC_ORDER: Topic[] = ["needs", "options", "plan", "rights", "application"];
 
 export interface TriagePoint {
   label: string;
@@ -25,6 +45,7 @@ export interface TriagePoint {
 
 export interface TriageLine {
   rag: Rag;
+  route: Route;
   /** Part of the call, e.g. "Fact find". */
   area: string;
   /** Openwork form reference, e.g. "3.1*". */
@@ -34,14 +55,37 @@ export interface TriageLine {
   /** Script statements under this standard that were missed or only partly said. */
   points: TriagePoint[];
   evidence: EvidenceItem[];
+  /** What the seller covers with the client on the callback. */
+  ask: string;
+  /** Lines with the same key are one item on the callback list. */
+  askKey: string;
+  /** The specifics under the ask: script wording missed, or the issue found. */
+  details: string[];
+  topic: Topic | null;
+  /** About the advice itself: once the client has been called, check the recommendation still fits. */
+  adviceCheck: boolean;
+  /** For "decide" lines: what Pauline is deciding. */
   action: string;
   order: number;
 }
 
+export type Outcome = "clear" | "callback" | "callback_review" | "decide";
+
 export interface Triage {
   verdict: "red" | "amber" | "green";
+  outcome: Outcome;
   lines: TriageLine[];
   counts: Record<Rag, number>;
+  routes: Record<Route, number>;
+  /** The callback list, grouped by topic in the order a callback would run. */
+  callback: { topic: Topic; label: string; items: CallbackItem[] }[];
+}
+
+export interface CallbackItem {
+  ask: string;
+  details: string[];
+  evidence: EvidenceItem[];
+  adviceCheck: boolean;
 }
 
 const baseRef = (r: string) => r.replace(/\*/g, "").trim();
@@ -63,37 +107,46 @@ function orderFor(ref: string | null): number {
   return m ? Number(m[1]) + Number(m[2]) / 100 : 9;
 }
 
-// What putting it right with the client looks like, by form standard.
-const PUT_RIGHT: [RegExp, string][] = [
-  [/^1\.1$/, "Make sure the client knows who called them and that the call was recorded."],
-  [/^1\.2$/, "Send the client the full disclosures in writing, with the seller's contact details."],
-  [/^1\.3$/, "Send the client the firm's disclosures in writing: the service, how we are paid, complaints and the FSCS."],
-  [/^1\.4$/, "Send the client the privacy notice."],
-  [/^2\.1$/, "Contact the client to fill the gap in the fact find, then check the recommendation still fits."],
-  [/^2\.2$/, "Contact the client to confirm their needs, the cover amount and term, and the options, then check the recommendation still fits."],
-  [/^3\.1a$/, "Contact the client before any existing cover is cancelled, to compare the old and new plans."],
-  [/^3\.1$/, "Contact the client to go through the Key Features: aims, commitments, risks, exclusions and how to claim."],
-  [/^3\.2$/, "Contact the client to confirm the cost of each plan, including the total over the term, and any cheaper options."],
-  [/^3\.3$/, "Write to the client confirming their right to cancel and the deadline."],
-  [/^3\.4$/, "Contact the client to confirm the application answers and remind them of their duty to answer fully and accurately."],
-  [/^3\.5$/, "Send the client the provider's privacy notice."],
-  [/^3\.6$/, "Tell the client in writing about the identity check."],
-  [/^4/, "If the client was told something wrong, correct it in writing."],
-  [/^5/, "Complete the file documentation."],
-  [/^6/, "Contact the client to confirm the medical answers are complete and accurate, and that they must tell the insurer about any changes before the policy starts."],
-];
-
-function putRight(ref: string | null): string {
-  const r = ref ? baseRef(ref) : "";
-  return PUT_RIGHT.find(([re]) => re.test(r))?.[1] ?? "Decide whether the client needs contacting.";
+function topicFor(ref: string | null): Topic | null {
+  if (!ref) return null;
+  const r = baseRef(ref);
+  if (r.startsWith("1")) return "rights";
+  if (r.startsWith("2.1")) return "needs";
+  if (r.startsWith("2.2")) return ref.includes("*") ? "needs" : "options";
+  if (/^3\.(1|2)/.test(r) || r.startsWith("4")) return "plan";
+  if (/^3\.(3|5|6)/.test(r)) return "rights";
+  if (r.startsWith("3.4") || r.startsWith("6")) return "application";
+  return null;
 }
 
-const redAction = (fix: string) => `Put right with the client: ${fix} Then go through it with the seller.`;
-const amberAction = (fix: string) => `Go through it with the seller. If you would rather put it right with the client: ${fix}`;
-const SCRIPT_ACTION = "For Guy: add or fix this in the script. Not counted against the seller.";
+// What the seller covers on the callback, by form standard.
+function askFor(ref: string | null, title: string): string {
+  const r = ref ? baseRef(ref) : "";
+  const starred = !!ref?.includes("*");
+  if (r === "1.1") return "Remind them who you are and that calls are recorded.";
+  if (r === "1.2") return "Check they are happy to get the full details by email, and send them.";
+  if (r === "1.3") return "Explain the service we provide, how we are paid, how to complain and the FSCS.";
+  if (r === "1.4") return "Explain how we use their data and that the privacy notice is coming.";
+  if (r === "2.1") return `Ask about ${title.replace(/\s*\(.*\)\s*$/, "").toLowerCase()} and update the fact find.`;
+  if (r === "2.2" && starred) return "Confirm what they need the cover for, and that the amount, type and term fit.";
+  if (r === "2.2") return "Explain and offer the options: waiver of premium, TPD, indexation, guaranteed or reviewable premiums, trusts, and cover into retirement where relevant.";
+  if (r === "3.1a") return "Compare the old and new plans, and tell them not to cancel the old cover until the new one is in force.";
+  if (r.startsWith("3.1")) return "Go through the Key Features: aims, commitments, risks, exclusions and how to claim.";
+  if (r.startsWith("3.2")) return "Confirm the monthly cost, the total over the term, and any cheaper options.";
+  if (r.startsWith("3.3")) return "Explain their right to cancel and the deadline.";
+  if (r.startsWith("3.4")) return "Remind them to answer the application fully and accurately, and what happens if they don't.";
+  if (r.startsWith("3.5")) return "Tell them the insurer's privacy notice is coming.";
+  if (r.startsWith("3.6")) return "Explain the identity check.";
+  if (r.startsWith("4")) return "Correct anything you told them that was wrong.";
+  if (r.startsWith("6")) return "Read back the medical answers, confirm they are complete and accurate, and remind them to tell the insurer about any changes before the policy starts.";
+  return `Cover: ${title}.`;
+}
+
+// Words too common in the checker's wording to show two points are the same.
+const STOP = new Set(["mandatory", "form", "item", "icobs", "script", "client", "clients", "adviser", "call", "with", "that", "this", "were", "from", "fully", "their", "about", "before", "after", "only", "partly", "addressed", "explained", "explain", "delivered", "requirements", "openwork", "asked", "question", "questions"]);
 
 function words(s: string): Set<string> {
-  return new Set(s.toLowerCase().match(/[a-z]{4,}/g) ?? []);
+  return new Set((s.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter((w) => !STOP.has(w)));
 }
 function overlap(a: string, b: string): number {
   const B = words(b);
@@ -103,6 +156,18 @@ function overlap(a: string, b: string): number {
 }
 
 const lower = (v: string) => v.replace(/_/g, " ").toLowerCase();
+const ADVICE_ASK = "Go back over their needs and priorities with them. For each point below, put it right, quote for it, or note their choice.";
+
+function shorten(s: string, max = 200): string {
+  if (s.length <= max) return s;
+  const cut = s.lastIndexOf(" ", max - 10);
+  return `${s.slice(0, cut > 0 ? cut : max)}…`;
+}
+const VULNERABILITY = /special care|support for your client|vulnerab/i;
+
+function blank(over: Partial<TriageLine> & Pick<TriageLine, "rag" | "route" | "area" | "title" | "order">): TriageLine {
+  return { ref: null, why: "", points: [], evidence: [], ask: "", askKey: "", details: [], topic: null, adviceCheck: false, action: "", ...over };
+}
 
 export function triage(g1: Partial<Gate1Result> | null, g2: Partial<Gate2Result> | null): Triage {
   const lines: TriageLine[] = [];
@@ -112,19 +177,18 @@ export function triage(g1: Partial<Gate1Result> | null, g2: Partial<Gate2Result>
   for (const k of g1?.observation?.checks ?? []) {
     if (k.result === "NOT_APPLICABLE") continue;
     const mandatory = k.mandatory || k.ref.includes("*");
+    const ref = mandatory && !k.ref.includes("*") ? `${k.ref}*` : k.ref;
     const shortfall = k.result === "FAIL" || k.result === "REVIEW_REQUIRED";
     const rag: Rag = k.script_gap && shortfall ? "script"
       : k.result === "FAIL" && mandatory ? "red"
       : shortfall ? "amber" : "green";
-    const fix = putRight(k.ref);
-    const line: TriageLine = {
-      rag, area: areaFor(k.ref), ref: k.ref,
-      title: k.result === "REVIEW_REQUIRED" ? `${k.requirement} (the checker couldn't tell: check the recording)` : k.requirement,
-      why: rag === "green" ? "" : k.finding,
-      points: [], evidence: k.evidence ?? [],
-      action: rag === "red" ? redAction(fix) : rag === "amber" ? amberAction(fix) : rag === "script" ? SCRIPT_ACTION : "",
-      order: orderFor(k.ref),
-    };
+    const line = blank({
+      rag, route: "met", area: areaFor(ref), ref,
+      title: k.requirement,
+      why: rag === "green" ? "" : k.result === "REVIEW_REQUIRED" ? `The checker couldn't tell from the call. ${k.finding}` : k.finding,
+      evidence: k.evidence ?? [], order: orderFor(ref),
+    });
+    (line as TriageLine & { review?: boolean }).review = k.result === "REVIEW_REQUIRED";
     lines.push(line);
     if (rag !== "script") formLines.push(line);
   }
@@ -136,7 +200,7 @@ export function triage(g1: Partial<Gate1Result> | null, g2: Partial<Gate2Result>
     const point: TriagePoint = { label: d.name, result: lower(d.result), detail: d.differences, evidence: d.evidence ?? [] };
     const ref0 = d.form_refs[0] ?? null;
     if (d.script_gap) {
-      lines.push({ rag: "script", area: areaFor(ref0), ref: ref0, title: d.name, why: d.differences, points: [], evidence: d.evidence ?? [], action: SCRIPT_ACTION, order: orderFor(ref0) });
+      lines.push(blank({ rag: "script", route: "script", area: areaFor(ref0), ref: ref0, title: d.name, why: d.differences, evidence: d.evidence ?? [], order: orderFor(ref0) }));
       continue;
     }
     let candidates = formLines.filter((l) => l.ref && d.form_refs.includes(l.ref));
@@ -149,16 +213,36 @@ export function triage(g1: Partial<Gate1Result> | null, g2: Partial<Gate2Result>
       if (target.rag === "green") {
         target.rag = "amber";
         target.why = "The standard was met overall, but script wording under it was missed or only partly said.";
-        target.action = amberAction(putRight(target.ref));
       }
     } else {
       const mandatory = d.form_refs.some((r) => r.includes("*"));
-      const rag: Rag = d.result === "MISSING" && mandatory ? "red" : "amber";
-      const fix = putRight(ref0);
-      lines.push({
-        rag, area: areaFor(ref0), ref: ref0, title: d.name, why: d.differences, points: [], evidence: d.evidence ?? [],
-        action: rag === "red" ? redAction(fix) : amberAction(fix), order: orderFor(ref0),
-      });
+      lines.push(blank({
+        rag: d.result === "MISSING" && mandatory ? "red" : "amber", route: "met", area: areaFor(ref0), ref: ref0,
+        title: d.name, why: d.differences, evidence: d.evidence ?? [], order: orderFor(ref0),
+      }));
+    }
+  }
+
+  // Routes for the form and script lines.
+  for (const l of lines) {
+    if (l.rag === "script") { l.route = "script"; continue; }
+    if (l.rag === "green") { l.route = "met"; continue; }
+    const review = (l as TriageLine & { review?: boolean }).review === true;
+    const r = l.ref ? baseRef(l.ref) : "";
+    const starred = !!l.ref?.includes("*");
+    if (r.startsWith("2.1") && VULNERABILITY.test(l.title)) {
+      l.route = "decide";
+      l.action = "Decide whether the client needs extra support, or a different approach, before this goes any further.";
+    } else if (l.rag === "red" || starred || r.startsWith("2.2") || r === "3.1a" || (r.startsWith("4") && !review)) {
+      l.route = "callback";
+      l.topic = topicFor(l.ref);
+      l.ask = askFor(l.ref, l.title);
+      l.askKey = l.ask;
+      l.details = r.startsWith("4") ? [shorten(l.why)]
+        : l.points.map((p) => p.label.replace(/\s*\((MANDATORY|form item)[^)]*\)\s*/gi, " ").replace(/\s+/g, " ").trim());
+      l.adviceCheck = r.startsWith("2.2") && starred && l.rag === "red";
+    } else {
+      l.route = "coach";
     }
   }
 
@@ -167,12 +251,11 @@ export function triage(g1: Partial<Gate1Result> | null, g2: Partial<Gate2Result>
   const pf = cons?.priorities_followthrough;
   if (pf) {
     if (pf.recap.result !== "DONE") {
-      lines.push({
-        rag: "amber", area: "Advice", ref: null,
+      lines.push(blank({
+        rag: "amber", route: "coach", area: "Advice", order: 7,
         title: pf.recap.result === "NOT_DONE" ? "Priorities and concerns not recapped at the end of the fact find" : "Priorities and concerns only partly recapped at the end of the fact find",
-        why: pf.recap.finding, points: [], evidence: pf.recap.evidence ?? [],
-        action: "Go through it with the seller.", order: 7,
-      });
+        why: pf.recap.finding, evidence: pf.recap.evidence ?? [],
+      }));
     }
     for (const p of pf.items) {
       const what = p.kind === "CONCERN" ? "concern" : "priority";
@@ -180,54 +263,116 @@ export function triage(g1: Partial<Gate1Result> | null, g2: Partial<Gate2Result>
         : p.addressed === "PARTIAL" ? "only partly addressed"
         : p.quoted === "NO" ? "not quoted for" : null;
       if (!gap) continue;
-      const red = p.addressed === "NO";
-      lines.push({
-        rag: red ? "red" : "amber", area: "Advice", ref: null,
-        title: `Client's ${what} ${gap}: ${p.text}`, why: p.finding, points: [],
+      lines.push(blank({
+        rag: p.addressed === "NO" ? "red" : "amber", route: "callback", area: "Advice", order: 7.1,
+        title: `Client's ${what} ${gap}: ${p.text}`, why: p.finding,
         evidence: [...(p.raised ?? []), ...(p.evidence ?? [])],
-        action: red
-          ? "Put right with the client: contact them about this, and either quote for it or record that they chose not to cover it. Then go through it with the seller."
-          : "Go through it with the seller. Check the client's choice is recorded on the file.",
-        order: 7.1,
-      });
+        topic: "needs", adviceCheck: p.addressed === "NO",
+        ask: ADVICE_ASK, askKey: "advice", details: [`Their ${what} ${gap}: ${p.text}`],
+      }));
     }
   }
   for (const f of cons?.consistency?.findings ?? []) {
     const red = f.severity === "HIGH";
-    lines.push({
-      rag: red ? "red" : "amber", area: "Advice", ref: null, title: f.issue, why: f.explanation, points: [], evidence: f.evidence ?? [],
-      action: red
-        ? "Check the recommendation against what the client said. If it doesn't fit, contact the client to re-advise; if it does, note why on the file. Then go through it with the seller."
-        : "Go through it with the seller.",
-      order: 7.2,
-    });
+    lines.push(blank({
+      rag: red ? "red" : "amber", route: red ? "callback" : "coach", area: "Advice", order: 7.2,
+      title: f.issue, why: f.explanation, evidence: f.evidence ?? [],
+      topic: red ? "needs" : null, adviceCheck: red,
+      ask: red ? ADVICE_ASK : "", askKey: red ? "advice" : "", details: red ? [f.issue.replace(/\.$/, "")] : [],
+    }));
   }
   const nna = cons?.needs_not_addressed ?? [];
   if (nna.length > 0) {
-    lines.push({
-      rag: "amber", area: "Advice", ref: null, title: `Needs raised but not addressed (${nna.length})`, why: "",
+    lines.push(blank({
+      rag: "amber", route: "callback", area: "Advice", order: 7.3,
+      title: `Needs raised but not addressed (${nna.length})`,
       points: nna.map((n) => ({ label: n.need, result: "not addressed", detail: n.reason_given, evidence: n.evidence ?? [] })),
-      evidence: [],
-      action: "Check each one was quoted for, or that the client's choice not to cover it is on the file. Go through it with the seller.",
-      order: 7.3,
-    });
+      topic: "needs", ask: ADVICE_ASK, askKey: "advice",
+      details: nna.map((n) => `Need not addressed: ${n.need}`),
+    }));
   }
 
-  // 4. Gate 2: the suitability report against the calls.
+  // 4. Gate 2: the suitability report against the calls. Fixed in the report, not with the client.
   for (const f of g2?.suitability?.findings ?? []) {
     if (f.result === "MATCHES") continue;
     const red = f.result !== "REVIEW_REQUIRED";
-    lines.push({
-      rag: red ? "red" : "amber", area: "Suitability report", ref: null,
-      title: `${lower(f.area)}: ${lower(f.result)}`, why: f.explanation, points: [], evidence: f.evidence ?? [],
+    lines.push(blank({
+      rag: red ? "red" : "amber", route: "decide", area: "Suitability report", order: 8,
+      title: `${lower(f.area)}: ${lower(f.result)}`, why: f.explanation, evidence: f.evidence ?? [],
       action: red ? "Correct the suitability report before it is issued." : "Check the report against the calls before it is issued.",
-      order: 8,
-    });
+    }));
+  }
+
+  // An advice point that repeats a standard already on the callback list
+  // (the Key Features, the replacement comparison...) goes under that item
+  // instead of being asked twice.
+  const formCallback = lines.filter((l) => l.route === "callback" && l.area !== "Advice");
+  for (const l of lines.filter((x) => x.route === "callback" && x.askKey === "advice" && !x.title.startsWith("Needs raised"))) {
+    const best = formCallback
+      .map((f) => ({ f, score: overlap(l.title, `${f.title} ${f.points.map((p) => p.label).join(" ")}`) }))
+      .sort((a, b) => b.score - a.score)[0];
+    if (best && best.score >= 2) {
+      l.topic = best.f.topic;
+      l.ask = best.f.ask;
+      l.askKey = best.f.askKey;
+      l.adviceCheck = false;
+    }
   }
 
   lines.sort((a, b) => a.order - b.order);
   const counts: Record<Rag, number> = { red: 0, amber: 0, green: 0, script: 0 };
-  for (const l of lines) counts[l.rag]++;
+  const routes: Record<Route, number> = { callback: 0, decide: 0, coach: 0, script: 0, met: 0 };
+  for (const l of lines) { counts[l.rag]++; routes[l.route]++; }
   const verdict = counts.red > 0 ? "red" : counts.amber > 0 ? "amber" : "green";
-  return { verdict, lines, counts };
+
+  const cb = lines.filter((l) => l.route === "callback");
+  const callback = TOPIC_ORDER.map((topic) => {
+    const items: CallbackItem[] = [];
+    const byKey = new Map<string, CallbackItem>();
+    for (const l of cb.filter((x) => (x.topic ?? "needs") === topic)) {
+      const key = l.askKey || l.ask;
+      let item = byKey.get(key);
+      if (!item) {
+        item = { ask: l.ask, details: [], evidence: [], adviceCheck: false };
+        byKey.set(key, item);
+        items.push(item);
+      }
+      for (const d of l.details) if (d && !item.details.includes(d)) item.details.push(d);
+      if (l.evidence[0]) item.evidence.push(l.evidence[0]);
+      item.adviceCheck = item.adviceCheck || l.adviceCheck;
+    }
+    // The advice re-check runs last in its section, after the specific questions.
+    items.sort((a, b) => Number(a.ask === ADVICE_ASK) - Number(b.ask === ADVICE_ASK));
+    return { topic, label: TOPIC_LABEL[topic], items };
+  }).filter((g) => g.items.length > 0);
+  const outcome: Outcome = routes.decide > 0 ? "decide"
+    : cb.some((l) => l.adviceCheck) ? "callback_review"
+    : cb.length > 0 ? "callback" : "clear";
+  return { verdict, outcome, lines, counts, routes, callback };
+}
+
+/**
+ * The callback list as the seller receives it: what to cover with the
+ * client, grouped by topic, with where it came up in the call, then the
+ * learning points that need no client contact.
+ */
+export function callbackListText(t: Triage): string {
+  const out: string[] = [];
+  let n = 0;
+  for (const g of t.callback) {
+    out.push(g.label.toUpperCase());
+    for (const item of g.items) {
+      n++;
+      const e = item.evidence[0];
+      out.push(`${n}. ${item.ask}${e ? ` (call ${e.call} at ${e.time})` : ""}`);
+      for (const d of item.details) out.push(`   - ${d}`);
+    }
+    out.push("");
+  }
+  const coach = t.lines.filter((l) => l.route === "coach");
+  if (coach.length > 0) {
+    out.push("FOR NEXT TIME (no need to contact the client about these)");
+    for (const l of coach) out.push(`- ${l.ref ? `${l.ref} ` : ""}${l.title}`);
+  }
+  return out.join("\n").trim();
 }

@@ -20,14 +20,16 @@ import {
 import { CONFIRM_OPTIONS, CONFIRM_LABELS, aiAsConfirmed, type ReviewSection } from "@/lib/qa/review";
 import { formatUsd } from "@/lib/qa/cost";
 import { triage } from "@/lib/qa/triage";
+import { currentLetter, withLetterGaps } from "@/lib/qa/letter";
 import { EvidenceLinks, Summary } from "@/components/qa-summary";
 import type {
-  Gate1Result, Gate2Result, ConsistencyResult, EvidenceItem, ExceptionItem,
+  Gate1Result, Gate2Result, ConsistencyResult, EvidenceItem, ExceptionItem, LetterResult,
 } from "@/lib/qa/schemas";
 
 interface Run {
   id: number;
-  gate: 1 | 2;
+  /** 1: the calls, 2: the suitability report, 3: the draft suitability report. */
+  gate: 1 | 2 | 3;
   status: "running" | "done" | "failed";
   model: string | null;
   result: unknown;
@@ -144,6 +146,7 @@ export default function CallQaCasePage() {
 
   const gate1 = data?.runs.find((r) => r.gate === 1) ?? null;
   const gate2 = data?.runs.find((r) => r.gate === 2) ?? null;
+  const gate3 = data?.runs.find((r) => r.gate === 3) ?? null;
 
   const review: ReviewApi = useMemo(() => {
     const map = new Map((data?.reviews ?? []).map((r) => [`${r.run_id}|${r.item_key}`, r]));
@@ -251,7 +254,7 @@ export default function CallQaCasePage() {
         <OutcomePanel caseId={caseId} qaCase={c} onChanged={load} />
       )}
 
-      <Report gate1={gate1} gate2={gate2} onJump={jump} review={review} />
+      <Report gate1={gate1} gate2={gate2} gate3={gate3} onJump={jump} review={review} qaCase={c} caseId={caseId} onChanged={load} />
     </main>
   );
 }
@@ -452,14 +455,17 @@ function SectionTitle({ n, title, note }: { n: number; title: string; note?: str
   );
 }
 
-function Report({ gate1, gate2, onJump, review }: {
-  gate1: Run | null; gate2: Run | null; onJump: (e: EvidenceItem) => void; review: ReviewApi;
+function Report({ gate1, gate2, gate3, onJump, review, qaCase, caseId, onChanged }: {
+  gate1: Run | null; gate2: Run | null; gate3: Run | null; onJump: (e: EvidenceItem) => void; review: ReviewApi;
+  qaCase: QaCase; caseId: number; onChanged: () => void;
 }) {
   const g1 = (gate1?.result ?? null) as Partial<Gate1Result> | null;
   const g2 = (gate2?.result ?? null) as Partial<Gate2Result> | null;
   // The summary is the front page (Poz, 19 Nov 2026); the full report is one click away.
   const [view, setView] = useState<"summary" | "full">("summary");
-  const tri = useMemo(() => triage(g1, g2), [g1, g2]);
+  // The draft report only counts with the call check it was written alongside.
+  const letter = currentLetter(gate3?.status === "done" ? (gate3.result as LetterResult) : null, gate1?.status === "done" ? gate1.id : null);
+  const tri = useMemo(() => withLetterGaps(triage(g1, g2), letter), [g1, g2, letter]);
   if (!g1 && !g2) {
     return <p className="mt-8 rounded border border-slate-200 bg-white p-4 text-sm text-slate-500">No report yet. Run Gate 1 once the calls are transcribed.</p>;
   }
@@ -532,7 +538,30 @@ function Report({ gate1, gate2, onJump, review }: {
         <span className="ml-auto pb-1 text-xs text-slate-500">Print prints the tab you are on. Transcripts are under Calls above.</span>
       </div>
       {view === "summary" ? (
-        <Summary t={tri} onJump={onJump} onFull={() => setView("full")} />
+        <Summary t={tri} onJump={onJump} onFull={() => setView("full")}
+          kase={{
+            seller: qaCase.adviser_name, dealStatus: qaCase.deal_status ?? null, dealChecked: qaCase.deal_check_status === "checked",
+            callbackSentAt: qaCase.callback_sent_at ?? null, callbackSentBy: qaCase.callback_sent_by ?? null,
+          }}
+          onSend={async () => {
+            const r = await fetch(`/api/qa/cases/${caseId}/callback`, { method: "POST" });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) return (j as { error?: string }).error || `HTTP ${r.status}`;
+            onChanged();
+            return null;
+          }}
+          letter={{
+            run: gate3, current: letter, canDraft: gate1?.status === "done",
+            onDraft: async () => {
+              const r = await fetch(`/api/qa/cases/${caseId}/runs`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gate: 3 }),
+              });
+              const j = await r.json().catch(() => ({}));
+              if (!r.ok) return (j as { error?: string }).error || `HTTP ${r.status}`;
+              onChanged();
+              return null;
+            },
+          }} />
       ) : (
       <div className="mt-4">
       <div className="rounded-lg border-2 border-slate-900 bg-white p-4">

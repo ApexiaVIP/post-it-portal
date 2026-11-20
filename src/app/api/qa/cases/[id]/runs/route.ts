@@ -1,7 +1,8 @@
 /**
- * POST /api/qa/cases/[id]/runs  { gate: 1 | 2 }
- * Starts a check in the background and returns at once; the case page
- * polls GET /api/qa/cases/[id] until the run is done.
+ * POST /api/qa/cases/[id]/runs  { gate: 1 | 2 | 3 }
+ * Starts a check (1: the calls, 2: the suitability report) or the draft
+ * suitability report (3) in the background and returns at once; the case
+ * page polls GET /api/qa/cases/[id] until the run is done.
  */
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
@@ -9,6 +10,7 @@ import { waitUntil } from "@vercel/functions";
 import { requireCallQA, getCase, getCalls } from "@/lib/qa/db";
 import { runGate1, runGate2 } from "@/lib/qa/analyse";
 import { ukStatus, ukModel } from "@/lib/qa/uk";
+import { startLetter } from "@/lib/qa/letter-run";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -25,6 +27,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const uk = ukStatus();
   if (!uk.ready) return NextResponse.json({ error: uk.reason }, { status: 503 });
+  if (body.gate === 3) {
+    const s = await startLetter(caseId, auth.username);
+    if ("error" in s) return NextResponse.json({ error: s.error }, { status: s.status });
+    waitUntil(s.run());
+    return NextResponse.json({ ok: true, runId: s.runId }, { status: 202 });
+  }
   const running = await sql`
     SELECT 1 FROM qa_runs WHERE case_id = ${caseId} AND gate = ${gate} AND status = 'running'
        AND started_at > now() - make_interval(mins => 6)`;
