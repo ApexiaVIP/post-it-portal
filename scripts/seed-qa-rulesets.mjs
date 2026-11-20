@@ -59,6 +59,11 @@ const VERSIONS = [
   // The Word copy still says 7 October in its heading; the issued (printed) sheet says 4 November.
   { doc: "factfind_sheet", from: "2026-11-04", title: "TopQuote Fact Find sheet (completed by the adviser on the call), issued 4 Nov 2026", file: "factfind_sheet_2026-11-04.txt", source: "TopQuote_FactFind_Sheet_04.11.26_LARGE_PRINT_CLEAN.docx", sort: 4, applies: "all", datedBy: "fact_find", relabel: [["7th October 2026", "4th November 2026"]] },
   { doc: "factfind_sheet", from: "2026-11-19", title: "TopQuote Fact Find sheet (completed by the adviser on the call), issued 19 Nov 2026", file: "factfind_sheet_2026-11-19.txt", source: "TopQuote_FactFind_Sheet_19.11.26.docx", sort: 4, applies: "all", datedBy: "fact_find" },
+  // Sent to the sellers on 20 Nov 2026 (Poz forwarded it the same day), as a PDF only. The text is the 19 Nov
+  // export with the 20 Nov changes made: the client is told missing partner details may affect the
+  // recommendation, the property's approximate value, and the client is told that declining to give savings
+  // may affect what can be recommended. The Fact Find call guide (script) of 19 Nov is unchanged.
+  { doc: "factfind_sheet", from: "2026-11-20", title: "TopQuote Fact Find sheet (completed by the adviser on the call), issued 20 Nov 2026", file: "factfind_sheet_2026-11-20.txt", source: "TopQuote_FactFind_Sheet_20.11.26_FORMATTED.pdf", sort: 4, applies: "all", datedBy: "fact_find" },
 ];
 
 // No longer used: the checks read the scripts themselves.
