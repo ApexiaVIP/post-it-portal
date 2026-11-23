@@ -35,7 +35,7 @@ export async function GET() {
   );
   const advisers = u.reviewer
     ? (await sql<{ id: number; name: string }>`
-        SELECT id, name FROM advisers WHERE username IS NOT NULL ORDER BY name`).rows
+        SELECT id, name FROM advisers WHERE username IS NOT NULL AND active ORDER BY name`).rows
     : [];
   const uk = ukStatus();
   return NextResponse.json({

@@ -115,7 +115,7 @@ For each statement, in order, give its number and one result:
 - CONTRADICTED: the calls show something different. Say what in call_says, with the evidence.
 - REVIEW_REQUIRED: only partly shown, or the transcript is too unclear to tell. Say why.
 Then list anything material the client said on the calls that the sheet and the notes leave out (missing_from_notes), such as a dependant, a debt, existing cover, a health point, a figure or a reason the client gave, with evidence. Leave out small talk and anything that doesn't bear on the advice.
-Summarise the outcome in one or two plain sentences.`,
+Summarise the outcome in one or two plain sentences. Write in plain British English and never use dashes as punctuation.`,
 } as const;
 
 function hms(seconds: number): string {
