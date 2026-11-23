@@ -189,6 +189,26 @@ export const LetterOutput = z.object({
   seller_notes: z.array(z.string()).describe("Anything the adviser must check before using the wording, such as a name or figure the transcript may have misheard. Empty if none."),
 });
 
+/**
+ * Gate 4 (23 Nov 2026): the seller's advice check against the calls. Each
+ * statement it drafted from the sheet is tested against the recording, as
+ * Openwork's supervision team will.
+ */
+export const STATEMENT_RESULTS = ["SUPPORTED", "NOT_ON_CALL", "CONTRADICTED", "REVIEW_REQUIRED"] as const;
+export const StatementsOutput = z.object({
+  statements: z.array(z.object({
+    n: z.number().int().describe("The statement's number as given"),
+    result: z.enum(STATEMENT_RESULTS),
+    call_says: z.string().describe("What the calls show on this point, in one plain sentence; for SUPPORTED a few words is enough"),
+    evidence: z.array(Evidence),
+  })),
+  missing_from_notes: z.array(z.object({
+    item: z.string().describe("What the client said that the sheet and notes leave out, in one plain sentence"),
+    evidence: z.array(Evidence),
+  })),
+  summary: z.string(),
+});
+
 export type ObservationResult = z.infer<typeof ObservationOutput>;
 export type DisclosureResult = z.infer<typeof DisclosureOutput>;
 export type FactsResult = z.infer<typeof FactsOutput>;
@@ -211,4 +231,12 @@ export interface LetterResult {
   letter: z.infer<typeof LetterOutput>;
   /** The Gate 1 run whose callback list the gaps are numbered against. */
   from_run: number;
+  /** The seller's advice check it was also written from, if one was linked (23 Nov 2026). */
+  advice_check?: number;
+}
+export type StatementsResult = z.infer<typeof StatementsOutput>;
+/** A statements run (gate 4): the advice check it tested and what the calls showed. */
+export interface StatementsRunResult {
+  statements: StatementsResult;
+  from_check: number;
 }

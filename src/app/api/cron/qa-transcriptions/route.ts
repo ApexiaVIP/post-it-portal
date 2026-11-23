@@ -12,6 +12,7 @@ import { ukStatus } from "@/lib/qa/uk";
 import { advanceTranscriptions } from "@/lib/qa/calls";
 import { autoCheckNext } from "@/lib/qa/autocheck";
 import { autoDraftNext } from "@/lib/qa/letter-run";
+import { autoStatementsNext } from "@/lib/qa/notes-run";
 import { isQaBusy, markQaBusy } from "@/lib/qa/busy";
 
 export const dynamic = "force-dynamic";
@@ -36,8 +37,11 @@ export async function GET(req: Request) {
   // The draft suitability report follows on the next run after a check, so
   // one run never has to fit both inside the time limit.
   const drafted = checked ? null : await autoDraftNext();
+  // Then the seller's advice check against the calls (23 Nov 2026), if one is linked.
+  const noted = checked || drafted ? null : await autoStatementsNext();
   const waiting = await sql`
     SELECT 1 FROM qa_calls WHERE status = 'transcribing' AND deleted_at IS NULL LIMIT 1`;
-  if (checked || drafted || waiting.rows.length > 0) await markQaBusy();
-  return NextResponse.json({ ok: true, checked, drafted });
+  const notedRan = !!noted?.status.startsWith("notes check");
+  if (checked || drafted || notedRan || waiting.rows.length > 0) await markQaBusy();
+  return NextResponse.json({ ok: true, checked, drafted, noted });
 }

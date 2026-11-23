@@ -52,6 +52,14 @@ Flow: the seller drops the sale recording(s) on their own RECI board, with the c
 
 Only the scripts and the sheet are checked. The 6 Oct call guides are retired from checking.
 
+## Advice check (/advice-check)
+
+Guy's pre-advice check (22 Nov 2026), run by the sellers (Tan, Hayder, Ben, Gurdaht; `ADVICE_CHECK_USERNAMES`) before they present advice. They upload photos of the completed Fact Find sheet and type the recommendation. It reads the sheet in London (surnames, dates of birth, addresses, contact, policy and bank details left out; photos deleted once read), then runs Guy's instructions with his reference documents: can this advice be given, the gap check, the justification, the Concert Hub notes, and every statement. Sellers see their own checks; Call QA users see all.
+
+On a Call QA case, Poz links the seller's check to the sale. Then its statements are tested against the calls (Gate 4), and the ones the call doesn't back up join the callback list. The draft suitability report is written from the calls and the sheet together.
+
+**New version of one of Guy's advice check documents** (his instructions, the scenario sheet, Openwork's expectations, the framework, the aide memoire): same as a new script. Add a `VERSIONS` line with `applies: "advice_check"` and the issue date, run the seed and commit. Instructions always use the latest version; the rest go by the date of the fact find call. The framework is confidential to the Openwork network: keep its text out of the repo (it lives with the other exports in `~/topquote-call-qa/brief/text/versions`).
+
 **Re-running a case**
 A rerun emails Poz automatically. Never rerun a case Poz is reviewing unless she asks. Run-to-run variance is real (temperature 0 since 18 Nov 2026), so compare against her verdicts, not the previous run.
 Benchmark case: case 8, run 317. Poz is reviewing it.

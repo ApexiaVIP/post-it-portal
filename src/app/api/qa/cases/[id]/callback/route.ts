@@ -16,6 +16,8 @@ import { requireCallQA, getCase } from "@/lib/qa/db";
 import { isDashboardUser } from "@/lib/auth";
 import { triage, callbackListText } from "@/lib/qa/triage";
 import { currentLetter, withLetterGaps, letterText } from "@/lib/qa/letter";
+import { currentStatements, withStatementGaps } from "@/lib/qa/notes-check";
+import { linkedCheck } from "@/lib/qa/notes-run";
 import { sendQaCallbackEmail } from "@/lib/reci/email";
 import type { Gate1Result, Gate2Result, LetterResult } from "@/lib/qa/schemas";
 
@@ -42,7 +44,10 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   if (!g1) return NextResponse.json({ error: "Run the check first." }, { status: 400 });
   // The draft only goes with the call check it was written alongside.
   const letter = currentLetter(g3, run1?.id);
-  const t = withLetterGaps(triage(g1, g2 ?? null), letter);
+  // The seller's advice check statements the calls don't back up (23 Nov 2026).
+  const k = await linkedCheck(caseId);
+  const notes = currentStatements(runs.rows.find((r) => r.gate === 4), k?.id);
+  const t = withLetterGaps(withStatementGaps(triage(g1, g2 ?? null), notes, k?.result.statements ?? []), letter);
   const hasList = t.callback.length > 0;
   if (!hasList && !letter) return NextResponse.json({ error: "Nothing to send yet." }, { status: 400 });
 

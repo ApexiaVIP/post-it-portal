@@ -384,10 +384,30 @@ function isCallQAPath(pathname: string): boolean {
   return pathname === "/qa" || pathname.startsWith("/qa/") || pathname.startsWith("/api/qa");
 }
 
+// Advice check (Guy, 22 Nov 2026): the sellers check their Fact Find sheet
+// and recommendation before presenting advice. Each seller sees only their
+// own checks; Call QA users (Jimmy, Pauline/Poz, Guy) see every check.
+const ADVICE_CHECK_USERNAMES = parseList(process.env.ADVICE_CHECK_USERNAMES ?? "tan,hayder,ben,gurdaht");
+
+export function canUseAdviceCheck(username: string | null | undefined): username is string {
+  if (!username) return false;
+  const u = username.toLowerCase();
+  return CALL_QA_USERNAMES.includes(u) || ADVICE_CHECK_USERNAMES.includes(u);
+}
+/** Sees and can act on every seller's advice checks. */
+export function isAdviceReviewer(username: string | null | undefined): boolean {
+  return canUseCallQA(username);
+}
+function isAdviceCheckPath(pathname: string): boolean {
+  return pathname === "/advice-check" || pathname.startsWith("/advice-check/") || pathname.startsWith("/api/advice-check");
+}
+
 export function canAccessPath(username: string | null | undefined, pathname: string): boolean {
   if (isCallQAPath(pathname)) return canUseCallQA(username);
+  if (isAdviceCheckPath(pathname)) return canUseAdviceCheck(username);
   const role = roleFor(username);
   if (role === "none") {
+    if (canUseAdviceCheck(username) && (pathname.startsWith("/api/auth") || pathname === "/api/me")) return true;
     // Even non-roled accounts may have a clawback role attached
     if (isClawbackUser(username)) {
       return pathname.startsWith("/reci/clawback")

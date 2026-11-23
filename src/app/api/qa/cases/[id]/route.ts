@@ -13,6 +13,7 @@ import { requireCallQA, getCase, getCalls } from "@/lib/qa/db";
 import { ukStatus } from "@/lib/qa/uk";
 import { advanceTranscriptions, dropHeldAudio } from "@/lib/qa/calls";
 import { runCostUsd } from "@/lib/qa/cost";
+import { summarise, type AdviceCheckResult } from "@/lib/advice/shared";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -64,7 +65,52 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     cost_usd: costUsd,
     reviews: reviews.rows,
     uk: uk.ready ? { ready: true } : { ready: false, reason: uk.reason },
+    advice: await adviceForCase(id, qaCase.adviser_id, qaCase.client_name),
   });
+}
+
+/**
+ * The seller's advice check (23 Nov 2026): the one linked to this sale (the
+ * latest, and the latest finished one, whose notes Gate 4 tests), or the
+ * seller's recent checks to choose from, closest name first.
+ */
+async function adviceForCase(caseId: number, adviserId: number | null, clientName: string) {
+  type Row = {
+    id: number; client_label: string; adviser_name: string | null; created_by: string; created_at: string;
+    finished_at: string | null; status: string; qa_case_id: number | null; linked_by: string | null;
+    linked_at: string | null; result: AdviceCheckResult | null;
+  };
+  const cols = `k.id, k.client_label, a.name AS adviser_name, k.created_by, k.created_at::text AS created_at,
+                k.finished_at::text AS finished_at, k.status, k.qa_case_id, k.linked_by, k.linked_at::text AS linked_at, k.result`;
+  const linked = await sql.query<Row>(
+    `SELECT ${cols} FROM advice_checks k LEFT JOIN advisers a ON a.id = k.adviser_id
+      WHERE k.qa_case_id = $1 AND k.deleted_at IS NULL ORDER BY k.created_at DESC`, [caseId]);
+  const brief = (r: Row) => {
+    const { result, ...rest } = r;
+    return { ...rest, summary: r.status === "done" ? summarise(result) : null };
+  };
+  if (linked.rows.length > 0) {
+    const latest = linked.rows[0];
+    const done = linked.rows.find((r) => r.status === "done" && r.result) ?? null;
+    return {
+      linked: brief(latest),
+      tested: done ? { id: done.id, finished_at: done.finished_at, statements: done.result?.statements ?? [] } : null,
+      candidates: [],
+    };
+  }
+  // The seller's checks from the last 60 days not linked to another sale, latest of each repeat only.
+  const c = await sql.query<Row>(
+    `SELECT ${cols} FROM advice_checks k LEFT JOIN advisers a ON a.id = k.adviser_id
+      WHERE k.deleted_at IS NULL AND k.qa_case_id IS NULL AND k.created_at > now() - interval '60 days'
+        AND ($1::int IS NULL OR k.adviser_id = $1)
+        AND NOT EXISTS (SELECT 1 FROM advice_checks n WHERE n.previous_id = k.id AND n.deleted_at IS NULL)
+      ORDER BY k.created_at DESC LIMIT 30`, [adviserId]);
+  const words = new Set(clientName.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 1));
+  const score = (r: Row) => r.client_label.toLowerCase().split(/[^a-z]+/).filter((w) => words.has(w)).length;
+  const candidates = c.rows
+    .map((r) => ({ ...brief(r), name_match: score(r) > 0 }))
+    .sort((a, b) => Number(b.name_match) - Number(a.name_match));
+  return { linked: null, tested: null, candidates };
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {

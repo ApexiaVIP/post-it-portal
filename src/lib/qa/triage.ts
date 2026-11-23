@@ -23,8 +23,11 @@ import type { EvidenceItem, Gate1Result, Gate2Result } from "./schemas";
 
 export type Rag = "red" | "amber" | "green" | "script";
 export type Route = "callback" | "decide" | "coach" | "script" | "met";
-/** "letter" holds points only the draft suitability report needs (see lib/qa/letter.ts). */
-export type Topic = "needs" | "options" | "plan" | "rights" | "application" | "letter";
+/**
+ * "letter" holds points only the draft suitability report needs (see lib/qa/letter.ts);
+ * "notes" holds the seller's advice check statements the calls don't back up (lib/qa/notes-check.ts).
+ */
+export type Topic = "needs" | "options" | "plan" | "rights" | "application" | "notes" | "letter";
 
 export const TOPIC_LABEL: Record<Topic, string> = {
   needs: "Their needs, budget and cover",
@@ -32,6 +35,7 @@ export const TOPIC_LABEL: Record<Topic, string> = {
   plan: "The plan you recommended",
   rights: "Their rights and our disclosures",
   application: "The application and medical answers",
+  notes: "Your notes against the call",
   letter: "For the suitability report",
 };
 const TOPIC_ORDER: Topic[] = ["needs", "options", "plan", "rights", "application"];

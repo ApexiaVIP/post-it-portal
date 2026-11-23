@@ -70,8 +70,8 @@ export interface QaCall {
 export interface QaRun {
   id: number;
   case_id: number;
-  /** 1: the calls, 2: the suitability report, 3: the draft suitability report. */
-  gate: 1 | 2 | 3;
+  /** 1: the calls, 2: the suitability report, 3: the draft suitability report, 4: the seller's advice check against the calls. */
+  gate: 1 | 2 | 3 | 4;
   status: "running" | "done" | "failed";
   model: string | null;
   result: unknown;

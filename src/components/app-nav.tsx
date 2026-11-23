@@ -24,6 +24,8 @@ const ADMIN_LINKS = [
 
 // Shown only when /api/me reports canClawback (Poz + Jimmy).
 const CLAWBACK_LINK = { href: "/reci/clawback", label: "Clawback" };
+// Shown when /api/me reports canAdviceCheck (the sellers, Guy, Poz, Jimmy).
+const ADVICE_LINK = { href: "/advice-check", label: "Advice check" };
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/reci/analytics") return pathname === "/reci/analytics";
@@ -47,6 +49,7 @@ export default function AppNav() {
   const pathname = usePathname();
   const [role, setRole] = useState<Role>("unknown");
   const [canClawback, setCanClawback] = useState(false);
+  const [canAdvice, setCanAdvice] = useState(false);
 
   useEffect(() => {
     // Don't bother fetching on the login page.
@@ -54,10 +57,11 @@ export default function AppNav() {
     let alive = true;
     fetch("/api/me", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { role?: Role; canClawback?: boolean } | null) => {
+      .then((j: { role?: Role; canClawback?: boolean; canAdviceCheck?: boolean } | null) => {
         if (!alive || !j) return;
         if (j.role) setRole(j.role);
         if (j.canClawback) setCanClawback(true);
+        if (j.canAdviceCheck) setCanAdvice(true);
       })
       .catch(() => { /* ignore */ });
     return () => { alive = false; };
@@ -120,6 +124,22 @@ export default function AppNav() {
               }`}
             >
               {CLAWBACK_LINK.label}
+            </Link>
+          );
+        })()}
+        {canAdvice && (() => {
+          const active = isActive(pathname, ADVICE_LINK.href);
+          return (
+            <Link
+              href={ADVICE_LINK.href}
+              aria-current={active ? "page" : undefined}
+              className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-teal-700 text-white"
+                  : "text-teal-800 hover:bg-teal-50"
+              }`}
+            >
+              {ADVICE_LINK.label}
             </Link>
           );
         })()}

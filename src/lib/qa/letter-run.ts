@@ -10,6 +10,7 @@ import { runLetter } from "./analyse";
 import { ukModel } from "./uk";
 import { triage } from "./triage";
 import { callbackPointsText } from "./letter";
+import { linkedCheck, adviserRecordText } from "./notes-run";
 import type { Gate1Result, Gate2Result } from "./schemas";
 
 export type LetterStart =
@@ -32,11 +33,15 @@ export async function startLetter(caseId: number, startedBy: string): Promise<Le
   if (calls.length === 0) return { error: "No transcribed calls on this case.", status: 400 };
 
   const t = triage(g1.result as Partial<Gate1Result>, (g2?.result ?? null) as Partial<Gate2Result> | null);
+  // With the seller's advice check linked (23 Nov 2026), the draft is written
+  // from the calls and the seller's own record together.
+  const k = await linkedCheck(caseId);
+  const record = k ? { checkId: k.id, text: adviserRecordText(k) } : null;
   const run = await sql<{ id: number }>`
     INSERT INTO qa_runs (case_id, gate, status, model, started_by)
     VALUES (${caseId}, 3, 'running', ${ukModel()}, ${startedBy}) RETURNING id`;
   const runId = run.rows[0].id;
-  return { runId, run: () => runLetter(runId, calls, c.case_type, g1.id, callbackPointsText(t)) };
+  return { runId, run: () => runLetter(runId, calls, c.case_type, g1.id, callbackPointsText(t), record) };
 }
 
 /**

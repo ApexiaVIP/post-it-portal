@@ -6,7 +6,7 @@ import {
   canUploadEbah, canNotifyCam,
   getEditableAdviserId,
   canViewTrackerMI, canViewAnalyticsMI, canViewConfirmationsMI, canViewCallCentreMI,
-  canUseCallQA,
+  canUseCallQA, canUseAdviceCheck,
 } from "@/lib/auth";
 import { sql } from "@vercel/postgres";
 
@@ -28,7 +28,7 @@ export async function GET() {
   const role = roleFor(session.username);
   // Sellers / viewers may have role="none" if they're not in the dashboard
   // or data-entry lists. That's fine -- the clawback gating below covers them.
-  if (role === "none" && !isClawbackUser(session.username)) {
+  if (role === "none" && !isClawbackUser(session.username) && !canUseAdviceCheck(session.username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
@@ -64,6 +64,7 @@ export async function GET() {
     canConfirmations:  canViewConfirmationsMI(session.username),
     canCallCentre:     canViewCallCentreMI(session.username),
     canCallQA:         canUseCallQA(session.username),
+    canAdviceCheck:    canUseAdviceCheck(session.username),
     // For junior sellers: the adviser_id whose cases they're allowed to
     // edit. Null for admins / senior sellers (can edit all) and viewers
     // (can edit none). The dashboard uses this to gate the "Take action"

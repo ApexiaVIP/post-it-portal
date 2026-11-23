@@ -16,6 +16,12 @@
  * copies with the changes undone: One Call script 21 Oct, Fact Find script
  * 29 Oct, Fact Find sheet 7 Oct. The 6 Oct call guides are retired: from
  * 17 Nov 2026 the checks use the scripts themselves.
+ *
+ * Documents marked applies: "advice_check" are used only by the advice check
+ * (Guy, 22 Nov 2026), not by the call checks: Openwork's Suitable Advice
+ * Framework and KYC aide memoire, Openwork's November expectations, Guy's
+ * scenario sheet and his instructions for the check. The framework is
+ * confidential to the Openwork network: its text stays out of this repo.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -27,7 +33,7 @@ if (dirs.length === 0) {
   process.exit(1);
 }
 
-// applies: "all" = every case; "one_call" / "two_call" = that case type only.
+// applies: "all" = every case; "one_call" / "two_call" = that case type only; "advice_check" = the advice check only.
 // datedBy: which call's date picks the version, the fact find (first) or the advice (last).
 const FORM = "Openwork ICOBS Competency Assessment Observation Form, telephone sales advice (June 2023 v5)";
 const CRITERIA = "Openwork ICOB assessment criteria (v1, April 2026): what each standard on the observation form should consist of";
@@ -44,6 +50,10 @@ const VERSIONS = [
   // Brings in the 18 Nov One Call additions (pension incl. state pension, other assets, level of cover,
   // funeral WOL whether or not the client has savings) and adds Life 2 for any partner.
   { doc: "factfind_script", from: "2026-11-19", title: "TopQuote Fact Find call guide (the full call script), issued 19 Nov 2026", file: "factfind_script_2026-11-19.txt", source: "TopQuote_FactFind_Call_Guide_19.11.26.docx", sort: 2, applies: "two_call", datedBy: "fact_find" },
+  // Reissued 20 Nov 2026 (Guy's advice check set, 22 Nov): the client is told missing partner details may affect
+  // the recommendation (and a partner being covered must be on the advice call), and the same for a declined
+  // savings figure, which is recorded with the reason.
+  { doc: "factfind_script", from: "2026-11-20", title: "TopQuote Fact Find call guide (the full call script), issued 20 Nov 2026", file: "factfind_script_2026-11-20.txt", source: "TopQuote_FactFind_Call_Guide_20.11.26.docx", sort: 2, applies: "two_call", datedBy: "fact_find" },
 
   { doc: "onecall_script", from: "2026-10-06", title: "TopQuote Fact Find and Advice call script, one call, issued 6 Oct 2026", file: "onecall_script_2026-10-06.txt", source: "TopQuote_OneCall_Script_06.10.26.docx", sort: 2, applies: "one_call", datedBy: "fact_find" },
   { doc: "onecall_script", from: "2026-10-21", title: "TopQuote Fact Find and Advice call script, one call, issued 21 Oct 2026", file: "onecall_script_2026-10-21.txt", source: "TopQuote_OneCall_Script_04.11.26_TRACKED.docx, 4 Nov changes undone", sort: 2, applies: "one_call", datedBy: "fact_find" },
@@ -51,6 +61,10 @@ const VERSIONS = [
   // Reissued 18 Nov: the 4 Nov copy was not fully updated (Poz, 18 Nov 2026). Puts back the ID check,
   // privacy notice, accident and sickness and funeral wording; adds pension, assets and level of cover questions.
   { doc: "onecall_script", from: "2026-11-18", title: "TopQuote Fact Find and Advice call script, one call, issued 18 Nov 2026", file: "onecall_script_2026-11-18.txt", source: "TopQuote_OneCall_Script_18.11.26_CLEAN.docx", sort: 2, applies: "one_call", datedBy: "fact_find" },
+  // Reissued 20 Nov 2026 as the "One Call guide": the same partner and savings wording as the Fact Find guide,
+  // "what would the money be for, and who would be relying on it?", and funeral whole of life offered to clients
+  // over 50 whether or not they have savings.
+  { doc: "onecall_script", from: "2026-11-20", title: "TopQuote Fact Find and Advice call script (One Call guide), issued 20 Nov 2026", file: "onecall_script_2026-11-20.txt", source: "TopQuote_OneCall_Guide_20.11.26.docx", sort: 2, applies: "one_call", datedBy: "fact_find" },
 
   { doc: "advice_script", from: "2026-10-06", title: "TopQuote Advice and Recommendation call script, issued 6 Oct 2026", file: "advice_script_2026-10-06.txt", source: "TopQuote_AdviceCall_Script_06.10.26.docx", sort: 3, applies: "two_call", datedBy: "advice" },
   { doc: "advice_script", from: "2026-11-04", title: "TopQuote Advice and Recommendation call script, issued 4 Nov 2026", file: "advice_script_2026-11-04.txt", source: "TopQuote_AdviceCall_Script_04.11.26_CLEAN.docx", sort: 3, applies: "two_call", datedBy: "advice" },
@@ -62,8 +76,18 @@ const VERSIONS = [
   // Sent to the sellers on 20 Nov 2026 (Poz forwarded it the same day), as a PDF only. The text is the 19 Nov
   // export with the 20 Nov changes made: the client is told missing partner details may affect the
   // recommendation, the property's approximate value, and the client is told that declining to give savings
-  // may affect what can be recommended. The Fact Find call guide (script) of 19 Nov is unchanged.
+  // may affect what can be recommended. Guy's Word copy (22 Nov) matches it. The call guides were reissued
+  // on 20 Nov too (above).
   { doc: "factfind_sheet", from: "2026-11-20", title: "TopQuote Fact Find sheet (completed by the adviser on the call), issued 20 Nov 2026", file: "factfind_sheet_2026-11-20.txt", source: "TopQuote_FactFind_Sheet_20.11.26_FORMATTED.pdf", sort: 4, applies: "all", datedBy: "fact_find" },
+
+  // The advice check only (Guy, 22 Nov 2026).
+  { doc: "advice_framework", from: "2026-05-11", title: "Openwork ICOB Suitable Advice Framework v55 (11 May 2026)", file: "advice_framework_2026-05-11.txt", source: "ICOB Suitable Advice Framework v55 11.05.26.pdf", sort: 5, applies: "advice_check", datedBy: "fact_find" },
+  // A scanned blank form with no issue date of its own: dated by the scan. Typed up from the scan once.
+  { doc: "kyc_aide_memoire", from: "2026-11-19", title: "Openwork KYC Aide Memoire: the fields Openwork expects captured (scanned copy of 19 Nov 2026)", file: "kyc_aide_memoire_2026-11-19.txt", source: "Openwork KYC Aide Memoire.pdf", sort: 6, applies: "advice_check", datedBy: "fact_find" },
+  { doc: "openwork_expectations", from: "2026-11-20", title: "Openwork's stated expectations, November 2026 (Paul Laycock and David Kelly, to 20 Nov 2026)", file: "openwork_expectations_2026-11-20.txt", source: "Openwork expectations November 2026.txt", sort: 7, applies: "advice_check", datedBy: "fact_find" },
+  { doc: "adviser_scenarios", from: "2026-11-20", title: "TopQuote adviser scenario sheet: what we can advise on, and what we need to justify it, 20 Nov 2026", file: "adviser_scenarios_2026-11-20.txt", source: "TopQuote_Adviser_Scenarios_20.11.26.docx", sort: 8, applies: "advice_check", datedBy: "fact_find" },
+  // Guy's instructions for the check itself: always the latest version, whatever the call date.
+  { doc: "advice_check_instructions", from: "2026-11-22", title: "TopQuote advice check and Concert Hub notes assistant, instructions v2.0 (Guy, 22 Nov 2026)", file: "advice_check_instructions_2026-11-22.txt", source: "Assistant instructions v2.txt", sort: 9, applies: "advice_check", datedBy: "fact_find" },
 ];
 
 // No longer used: the checks read the scripts themselves.

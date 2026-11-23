@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIronSession } from "iron-session";
 import {
-  sessionOptions, roleFor, canAccessPath, type SessionData,
+  sessionOptions, roleFor, canAccessPath, canUseAdviceCheck, type SessionData,
 } from "@/lib/auth";
 
 export const config = {
@@ -19,6 +19,9 @@ export const config = {
     "/qa",
     "/qa/:path*",
     "/api/qa/:path*",
+    "/advice-check",
+    "/advice-check/:path*",
+    "/api/advice-check/:path*",
   ],
 };
 
@@ -40,8 +43,9 @@ export async function middleware(req: NextRequest) {
   const session = await getIronSession<SessionData>(req, res, sessionOptions);
   const role = roleFor(session.username);
 
-  // No role at all -> push back to login with denied flag.
-  if (role === "none") {
+  // No role at all -> push back to login with denied flag. A seller who only
+  // has the advice check still gets in (to that and nothing else).
+  if (role === "none" && !canUseAdviceCheck(session.username)) {
     if (isApi) return NextResponse.json({ error: "forbidden" }, { status: 403 });
     const url = req.nextUrl.clone();
     url.pathname = "/login";
@@ -54,7 +58,7 @@ export async function middleware(req: NextRequest) {
   if (!canAccessPath(session.username, path)) {
     if (isApi) return NextResponse.json({ error: "forbidden" }, { status: 403 });
     const url = req.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = canAccessPath(session.username, "/") ? "/" : "/advice-check";
     return NextResponse.redirect(url);
   }
 
