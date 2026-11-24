@@ -34,6 +34,7 @@ interface Check {
   result: AdviceCheckResult | null;
   error: string | null;
   previous_id: number | null;
+  fact_find_id: number | null;
   qa_case_id: number | null;
   created_at: string;
   started_at: string | null;
@@ -158,8 +159,8 @@ export default function AdviceCheckPage() {
         </div>
         <div className="no-print flex flex-wrap gap-2 text-sm">
           {c.status === "done" && (
-            <Link href={`/advice-check/new?from=${c.id}`} className="rounded bg-teal-700 px-3 py-1.5 font-medium text-white hover:bg-teal-800">
-              Run it again with the updated sheet
+            <Link href={c.fact_find_id ? `/advice-check/form/${c.fact_find_id}` : `/advice-check/new?from=${c.id}`} className="rounded bg-teal-700 px-3 py-1.5 font-medium text-white hover:bg-teal-800">
+              {c.fact_find_id ? "Back to the form" : "Run it again with the updated sheet"}
             </Link>
           )}
           {c.status === "done" && <button type="button" onClick={() => window.print()} className="rounded border border-slate-300 px-3 py-1.5 hover:bg-slate-50">Print</button>}
@@ -218,7 +219,7 @@ export default function AdviceCheckPage() {
             )}
             {before && (
               <p className="no-print mt-3 text-sm">
-                After the advice call, <Link href={`/advice-check/new?from=${c.id}&after=1`} className="font-semibold text-teal-800 underline">run it again for the justification and Concert Hub notes</Link>.
+                After the advice call, <Link href={c.fact_find_id ? `/advice-check/form/${c.fact_find_id}#s-after` : `/advice-check/new?from=${c.id}&after=1`} className="font-semibold text-teal-800 underline">run it again for the justification and Concert Hub notes</Link>.
               </p>
             )}
           </div>

@@ -58,6 +58,12 @@ Guy's pre-advice check (22 Nov 2026), run by the sellers (Tan, Hayder, Ben, Gurd
 
 Since 24 Nov 2026 (call with Guy and Poz): a two call case is checked before the advice call for the licence and the red lines only, and run again after it, with "already presented" ticked, for the justification and notes. The check works out the red lines itself; the need, dependants, lifelong need, sum assured and term (`ALWAYS_RED` in `src/lib/advice/shared.ts`) are always red lines when missing. The full gap check is folded away.
 
+The Fact Find can be completed online (/advice-check/form, 24 Nov 2026), so nothing depends on reading handwriting. Uploading or pasting a sheet stays as the fallback. First names and ages only; surnames, dates of birth, addresses and postcodes stay out. Sellers get it only once `FACT_FIND_KEEP_DAYS` is set on Vercel (Jimmy): it opens the form to them and clears answers that many days after the last change. Until then only Guy, Poz and Jimmy have it.
+
+**New Fact Find sheet from Guy (the online form)**
+1. Copy the latest `src/lib/factfind/sheet-*.ts` to a file named for the new issue date, make Guy's changes, and add it to the end of `SHEETS` in `src/lib/factfind/index.ts`. Forms already started keep their own version, so never edit an issued one.
+2. Keep the keys of questions that haven't changed.
+
 On a Call QA case, Poz links the seller's check to the sale. Then its statements are tested against the calls (Gate 4), and the ones the call doesn't back up join the callback list. The draft suitability report is written from the calls and the sheet together.
 
 **New version of one of Guy's advice check documents** (his instructions, the scenario sheet, Openwork's expectations, the framework, the aide memoire): same as a new script. Add a `VERSIONS` line with `applies: "advice_check"` and the issue date, run the seed and commit. Instructions always use the latest version; the rest go by the date of the fact find call. The framework is confidential to the Openwork network: keep its text out of the repo (it lives with the other exports in `~/topquote-call-qa/brief/text/versions`).

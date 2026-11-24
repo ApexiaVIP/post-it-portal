@@ -20,6 +20,7 @@ import { markQaBusy } from "@/lib/qa/busy";
 import type { CaseType } from "@/lib/qa/shared";
 import { SheetOutput, AdviceCheckOutput } from "./schemas";
 import { loadAdviceStandards } from "./standards";
+import { purgeOldForms } from "@/lib/factfind/db";
 import {
   GAP_ITEMS, GAP_LABEL, ALWAYS_RED, stageOf, SCENARIO_ROWS, SCENARIO_LABEL, JUSTIFICATION_KEYS, JUSTIFICATION_HEADING,
   NOTE_KEYS, NOTE_HEADING, type AdviceCheckResult,
@@ -30,16 +31,17 @@ const keyList = <K extends string>(keys: readonly K[], label: Record<K, string>)
 
 const PORTAL_NOTE = `HOW THIS RUNS IN TOPQUOTE'S PORTAL
 The instructions above were written for a chat. In TopQuote's portal the adviser fills in a form and gets the whole result at once, so:
-- Everything is given up front: the case details, whether the recommendation has been presented, the completed data capture sheet, either read from the photos or scans they uploaded or typed by them, or both, and anything the adviser typed in the recommendation and reasons field, which may be empty. You cannot ask the adviser anything back.
+- Everything is given up front: the case details, whether the recommendation has been presented, the completed data capture sheet, completed on the portal's online form, read from the photos or scans they uploaded, or typed by them, and anything the adviser typed in the recommendation and reasons field, which may be empty. You cannot ask the adviser anything back.
 - The adviser's recommendation and reasons are on the sheet's policy pages: Policy 1, Policy 2 and Policy 3 (pages 7 to 9 of the 20th November 2026 sheet), each with a column for Life 1 and a column for Life 2, then the reasons for the need, the sum assured, the term and any additional benefits. Several policies can be recommended for several people, so list every one in recommendation, one line for each policy and life, with the figures exactly as written, and judge fit on all of them together. A policy or a life's column left blank is not a recommendation, and neither is an existing policy on page 6. The needs, priorities and terms on page 6 are what the client said, not the recommendation.
-- The sheet has no box on the policy pages for trust, for joint or single life, or for a fourth policy. Take those from the recommendation and reasons field or anything written beside the policy, and never assume them: if neither says, say it isn't given.
+- The paper sheet has no box on the policy pages for trust, for joint or single life, or for a fourth policy. The online form has all three, and a section for after the advice call, so use those. On paper, take them from the recommendation and reasons field or anything written beside the policy, and never assume them: if neither says, say it isn't given.
 - If the recommendation and reasons field and the policy pages disagree on any figure, product, life or term, don't choose between them: say so in fit, with CANNOT_TELL.
 - If neither the policy pages nor the recommendation and reasons field gives a recommendation, return recommendation empty, fit CANNOT_TELL saying so, and justification, notes, dropdown_tips and statements empty whatever else is asked. Still do the gap check on the rest of the sheet. A sum assured or term missing only because there is no recommendation is for the adviser to fill in, not a question for the client.
 - Anything on the policy pages about the client is on the sheet. Anything in the recommendation and reasons field that is a fact about the client and is not on the sheet goes in not_on_sheet, with a note asking the adviser to confirm it was said on the recorded call, add it to the sheet and run the check again. Leave it out of Parts 2, 3 and 4. This takes the place of asking them to confirm it. The recommendation itself (product, cover, sum assured, term, premium, trust) is the adviser's own and is not a fact about the client.
+- fit says in one or two short sentences whether it fits. Anything that stops it fitting, or stops you telling, is also a red line, and the detail goes there, not in fit.
 - Part 0 comes first. If the recommendation does not fit the framework, the licence or the scenario sheet, say so plainly in fit, and return justification, notes, dropdown_tips and statements empty: never write notes that make it look sound.
 - There are two stages, given with the case. BEFORE THE ADVICE CALL (a two call case not yet presented): produce Parts 0 and 1 only, and return justification, notes, dropdown_tips and statements empty whatever else is asked, because it is too early for them. Use ON_ADVICE_CALL, never MISSING, for anything that can only happen on the advice call, such as the client's decision, the trust outcome, cheaper options shown, or telling the client about needs not met. What should already be on the sheet from the fact find, and the reasons for the sum assured and term, are MISSING if they aren't there. AFTER THE ADVICE CALL (a one call case, or a recommendation already presented): produce every part, and don't use ON_ADVICE_CALL.
 - After the advice call, if any gap check item is MISSING, the case is not ready to submit. Unless the adviser has asked for the notes on the parts that are complete, return justification, notes, dropdown_tips and statements empty and stop there. If they have asked, write those parts with "[to complete after speaking to the client]" wherever a missing item is needed.
-- Triage. The adviser acts on red_lines, so they hold only the absolute priorities: what decides whether this case gets through Openwork's compliance check. Work them out yourself from the documents and this case. They are about whether the advice is within the licence and fits, the need (what the money is for, who relies on it and until when, in the client's words), the options and whether the client understood and accepted them, the reasons for the sum assured and term, whether it is affordable, the disclosures under CALL CHECKS, and what the client had to be told. Nobody expects a perfect sheet from an hour's conversation: a point that is adequately recorded but could be fuller, or wording that isn't exact, is never a red line. Before the advice call, nothing that can only happen on that call is a red line. Normally there are three to five, most serious first. Put points that one question or one entry on the sheet would settle into a single line. Use ASK_CLIENT for what only the client can answer, FIX_SHEET for what the adviser only has to write down or fill in, SPEAK_TO_GUY for what goes to Guy. These items are always red lines when MISSING: ${ALWAYS_RED.join(", ")}. Anything else missing that isn't an absolute priority is a smaller gap: it stays in the gap check and, if the client has to be asked, goes in questions.
+- Triage. The adviser acts on red_lines, so they hold only the absolute priorities: what decides whether this case gets through Openwork's compliance check. Work them out yourself from the documents and this case. They are about whether the advice is within the licence and fits, the need (what the money is for, who relies on it and until when, in the client's words), the options and whether the client understood and accepted them, the reasons for the sum assured and term, whether it is affordable, the disclosures under CALL CHECKS, and what the client had to be told. Anything missing that Openwork's November 2026 expectations ask for in this case (for example the survivor's position, or savings left blank) is one too. Nobody expects a perfect sheet from an hour's conversation: a point that is adequately recorded but could be fuller, or wording that isn't exact, is never a red line. Before the advice call, nothing that can only happen on that call is a red line. Normally there are three to five, most serious first. Each line is one thing to do, in plain words the adviser can act on, with no section numbers and no more than 25 words; the gap check carries the detail. Put points that one question or one entry on the sheet would settle into a single line. Use ASK_CLIENT for what only the client can answer, FIX_SHEET for what the adviser only has to write down or fill in, SPEAK_TO_GUY for what goes to Guy. These items are always red lines when MISSING: ${ALWAYS_RED.join(", ")}. Anything else missing that isn't an absolute priority is a smaller gap: it stays in the gap check and, if the client has to be asked, goes in questions.
 - Parts 2 and 3 have to show why the advice was given, policy by policy: the client's own reason (for example to clear the mortgage, or to replace the pension income the survivor would lose), who relies on it and until when, how the sum assured and term follow from that reason, what else was considered and why it wasn't recommended, and that the client understood and agreed. Show that it matches the documents, with the section in Part 2 only. Only what the sheet or the recommendation and reasons field shows: never supply a reason the client didn't give.
 - Keep it short throughout. No explanation the adviser doesn't need in order to act, no repeating a point in two places.
 - The sheet as given has had surnames, full dates of birth, addresses, contact details, policy numbers and bank details left out on purpose. Their absence is never a gap.
@@ -82,6 +84,7 @@ interface CheckRow {
   notes_anyway: boolean;
   sheet_typed: string | null;
   sheet_text: string | null;
+  fact_find_id: number | null;
 }
 
 async function addUsage(id: number, part: string, usage: unknown) {
@@ -90,6 +93,11 @@ async function addUsage(id: number, part: string, usage: unknown) {
        SET usage = (CASE WHEN jsonb_typeof(usage) = 'object' THEN usage ELSE '{}'::jsonb END)
                    || jsonb_build_object(${part}::text, ${JSON.stringify(usage)}::jsonb)
      WHERE id = ${id}`;
+}
+
+/** Plain punctuation, whatever the model wrote. */
+function noDashes(s: string): string {
+  return s.replace(/(\d)\s*[\u2013\u2014]\s*(?=\d)/g, "$1 to ").replace(/\s*[\u2013\u2014]\s*/g, ", ");
 }
 
 /** Step 1: the pages into text. The pages are deleted once the text is saved. */
@@ -112,10 +120,10 @@ async function readSheet(c: CheckRow, client: ReturnType<typeof ukClaude>, model
       toolName: "record_sheet", lead,
     });
     await addUsage(c.id, "read", usage);
-    parts.push(`READ FROM THE ADVISER'S PHOTOS OR SCANS (${pages.rows.length} upload${pages.rows.length === 1 ? "" : "s"})\n\n${data.text.trim()}`
-      + (data.unclear.length ? `\n\nNOT READ WITH CONFIDENCE\n${data.unclear.map((u) => `- ${u}`).join("\n")}` : ""));
+    parts.push(`READ FROM THE ADVISER'S PHOTOS OR SCANS (${pages.rows.length} upload${pages.rows.length === 1 ? "" : "s"})\n\n${noDashes(data.text.trim())}`
+      + (data.unclear.length ? `\n\nNOT READ WITH CONFIDENCE\n${data.unclear.map((u) => `- ${noDashes(u)}`).join("\n")}` : ""));
   }
-  if (c.sheet_typed?.trim()) parts.push(`TYPED BY THE ADVISER\n\n${c.sheet_typed.trim()}`);
+  if (c.sheet_typed?.trim()) parts.push(`${c.fact_find_id ? "COMPLETED ON THE ONLINE FORM" : "TYPED BY THE ADVISER"}\n\n${c.sheet_typed.trim()}`);
   if (parts.length === 0) throw new Error("There is no sheet to check: upload the pages or type it in.");
   const text = parts.join("\n\n");
   await sql`UPDATE advice_checks SET sheet_text = ${text} WHERE id = ${c.id}`;
@@ -165,7 +173,7 @@ export async function runAdviceCheck(id: number): Promise<void> {
     const client = ukClaude(uk);
     const r = await sql<CheckRow>`
       SELECT id, client_label, case_type, fact_find_date::text AS fact_find_date, recommendation,
-             presented, notes_anyway, sheet_typed, sheet_text
+             presented, notes_anyway, sheet_typed, sheet_text, fact_find_id
         FROM advice_checks WHERE id = ${id}`;
     const c = r.rows[0];
     if (!c) return;
@@ -196,6 +204,7 @@ export async function runAdviceCheck(id: number): Promise<void> {
  * limit and never recorded an outcome: mark it failed so it can be tried again.
  */
 export async function expireStaleChecks() {
+  await purgeOldForms();
   await sql`
     UPDATE advice_checks SET status = 'failed', finished_at = now(),
            error = 'Timed out: the check took longer than the server allows.'

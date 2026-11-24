@@ -46,6 +46,7 @@ export interface CheckRow {
   standards: unknown;
   error: string | null;
   previous_id: number | null;
+  fact_find_id: number | null;
   qa_case_id: number | null;
   linked_by: string | null;
   linked_at: string | null;
@@ -59,7 +60,7 @@ export async function getCheck(id: number): Promise<CheckRow | null> {
     SELECT k.id, k.adviser_id, a.name AS adviser_name, k.created_by, k.client_label, k.case_type,
            k.fact_find_date::text AS fact_find_date, k.recommendation, k.presented, k.notes_anyway,
            k.sheet_typed, k.sheet_text, k.status, k.model, k.result, k.usage, k.standards, k.error,
-           k.previous_id, k.qa_case_id, k.linked_by, k.linked_at::text AS linked_at,
+           k.previous_id, k.fact_find_id, k.qa_case_id, k.linked_by, k.linked_at::text AS linked_at,
            k.created_at::text AS created_at, k.started_at::text AS started_at, k.finished_at::text AS finished_at
       FROM advice_checks k LEFT JOIN advisers a ON a.id = k.adviser_id
      WHERE k.id = ${id} AND k.deleted_at IS NULL`;

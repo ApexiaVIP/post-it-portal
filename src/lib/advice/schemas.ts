@@ -32,7 +32,7 @@ export const AdviceCheckOutput = z.object({
     })).describe("What the adviser recommends, one line for each policy and life, from the policy pages and the recommendation and reasons field. Empty if no recommendation is given"),
     fit: z.object({
       result: z.enum(FITS),
-      explanation: z.string().describe("Plainly, whether the adviser's recommendation fits the framework, the licence and the scenario sheet, and if not, why not"),
+      explanation: z.string().describe("One or two short sentences: whether the recommendation fits the framework, the licence and the scenario sheet, and if not, why not in a few words"),
     }),
   }),
   gaps: z.array(z.object({
