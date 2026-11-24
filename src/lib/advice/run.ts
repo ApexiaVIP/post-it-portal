@@ -27,7 +27,7 @@ import {
 } from "./shared";
 import {
   EMPTY_HUB, HUB_DROPDOWNS, HUB_NEEDS, HUB_NEED_LABEL, HUB_NOTES, HUB_NOTE_LABEL, HUB_NOTE_HOLDS, PROVIDER_REASONS, PROVIDER_REASON_LABEL,
-  REPLACE_LOSSES, REPLACE_LOSS_LABEL, REPLACE_REASONS, REPLACE_REASON_LABEL, settleHub, unmetWithoutReason, type HubDropdown,
+  REPLACE_LOSSES, REPLACE_LOSS_LABEL, REPLACE_REASONS, REPLACE_REASON_LABEL, settleHub, underBudget, unmetWithoutReason, type HubDropdown,
 } from "./concert-hub";
 
 const keyList = <K extends string>(keys: readonly K[], label: Record<K, string>) =>
@@ -69,14 +69,17 @@ ${keyList(JUSTIFICATION_KEYS, JUSTIFICATION_HEADING)}
 ${keyList(HUB_NEEDS, HUB_NEED_LABEL)}
 - A need is NOT_MET for a client the recommended policies don't cover for it, even where they cover the other client. Its why is that client's own reason for leaving it out, as the sheet records it. One client's health or income never explains a need left uncovered for the other. If the sheet gives no reason, leave why and pick empty and don't raise it in red_lines or questions: the portal does.
 - Concert Hub's drop-downs. ${dropdownRules()}
-- Insufficient Income is backed only where the sheet shows the money ran out for that need: the client's budget, or what they said about the cost. Where the premiums recommended come to less than the budget it isn't backed unless the sheet says why the rest wasn't used, and that unused budget with a need left uncovered is always a red line (TopQuote's guide: under budget with a need left uncovered is a fail). Adverse Health is backed only where the sheet shows that client's own health is why the cover wasn't recommended or couldn't be had, not merely that they have a condition.
+- Insufficient Income is backed only where the sheet shows the money ran out for that need: the client's budget, or what they said about the cost. Adverse Health is backed only where the sheet shows that client's own health is why the cover wasn't recommended or couldn't be had, not merely that they have a condition.
 - hub.policies: the same policies and lives as recommendation. amount_why and term_why come from the reasons on the policy page. The provider reasons and Concert Hub's wording (paper sheets have no box for them, so they are often empty):
 ${keyList(PROVIDER_REASONS, PROVIDER_REASON_LABEL)}
 - hub.replacements, only for existing policies being replaced. Reasons to replace:
 ${keyList(REPLACE_REASONS, REPLACE_REASON_LABEL)}
   Consequences of replacing:
 ${keyList(REPLACE_LOSSES, REPLACE_LOSS_LABEL)}
-- hub.notes: three short notes, one for each Note Type in Concert Hub. Between them they hold what the instructions' Part 3 headings ask for, in the same style. Keep Needs and Outgoings to about 100 words and Recommendation to about 200, a little more only for several policies. Don't say the same thing in two notes.
+- hub.budget: TopQuote's guide says under budget with a need left uncovered is a fail unless the reason is recorded. Fill it in and don't raise it in red_lines: the portal does.
+- hub.notes: three short notes, one for each Note Type in Concert Hub, that give the reasons. Between them they cover what the instructions' Part 3 headings ask for, in the same style. The adviser enters every figure in Concert Hub's own fields, so leave out sick pay, pensions, property, liabilities, existing policies and policy details unless they are the reason for something. At most 90 words for Needs, 70 for Outgoings and 180 for Recommendation, with up to 40 more in Recommendation for each policy after the second. Don't say the same thing in two notes.
+- A note goes straight into Concert Hub, so it holds only what happened: no comments, gaps, reminders or instructions to the adviser. Where something missing is needed, write only "[to complete after speaking to the client]".
+- Name the client who said or decided something only where the sheet says which of them it was. Otherwise write "they".
 ${HUB_NOTES.map((k) => `- ${k} (${HUB_NOTE_LABEL[k]}): ${HUB_NOTE_HOLDS[k]}`).join("\n")}
 - Number the Part 4 statements from 1. In where, say where on the sheet each comes from (section and field, for example "Policy 1, why this term"), or "recommendation field" for something only in that field, with from_adviser true.
 - The portal adds the closing line, so leave it out.
@@ -196,8 +199,8 @@ function settle(c: CheckRow, raw: AdviceCheckResult): AdviceCheckResult {
   const covered = new Set(lines.flatMap((x) => x.items));
   const left = r.gaps.filter((g) => g.status === "MISSING" && ALWAYS_RED.includes(g.item) && !covered.has(g.item));
   const hub = stage === "before_advice" ? EMPTY_HUB : settleHub(r.hub);
-  // A need left uncovered with no reason: Concert Hub puts the reason in the suitability report.
-  const unexplained = unmetWithoutReason(hub);
+  // A need left uncovered with no reason (Concert Hub puts the reason in the suitability report), or with budget to spare.
+  const unexplained = [unmetWithoutReason(hub), underBudget(hub)].filter((x): x is string => !!x);
   return {
     ...r,
     stage,
@@ -205,7 +208,7 @@ function settle(c: CheckRow, raw: AdviceCheckResult): AdviceCheckResult {
     red_lines: [
       ...lines,
       ...left.map((g) => ({ action: g.detail, kind: "ASK_CLIENT" as const, items: [g.item] })),
-      ...(unexplained ? [{ action: unexplained, kind: "FIX_SHEET" as const, items: [] }] : []),
+      ...unexplained.map((action) => ({ action, kind: "FIX_SHEET" as const, items: [] })),
     ],
     ...(stage === "before_advice" ? { justification: [], statements: [] } : {}),
   };

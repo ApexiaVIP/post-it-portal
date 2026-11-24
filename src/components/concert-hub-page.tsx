@@ -8,7 +8,7 @@
  */
 import {
   HUB_DROPDOWNS, HUB_NEEDS, HUB_NEED_LABEL, HUB_NOTE_LABEL, PROVIDER_REASON_LABEL, REPLACE_LOSS_LABEL, REPLACE_REASON_LABEL,
-  addressedBy, hubClients, unmet, type HubDropdown, type HubPage,
+  addressedBy, deferredFor, hubClients, unmet, type HubDropdown, type HubPage,
 } from "@/lib/advice/concert-hub";
 
 type Copy = (key: string, text: string) => void;
@@ -40,7 +40,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 /** A drop-down: the option to pick, or the reason to match while we don't have its list. */
 function Pick({ d, pick, why }: { d: HubDropdown; pick: string; why: string }) {
   if (!why.trim() && !pick) return <Missing />;
-  if (pick) return <><span className="font-semibold">{pick}</span>{why && <span className="text-slate-600"> {why}</span>}</>;
+  if (pick) return <><span className="font-semibold">{pick}</span>{why && <div className="text-xs text-slate-600">{why}</div>}</>;
   return <><span className="text-slate-500">{HUB_DROPDOWNS[d].complete ? "No option matches: " : "Pick the closest to: "}</span>{why}</>;
 }
 
@@ -88,7 +88,8 @@ export function ConcertHubPage({ hub, copied, copy }: { hub: HubPage; copied: st
         {hub.needs.some((n) => n.outcome === "COVERED") && <p className="mt-1 text-xs text-slate-600">Already covered: Concert Hub asks for the evidence.</p>}
         {hub.deferred.map((d) => (
           <Row key={d.client} label={`Deferred Period, ${d.client}`}>
-            {d.period.trim() ? <span className="font-semibold">{d.period}</span> : <Missing />}
+            {d.period.trim() ? <span className="font-semibold">{d.period}</span>
+              : deferredFor(hub, d.client) === "sheet" || !d.why.trim() ? <Missing /> : <span className="text-slate-500">Match it to their sick pay: </span>}
             {d.why && <span className="text-slate-600"> {d.why}</span>}
           </Row>
         ))}
@@ -114,7 +115,7 @@ export function ConcertHubPage({ hub, copied, copy }: { hub: HubPage; copied: st
           {hub.policies.map((p, i) => (
             <Row key={i} label={`Reasons Why, Provider: ${p.policy}, ${p.client}${p.provider ? ` (${p.provider})` : ""}`}>
               {p.provider_reasons.length ? <span className="font-semibold">Yes to: {p.provider_reasons.map((r) => PROVIDER_REASON_LABEL[r]).join(", ")}</span> : <Missing />}
-              {p.provider_why && <span className="text-slate-600"> {p.provider_why}</span>}
+              {p.provider_why && <div className="text-xs text-slate-600">{p.provider_why}</div>}
             </Row>
           ))}
           <Row label="Replace Any Existing Protection Policies?"><span className="font-semibold">{hub.replacements.length ? "Yes" : "No"}</span></Row>

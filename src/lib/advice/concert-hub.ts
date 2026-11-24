@@ -106,8 +106,10 @@ export interface HubPage {
     facilitate: "YES" | "NO" | "NOT_ON_SHEET"; losses: ReplaceLoss[]; outweigh: string;
   }[];
   notes: { key: HubNote; text: string }[];
+  /** Not a Concert Hub field: for the under budget red line. */
+  budget: { agreed: string; premiums: string; unused_why: string };
 }
-export const EMPTY_HUB: HubPage = { needs: [], deferred: [], policies: [], replacements: [], notes: [] };
+export const EMPTY_HUB: HubPage = { needs: [], deferred: [], policies: [], replacements: [], notes: [], budget: { agreed: "", premiums: "", unused_why: "" } };
 
 export function hubFilled(h: HubPage | null | undefined): h is HubPage {
   return !!h && (h.needs?.length > 0 || h.policies?.length > 0 || h.notes?.length > 0);
@@ -152,15 +154,35 @@ export function settleHub(h: HubPage): HubPage {
 export function unmetWithoutReason(h: HubPage): string | null {
   const list = unmet(h).filter((n) => !n.why);
   if (list.length === 0) return null;
-  const many = list.length > 3 ? `${list.length} needs` : list.map((n) => `${n.client}, ${HUB_NEED_LABEL[n.need].toLowerCase()}`).join("; ");
-  return `Put on the sheet why ${list.length === 1 ? "this need isn't" : "these needs aren't"} covered, in the client's words (${many}). If you don't know, ask them.`;
+  const which = HUB_NEEDS.filter((need) => list.some((n) => n.need === need))
+    .map((need) => `${HUB_NEED_LABEL[need]} (${list.filter((n) => n.need === need).map((n) => n.client).join(", ")})`).join("; ");
+  return `Put on the sheet why ${list.length === 1 ? "this need isn't" : "these needs aren't"} covered, in the client's words: ${which}. If you don't know, ask them.`;
+}
+
+/** "£70 a month" as 70. */
+function figure(s: string | undefined): number | null {
+  const m = (s ?? "").replace(/,/g, "").match(/\d+(\.\d+)?/);
+  return m ? Number(m[0]) : null;
+}
+
+/** TopQuote's guide: under budget with a need left uncovered is a fail, unless the reason is recorded. */
+export function underBudget(h: HubPage): string | null {
+  const agreed = figure(h.budget?.agreed);
+  const total = figure(h.budget?.premiums);
+  if (agreed === null || total === null || total >= agreed || h.budget.unused_why.trim() || unmet(h).length === 0) return null;
+  return `The premiums come to £${total.toFixed(2)}, under the £${agreed.toFixed(2)} budget, with needs left uncovered. Use the rest, or put on the sheet why not.`;
+}
+
+/** The deferred period is on the sheet only where income protection is recommended. Otherwise it follows their sick pay. */
+export function deferredFor(h: HubPage, client: string): "sheet" | "sick_pay" {
+  return h.needs.some((n) => n.client === client && n.need === "income_sickness" && n.outcome === "MET") ? "sheet" : "sick_pay";
 }
 
 /** Everything else on the page the sheet doesn't back up yet. */
 export function hubGaps(h: HubPage | null | undefined): number {
   if (!hubFilled(h)) return 0;
   return h.needs.filter((n) => n.outcome === "NOT_ON_SHEET").length
-    + h.deferred.filter((d) => !d.period.trim()).length
+    + h.deferred.filter((d) => !d.period.trim() && (deferredFor(h, d.client) === "sheet" || !d.why.trim())).length
     + h.policies.reduce((n, p) => n + [p.amount_why, p.term_why, p.trust, p.extras, p.provider_reasons.length ? "x" : ""].filter((v) => !v.trim()).length, 0)
     + h.replacements.reduce((n, r) => n + (r.still_suitable === "NOT_ON_SHEET" ? 1 : 0) + (r.facilitate === "NOT_ON_SHEET" ? 1 : 0)
         + (r.losses.length ? 0 : 1) + (r.outweigh.trim() ? 0 : 1) + (r.still_suitable === "NO" && !r.reasons.length ? 1 : 0), 0);

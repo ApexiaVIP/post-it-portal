@@ -223,7 +223,7 @@ export default function FactFindPage() {
             {before ? (
               <p className="mt-2 text-xs text-slate-600">The check gives the licence answer and the red lines. After the advice call, tick the box above, fill in the last section and run it again for your Concert Hub page.</p>
             ) : (
-              <label className="mt-2 flex items-start gap-2 text-xs"><input type="checkbox" className="mt-0.5" checked={notesAnyway} onChange={(e) => setNotesAnyway(e.target.checked)} />If something is missing, still draft the notes for the parts that are complete</label>
+              <label className="mt-2 flex items-start gap-2 text-xs"><input type="checkbox" className="mt-0.5" checked={notesAnyway} onChange={(e) => setNotesAnyway(e.target.checked)} />If something is missing, still fill in the Concert Hub page for the parts that are complete</label>
             )}
           </div>
 

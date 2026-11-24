@@ -55,7 +55,7 @@ export const AdviceCheckOutput = z.object({
   documents_differ: z.array(z.string()).describe("Where the documents differ, or Openwork's stated expectation goes beyond the written framework, as it bears on this case. Empty if none."),
   justification: z.array(z.object({
     key: z.enum(JUSTIFICATION_KEYS),
-    text: z.string().describe("One short paragraph in the first person, as the adviser"),
+    text: z.string().describe("One short paragraph in the first person, as the adviser, 60 words at most"),
     cites: z.string().describe("The framework section or Openwork expectation the paragraph answers"),
   })).describe("Part 2. Empty before the advice call, when the case isn't ready and the adviser hasn't asked for the complete parts, or the recommendation doesn't fit."),
   hub: z.object({
@@ -98,6 +98,11 @@ export const AdviceCheckOutput = z.object({
       key: z.enum(HUB_NOTES),
       text: z.string().describe("The note, first person, short plain factual sentences"),
     })).describe("One note for each key, in order"),
+    budget: z.object({
+      agreed: z.string().describe("The monthly budget the client gave, with the £ sign. Empty if the sheet doesn't say"),
+      premiums: z.string().describe("The monthly premiums recommended, added up, with the £ sign"),
+      unused_why: z.string().describe("If the premiums come to less than the budget: why the rest wasn't used, as the sheet shows it. It has to account for every need that is NOT_MET. Empty if the sheet doesn't say, or nothing is left"),
+    }),
   }).describe("Part 3, the Concert Hub page. Every list empty in the same cases as Part 2."),
   statements: z.array(z.object({
     n: z.number().int(),
