@@ -67,12 +67,38 @@ export const GAP_LABEL: Record<GapItem, string> = {
   health: "Health information to check against the application answers",
 };
 
-export const GAP_STATUS = ["RECORDED", "MISSING", "CLIENT_DECLINED", "NOT_APPLICABLE"] as const;
+/**
+ * The red lines (Jimmy, Guy and Poz, 24 Nov 2026: pick out the absolute
+ * priorities, don't list everything). The check works them out for each case.
+ * These few, the need, the options and the reasons Openwork has failed cases
+ * on, are always red lines when missing, so they can't be left off.
+ */
+export const ALWAYS_RED: readonly GapItem[] = ["need_in_words", "dependants", "lifelong_need", "sum_assured", "term"];
+export const RED_LINE_KINDS = ["ASK_CLIENT", "FIX_SHEET", "SPEAK_TO_GUY"] as const;
+export type RedLineKind = (typeof RED_LINE_KINDS)[number];
+export const RED_LINE_KIND_LABEL: Record<RedLineKind, string> = {
+  ASK_CLIENT: "Ask the client",
+  FIX_SHEET: "Put it on the sheet",
+  SPEAK_TO_GUY: "Speak to Guy",
+};
+
+/**
+ * A two call case is checked before the advice call (can we advise, and the
+ * red lines) and again after it, when the justification and notes are drafted.
+ * A one call case has had its advice, so it gets everything at once.
+ */
+export type Stage = "before_advice" | "after_advice";
+export function stageOf(c: { case_type: string; presented: boolean }): Stage {
+  return c.case_type === "two_call" && !c.presented ? "before_advice" : "after_advice";
+}
+
+export const GAP_STATUS = ["RECORDED", "MISSING", "CLIENT_DECLINED", "ON_ADVICE_CALL", "NOT_APPLICABLE"] as const;
 export type GapStatus = (typeof GAP_STATUS)[number];
 export const GAP_STATUS_LABEL: Record<GapStatus, string> = {
   RECORDED: "Recorded",
   MISSING: "Missing",
   CLIENT_DECLINED: "Client declined",
+  ON_ADVICE_CALL: "For the advice call",
   NOT_APPLICABLE: "Doesn't apply",
 };
 
@@ -105,14 +131,17 @@ export const NOTE_HEADING: Record<NoteKey, string> = {
 };
 
 export interface AdviceCheckResult {
+  stage?: Stage;
   part0: {
     rows: ScenarioRow[];
     verdict: Verdict;
     summary: string;
     speak_to_guy: boolean;
+    recommendation: { policy: string; lives: string; product: string; sum_assured: string; term: string; premium: string; other: string }[];
     fit: { result: Fit; explanation: string };
   };
   gaps: { item: GapItem; status: GapStatus; detail: string; source: string }[];
+  red_lines: { action: string; kind: RedLineKind; items: GapItem[] }[];
   questions: string[];
   not_on_sheet: { statement: string; note: string }[];
   documents_differ: string[];
@@ -127,10 +156,13 @@ export type CheckStatus = "draft" | "running" | "done" | "failed";
 /** Guy's closing line, added to every check by the portal. */
 export const CLOSING_LINE = "This is a checking and drafting aid. The adviser is responsible for the advice and the record. Standards: ICOB SAF (current version), Openwork's feedback to TopQuote of 17th to 20th November 2026, ICOBS 5.3 and the Consumer Duty. Where the retired couple row applies, speak to Guy before recommending term cover.";
 
-export type Readiness = "doesnt_fit" | "speak_to_guy" | "missing" | "confirm" | "ready";
+export type Readiness = "doesnt_fit" | "speak_to_guy" | "no_recommendation" | "unclear" | "red_lines" | "missing" | "confirm" | "ready";
 
 export interface CheckSummary {
   readiness: Readiness;
+  redLines: number;
+  /** Missing, but not a red line. */
+  smaller: number;
   missing: number;
   declined: number;
   notOnSheet: number;
@@ -141,30 +173,50 @@ export interface CheckSummary {
 export function summarise(r: AdviceCheckResult | null | undefined): CheckSummary | null {
   if (!r?.part0 || !Array.isArray(r.gaps)) return null;
   const missing = r.gaps.filter((g) => g.status === "MISSING").length;
+  const redLines = (r.red_lines ?? []).length;
+  const covered = new Set((r.red_lines ?? []).flatMap((x) => x.items));
+  const smaller = r.gaps.filter((g) => g.status === "MISSING" && !covered.has(g.item)).length;
   const declined = r.gaps.filter((g) => g.status === "CLIENT_DECLINED").length;
   const notOnSheet = (r.not_on_sheet ?? []).length;
   const readiness: Readiness =
     r.part0.fit?.result === "DOES_NOT_FIT" ? "doesnt_fit"
     : r.part0.speak_to_guy || r.part0.verdict === "SPEAK_TO_GUY" || r.part0.verdict === "CANNOT_ADVISE" ? "speak_to_guy"
+    : r.part0.recommendation?.length === 0 ? "no_recommendation"
+    : redLines > 0 ? "red_lines"
+    : r.part0.fit?.result === "CANNOT_TELL" ? "unclear"
     : missing > 0 ? "missing"
     : notOnSheet > 0 ? "confirm"
     : "ready";
   const label =
     readiness === "doesnt_fit" ? "Recommendation doesn't fit"
     : readiness === "speak_to_guy" ? (r.part0.verdict === "CANNOT_ADVISE" ? "Not within our licence" : "Speak to Guy first")
-    : readiness === "missing" ? `Not ready: ${missing} missing`
+    : readiness === "no_recommendation" ? "No recommendation on the sheet"
+    : readiness === "unclear" ? "Recommendation not clear"
+    : readiness === "red_lines" ? `${redLines} red line${redLines === 1 ? "" : "s"}`
+    : readiness === "missing" ? `No red lines, ${smaller} smaller gap${smaller === 1 ? "" : "s"}`
     : readiness === "confirm" ? `Confirm ${notOnSheet} point${notOnSheet === 1 ? "" : "s"}`
-    : "Ready";
-  return { readiness, missing, declined, notOnSheet, label };
+    : r.stage === "before_advice" ? "Ready for the advice call" : "Ready";
+  return { readiness, redLines, smaller, missing, declined, notOnSheet, label };
 }
 
 export const READINESS_STYLE: Record<Readiness, string> = {
   doesnt_fit: "bg-red-100 text-red-800",
   speak_to_guy: "bg-red-100 text-red-800",
+  no_recommendation: "bg-amber-100 text-amber-900",
+  unclear: "bg-amber-100 text-amber-900",
+  red_lines: "bg-red-100 text-red-800",
   missing: "bg-amber-100 text-amber-900",
   confirm: "bg-amber-100 text-amber-900",
   ready: "bg-emerald-100 text-emerald-800",
 };
+
+/** What the reading of the photos wasn't sure of, for the seller to type in. */
+export function unreadable(sheetText: string | null): string[] {
+  if (!sheetText?.startsWith("READ FROM THE ADVISER'S PHOTOS")) return [];
+  const read = sheetText.split("\n\nTYPED BY THE ADVISER")[0];
+  const block = read.split("\n\nNOT READ WITH CONFIDENCE\n")[1];
+  return block ? block.split("\n").map((l) => l.replace(/^- /, "").trim()).filter(Boolean) : [];
+}
 
 /** Part 2 as plain text, for copying. */
 export function justificationText(r: AdviceCheckResult): string {

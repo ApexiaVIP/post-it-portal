@@ -48,7 +48,7 @@ export function adviserRecordText(k: LinkedCheck): string {
   return [
     "<sheet>", k.sheet_text ?? "Not available.", "</sheet>",
     "",
-    "<justification>", justificationText(k.result) || "The check didn't draft a justification (something was missing).", "</justification>",
+    "<justification>", justificationText(k.result) || "The check didn't draft a justification (run before the advice call, or something was missing).", "</justification>",
   ].join("\n");
 }
 
@@ -62,7 +62,7 @@ export async function startStatements(caseId: number, startedBy: string): Promis
   const k = await linkedCheck(caseId);
   if (!k) return { error: "No finished advice check is linked to this sale.", status: 400 };
   if (!k.result.statements?.length) {
-    return { error: "The seller's advice check stopped at the gap check, so it has no notes to test yet. It will have once they run it again with nothing missing.", status: 400 };
+    return { error: "The seller's advice check has no notes to test yet: it was run before the advice call, or something was missing. It will have once they run it again after the call.", status: 400 };
   }
   const running = await sql`
     SELECT 1 FROM qa_runs WHERE case_id = ${caseId} AND gate = 4 AND status = 'running'

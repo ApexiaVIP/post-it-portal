@@ -63,10 +63,8 @@ export async function POST(req: Request) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today || date < "2026-01-01") {
     return NextResponse.json({ error: "Give the date of the fact find call." }, { status: 400 });
   }
+  // Optional: the recommendation is normally on the sheet's policy pages.
   const recommendation = str(b.recommendation);
-  if (recommendation.length < 10) {
-    return NextResponse.json({ error: "Type your recommendation and your reasons." }, { status: 400 });
-  }
   if (recommendation.length > 6000) return NextResponse.json({ error: "The recommendation is too long." }, { status: 400 });
   const typed = str(b.sheet_typed);
   if (typed.length > MAX_TEXT) return NextResponse.json({ error: "The typed sheet is too long." }, { status: 400 });

@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Advice check: one check (Guy, 22 Nov 2026). Part 0 first (can this advice
- * be given), then the gap check and the questions for the client, then the
- * justification and the Concert Hub notes to copy, then every statement for
- * the check against the recording. Once the sale's calls are in Call QA, the
+ * Advice check: one check (Guy, 22 Nov 2026; triaged 24 Nov). Can this advice
+ * be given, and the red lines, come first; the rest of the gap check is folded
+ * away. After the advice call come the justification and the Concert Hub
+ * notes to copy, then every statement for the check against the recording. Once the sale's calls are in Call QA, the
  * statements are tested against them and the result shows at the end.
  */
 import { useCallback, useEffect, useState } from "react";
@@ -12,7 +12,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   CLOSING_LINE, GAP_ITEMS, GAP_LABEL, GAP_STATUS_LABEL, JUSTIFICATION_HEADING, JUSTIFICATION_KEYS, NOTE_HEADING, NOTE_KEYS,
-  READINESS_STYLE, SCENARIO_LABEL, VERDICT_LABEL, justificationText, notesText, summarise,
+  READINESS_STYLE, RED_LINE_KIND_LABEL, SCENARIO_LABEL, VERDICT_LABEL, justificationText, notesText, summarise, unreadable,
   type AdviceCheckResult, type GapItem, type GapStatus,
 } from "@/lib/advice/shared";
 import { STATEMENT_LABEL, STATEMENT_STYLE } from "@/lib/qa/notes-check";
@@ -54,6 +54,7 @@ const GAP_STYLE: Record<GapStatus, string> = {
   RECORDED: "bg-emerald-100 text-emerald-800",
   MISSING: "bg-red-100 text-red-800",
   CLIENT_DECLINED: "bg-amber-100 text-amber-900",
+  ON_ADVICE_CALL: "bg-sky-100 text-sky-900",
   NOT_APPLICABLE: "bg-slate-100 text-slate-600",
 };
 
@@ -138,6 +139,8 @@ export default function AdviceCheckPage() {
   const c = data.check;
   const r = c.status === "done" ? c.result : null;
   const sum = summarise(r);
+  const before = r?.stage === "before_advice";
+  const notRead = r ? unreadable(c.sheet_text) : [];
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
@@ -187,32 +190,74 @@ export default function AdviceCheckPage() {
         <>
           <Verdict r={r} />
 
-          <div className={`mt-4 rounded-lg border-2 p-4 ${sum.readiness === "ready" ? "border-emerald-600 bg-emerald-50" : sum.readiness === "missing" || sum.readiness === "confirm" ? "border-amber-500 bg-amber-50" : "border-red-600 bg-red-50"}`}>
+          <div className={`mt-4 rounded-lg border-2 p-4 ${sum.readiness === "ready" ? "border-emerald-600 bg-emerald-50" : ["missing", "confirm", "no_recommendation", "unclear"].includes(sum.readiness) ? "border-amber-500 bg-amber-50" : "border-red-600 bg-red-50"}`}>
             <p className="flex items-center gap-2">
               <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${READINESS_STYLE[sum.readiness]}`}>{sum.label}</span>
             </p>
             <p className="mt-2 font-semibold">
               {sum.readiness === "doesnt_fit" ? "Change the recommendation or speak to Guy. Don't write notes for it as it stands."
                 : sum.readiness === "speak_to_guy" ? "Speak to Guy before you present this."
-                : sum.readiness === "missing" ? `Not ready to submit: ${sum.missing} thing${sum.missing === 1 ? " is" : "s are"} missing. Ring the client back and ask the questions below, update the sheet, then run the check again.`
-                : sum.readiness === "confirm" ? "Nothing is missing from the sheet, but you gave the check something that isn't on it. Confirm it below, then run it again."
+                : sum.readiness === "no_recommendation" ? "No recommendation was found. Fill in the policy pages (7 to 9) or type it, then run the check again."
+                : sum.readiness === "unclear" ? "The check couldn't tell whether your recommendation fits. Put right what it says above, then run it again."
+                : sum.readiness === "red_lines" ? "Put these right, then run it again. Don't work around them with wording."
+                : sum.readiness === "missing" ? (before ? "No red lines. Pick up the smaller gaps on the advice call if you can." : "No red lines, but the smaller gaps have to be closed before you submit.")
+                : sum.readiness === "confirm" ? "You gave the check something that isn't on your sheet. Confirm it below, then run it again."
+                : before ? "No red lines. Go ahead with the advice call."
                 : "Nothing is missing. Use Part 2 as your rationale and paste Part 3 into Concert Hub under the matching fields. Enter every figure you gathered, mandatory or not."}
             </p>
-            {sum.readiness !== "doesnt_fit" && sum.readiness !== "speak_to_guy" && sum.missing > 0 && (
-              <p className="mt-1 text-sm">Don&apos;t work around a gap with wording. The fix for a gap is a call back to the client.</p>
+            {r.red_lines.length > 0 && (
+              <ol className="mt-3 space-y-2">
+                {r.red_lines.map((x, i) => (
+                  <li key={i} className="flex gap-2 rounded border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <span className="font-bold">{i + 1}.</span>
+                    <span className="flex-1">{x.action}</span>
+                    <span className="h-fit whitespace-nowrap rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700">{RED_LINE_KIND_LABEL[x.kind]}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {before && (
+              <p className="no-print mt-3 text-sm">
+                After the advice call, <Link href={`/advice-check/new?from=${c.id}&after=1`} className="font-semibold text-teal-800 underline">run it again for the justification and Concert Hub notes</Link>.
+              </p>
             )}
           </div>
 
+          {r.not_on_sheet.length > 0 && (
+            <div className="mt-4 rounded border border-amber-300 bg-white p-3 text-sm">
+              <p className="font-bold">You told the check this, but it isn&apos;t on your sheet</p>
+              <p className="text-xs text-slate-600">Only if it was said on the recorded call: add it to the sheet and run the check again. If you can&apos;t confirm it, leave it out.</p>
+              <ul className="mt-1 list-disc space-y-1 pl-6">{r.not_on_sheet.map((x, i) => <li key={i}><span className="font-medium">{x.statement}</span> {x.note}</li>)}</ul>
+            </div>
+          )}
+
+          {notRead.length > 0 && (
+            <div className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm">
+              <p className="font-bold">Couldn&apos;t be read clearly</p>
+              <p className="text-xs text-slate-600">Check these against your sheet. If any is wrong, type it in and run the check again.</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-6">{notRead.map((x, i) => <li key={i}>{x}</li>)}</ul>
+            </div>
+          )}
+
           <Changes previous={data.previous} r={r} />
 
-          <Section n={1} title="Gap check" note="Every item Openwork expects on the file, from your sheet.">
-            <div className="overflow-x-auto rounded border border-slate-200 bg-white">
+          <details className="mt-6 rounded border border-slate-200 bg-white px-3 py-2 text-sm">
+            <summary className="cursor-pointer font-bold">
+              Everything else <span className="font-normal text-slate-500">(the full gap check{sum.smaller > 0 ? `, ${sum.smaller} smaller gap${sum.smaller === 1 ? "" : "s"}` : ""})</span>
+            </summary>
+            {r.questions.length > 0 && (
+              <div className="mt-3">
+                <p className="font-bold">Worth asking on the same call</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-6">{r.questions.map((q, i) => <li key={i}>{q}</li>)}</ul>
+              </div>
+            )}
+            <div className="mt-3 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr><th className="px-3 py-2">Item</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">What the sheet shows, or what to ask</th></tr>
                 </thead>
                 <tbody>
-                  {[...r.gaps].sort((a, b) => GAP_ITEMS.indexOf(a.item) - GAP_ITEMS.indexOf(b.item)).map((g) => (
+                  {[...r.gaps].sort((x, y) => GAP_ITEMS.indexOf(x.item) - GAP_ITEMS.indexOf(y.item)).map((g) => (
                     <tr key={g.item} className="break-inside-avoid border-b border-slate-100 align-top last:border-0">
                       <td className="px-3 py-2">{GAP_LABEL[g.item] ?? g.item}<div className="text-xs text-slate-500">{g.source}</div></td>
                       <td className="px-3 py-2"><span className={`whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold ${GAP_STYLE[g.status]}`}>{GAP_STATUS_LABEL[g.status]}</span></td>
@@ -222,26 +267,13 @@ export default function AdviceCheckPage() {
                 </tbody>
               </table>
             </div>
-            {r.questions.length > 0 && (
-              <div className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm">
-                <p className="font-bold">Questions to take back to the client, most important first</p>
-                <ol className="mt-1 list-decimal space-y-1 pl-6">{r.questions.map((q, i) => <li key={i}>{q}</li>)}</ol>
-              </div>
-            )}
-            {r.not_on_sheet.length > 0 && (
-              <div className="mt-4 rounded border border-amber-300 bg-white p-3 text-sm">
-                <p className="font-bold">You told the check this, but it isn&apos;t on your sheet</p>
-                <p className="text-xs text-slate-600">Only if it was said on the recorded call: add it to the sheet and run the check again. If you can&apos;t confirm it, leave it out.</p>
-                <ul className="mt-1 list-disc space-y-1 pl-6">{r.not_on_sheet.map((x, i) => <li key={i}><span className="font-medium">{x.statement}</span> {x.note}</li>)}</ul>
-              </div>
-            )}
             {r.documents_differ.length > 0 && (
-              <div className="mt-4 text-sm">
+              <div className="mt-3">
                 <p className="font-bold">Where the documents differ</p>
-                <ul className="mt-1 list-disc space-y-1 pl-6 text-slate-700">{r.documents_differ.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                <ul className="mt-1 list-disc space-y-0.5 pl-6 text-slate-700">{r.documents_differ.map((x, i) => <li key={i}>{x}</li>)}</ul>
               </div>
             )}
-          </Section>
+          </details>
 
           {r.justification.length > 0 && (
             <Section n={2} title="Justification of the advice" note="The suitability rationale you can rely on, in your voice. Check every word against what was said on the call."
@@ -304,8 +336,12 @@ export default function AdviceCheckPage() {
       {c.status !== "draft" && (
         <details className="mt-8 text-sm">
           <summary className="cursor-pointer font-semibold">What you gave the check</summary>
-          <p className="mt-2 font-semibold">Recommendation and reasons</p>
-          <p className="whitespace-pre-line rounded border border-slate-200 bg-white p-2">{c.recommendation}</p>
+          {c.recommendation && (
+            <>
+              <p className="mt-2 font-semibold">Recommendation and reasons, as typed</p>
+              <p className="whitespace-pre-line rounded border border-slate-200 bg-white p-2">{c.recommendation}</p>
+            </>
+          )}
           <p className="mt-3 font-semibold">The sheet, as the check read it</p>
           <pre className="whitespace-pre-wrap rounded border border-slate-200 bg-white p-2 text-xs">{c.sheet_text ?? "Not read yet."}</pre>
         </details>
@@ -335,10 +371,25 @@ function Verdict({ r }: { r: AdviceCheckResult }) {
         <p className="mt-1">{p.summary}</p>
         {p.speak_to_guy && <p className="mt-1 font-semibold text-red-800">Speak to Guy before you present{p.rows.includes("retired_couple") ? " term cover" : ""}.</p>}
         <p className="mt-2">
-          <span className="font-semibold">Your recommendation: </span>
-          {p.fit.result === "FITS" ? "fits." : p.fit.result === "DOES_NOT_FIT" ? <span className="font-semibold text-red-800">doesn&apos;t fit.</span> : "can't tell from what's here."}{" "}
+          <span className="font-semibold">Does it fit? </span>
+          {p.fit.result === "FITS" ? "Yes." : p.fit.result === "DOES_NOT_FIT" ? <span className="font-semibold text-red-800">No.</span> : "Can't tell from what's here."}{" "}
           {p.fit.explanation}
         </p>
+        {p.recommendation.length > 0 && (
+          <div className="mt-3 overflow-x-auto">
+            <p className="text-xs font-semibold text-slate-600">Your recommendation, as the check read it. If a figure is wrong, type it in and run the check again.</p>
+            <table className="mt-1 w-full text-left text-xs">
+              <thead className="text-slate-500"><tr>{["", "Who", "Product", "Sum assured", "Term", "Premium", "Other"].map((h) => <th key={h} className="py-1 pr-3 font-medium">{h}</th>)}</tr></thead>
+              <tbody>
+                {p.recommendation.map((x, i) => (
+                  <tr key={i} className="border-t border-slate-100 align-top">
+                    {[x.policy, x.lives, x.product, x.sum_assured, x.term, x.premium, x.other].map((v, j) => <td key={j} className="py-1 pr-3">{v}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </Section>
   );

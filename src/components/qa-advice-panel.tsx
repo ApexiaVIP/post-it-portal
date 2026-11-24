@@ -111,7 +111,7 @@ export function AdvicePanel({ caseId, advice, gate1, gate3, gate4, seller, onJum
           {!tested ? (
             <p className="mt-2 text-slate-600">The check hasn&apos;t finished yet, so there&apos;s nothing to test against the calls.</p>
           ) : tested.statements.length === 0 ? (
-            <p className="mt-2 text-slate-600">The check stopped at the gap check (something was missing), so it drafted no notes to test. It will once {seller} runs it again with nothing missing.</p>
+            <p className="mt-2 text-slate-600">This check has no notes to test: it was run before the advice call, or something was missing. It will once {seller} runs it again after the call with nothing missing.</p>
           ) : (
             <div className="mt-3">
               <div className="flex flex-wrap items-center justify-between gap-2">

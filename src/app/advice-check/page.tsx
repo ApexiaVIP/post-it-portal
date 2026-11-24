@@ -84,9 +84,9 @@ export default function AdviceCheckListPage() {
         <div>
           <h1 className="text-2xl font-bold">Advice check</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            Run it on every case before you present advice. Upload your completed Fact Find sheet and type your intended
-            recommendation. It checks both against Openwork&apos;s framework and the documents they assess us on, tells you if the case is
-            within our licence, lists anything missing, writes the justification for the advice and drafts your Concert Hub notes.
+            Run it on every case before you present advice. Upload or paste your completed Fact Find sheet, with your
+            recommendation on pages 7 to 9. It tells you if the case is within our licence and what the red lines are. Run it again after the advice
+            call (or straight after a one call) for the justification and your Concert Hub notes.
             It only uses what&apos;s on your sheet: if something is missing, ring the client back and ask.
           </p>
         </div>

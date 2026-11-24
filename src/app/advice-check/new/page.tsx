@@ -3,7 +3,8 @@
 /**
  * Advice check: a new check, or a repeat after a callback (?from=<id>)
  * (Guy, 22 Nov 2026). The seller uploads the completed Fact Find sheet (or
- * types it) and types the recommendation they intend to present.
+ * types it). Their recommendation is read from its policy pages, 7 to 9
+ * (Jimmy, 24 Nov 2026), and they can type it as well or instead.
  */
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
@@ -31,6 +32,7 @@ function NewCheckForm() {
   const router = useRouter();
   const params = useSearchParams();
   const from = params.get("from");
+  const after = params.get("after") === "1";
   const [reviewer, setReviewer] = useState(false);
   const [advisers, setAdvisers] = useState<{ id: number; name: string }[]>([]);
   const [prev, setPrev] = useState<Prefill | null>(null);
@@ -59,7 +61,7 @@ function NewCheckForm() {
           const c = j.check as Prefill;
           setPrev(c);
           setClient(c.client_label); setCaseType(c.case_type); setDate(c.fact_find_date);
-          setRec(c.recommendation); setPresented(c.presented); setNotesAnyway(c.notes_anyway);
+          setRec(c.recommendation); setPresented(c.presented || after); setNotesAnyway(c.notes_anyway);
           setTyped(c.sheet_text ?? "");
         } else {
           setError("Couldn't find the earlier check.");
@@ -67,7 +69,7 @@ function NewCheckForm() {
       }
       setLoading(false);
     })();
-  }, [from]);
+  }, [from, after]);
 
   function addFiles(list: FileList | null) {
     if (!list) return;
@@ -118,7 +120,7 @@ function NewCheckForm() {
       <h1 className="mt-1 text-2xl font-bold">{prev ? `Run the check again: ${prev.client_label}` : "New advice check"}</h1>
       {prev && (
         <p className="mt-1 text-sm text-slate-600">
-          After the callback: update the sheet below with what the client told you, or upload new photos of the updated sheet, then run it again.
+          Update the sheet below with what the client told you on the call, or upload new photos of the updated sheet, then run it again.
         </p>
       )}
 
@@ -161,7 +163,11 @@ function NewCheckForm() {
 
         <div>
           <p className="text-sm font-semibold">Your completed Fact Find sheet</p>
-          <p className="text-xs text-slate-600">Photos or a scan of every page. A phone photo is fine. Only the sheet: no call recordings, no emails from Openwork.</p>
+          <p className="text-xs text-slate-600">Photos or a scan of every page, both sides, sharp enough to read every figure. A phone photo is fine. If your writing won&apos;t be readable, type it below instead. Only the sheet: no call recordings, no emails from Openwork.</p>
+          <p className="mt-1 text-xs text-slate-600">
+            <span className="font-semibold">Your recommendation and reasons are read from pages 7, 8 and 9</span> (Policy 1, 2 and 3, for each person),
+            so fill those in first. Pages 7 and 8 are the front and back of one page.
+          </p>
           <input type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf,image/*"
             onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
             className="mt-2 block w-full text-sm file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm" />
@@ -176,7 +182,7 @@ function NewCheckForm() {
             </ul>
           )}
           <label className="mt-3 block text-sm" htmlFor="typed">
-            {prev ? "The sheet as the last check read it. Add what the client told you on the callback:" : "Or type or paste it instead (or as well):"}
+            {prev ? "The sheet as the last check read it. Add what the client told you:" : "Or type or paste it instead (or as well):"}
           </label>
           <textarea id="typed" rows={prev ? 14 : 5} value={typed} onChange={(e) => setTyped(e.target.value)} className={`${field} font-mono text-xs`} />
           {prev && typed && (
@@ -188,19 +194,26 @@ function NewCheckForm() {
 
         <div>
           <label className="text-sm font-semibold" htmlFor="rec">Your recommendation and reasons</label>
-          <p className="text-xs text-slate-600">Product, who is covered, sum assured, term, premium, trust, indexation, and your reasons in a sentence or two.</p>
-          <textarea id="rec" required rows={5} maxLength={6000} value={rec} onChange={(e) => setRec(e.target.value)} className={field} />
+          <p className="text-xs text-slate-600">Leave this empty if pages 7 to 9 are filled in and easy to read. Use it for what they have no box for (trust, joint or single life, a fourth policy), or if your writing won&apos;t scan clearly.</p>
+          <textarea id="rec" rows={3} maxLength={6000} value={rec} onChange={(e) => setRec(e.target.value)} className={field} />
         </div>
 
         <div className="space-y-2 text-sm">
           <label className="flex items-start gap-2">
             <input type="checkbox" className="mt-1" checked={presented} onChange={(e) => setPresented(e.target.checked)} />
-            I have already presented this recommendation to the client
+            I have already presented the recommendation to the client
           </label>
-          <label className="flex items-start gap-2">
-            <input type="checkbox" className="mt-1" checked={notesAnyway} onChange={(e) => setNotesAnyway(e.target.checked)} />
-            If something is missing, still draft the justification and notes for the parts that are complete
-          </label>
+          {caseType === "two_call" && !presented ? (
+            <p className="text-xs text-slate-600">
+              This checks the case before your advice call: whether we can advise, and any red lines. After the advice call, run it again with
+              the box above ticked and it drafts the justification and Concert Hub notes.
+            </p>
+          ) : (
+            <label className="flex items-start gap-2">
+              <input type="checkbox" className="mt-1" checked={notesAnyway} onChange={(e) => setNotesAnyway(e.target.checked)} />
+              If something is missing, still draft the justification and notes for the parts that are complete
+            </label>
+          )}
         </div>
 
         <p className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">

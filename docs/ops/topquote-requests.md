@@ -54,7 +54,9 @@ Only the scripts and the sheet are checked. The 6 Oct call guides are retired fr
 
 ## Advice check (/advice-check)
 
-Guy's pre-advice check (22 Nov 2026), run by the sellers (Tan, Hayder, Ben, Gurdaht; `ADVICE_CHECK_USERNAMES`) before they present advice. They upload photos of the completed Fact Find sheet and type the recommendation. It reads the sheet in London (surnames, dates of birth, addresses, contact, policy and bank details left out; photos deleted once read), then runs Guy's instructions with his reference documents: can this advice be given, the gap check, the justification, the Concert Hub notes, and every statement. Sellers see their own checks; Call QA users see all.
+Guy's pre-advice check (22 Nov 2026), run by the sellers (Tan, Hayder, Ben, Gurdaht; `ADVICE_CHECK_USERNAMES`) before they present advice. They upload photos of the completed Fact Find sheet (or type it); the recommendation is read from its policy pages, 7 to 9, and can be typed as well. It reads the sheet in London (surnames, dates of birth, addresses, contact, policy and bank details left out; photos deleted once read), then runs Guy's instructions with his reference documents: can this advice be given, the gap check, the justification, the Concert Hub notes, and every statement. Sellers see their own checks; Call QA users see all.
+
+Since 24 Nov 2026 (call with Guy and Poz): a two call case is checked before the advice call for the licence and the red lines only, and run again after it, with "already presented" ticked, for the justification and notes. The check works out the red lines itself; the need, dependants, lifelong need, sum assured and term (`ALWAYS_RED` in `src/lib/advice/shared.ts`) are always red lines when missing. The full gap check is folded away.
 
 On a Call QA case, Poz links the seller's check to the sale. Then its statements are tested against the calls (Gate 4), and the ones the call doesn't back up join the callback list. The draft suitability report is written from the calls and the sheet together.
 
