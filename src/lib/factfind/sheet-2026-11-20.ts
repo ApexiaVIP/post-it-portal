@@ -4,8 +4,9 @@
  * purpose: first names and ages replace surnames, full dates of birth,
  * addresses and postcodes; existing policies are entered once, with whether
  * they are being kept; and the policy pages take any number of policies and
- * have trust and joint or single life. "After the advice call" is added so
- * what was decided has somewhere to go.
+ * have trust and joint or single life. "How the budget was set" and "After the
+ * advice call" are added, because the advice check asks for both and the paper
+ * has no box for them.
  */
 import type { Block, Data, Field, Policy, Row, Sheet } from "./types";
 import { blank, hasDependants, hasLife2, money, rowsOf, sumRows } from "./values";
@@ -243,7 +244,7 @@ const sections: Sheet["sections"] = [
     key: "priorities", title: "Priorities and terms",
     blocks: [
       { type: "note", text: "Budget is asked once, at the end of tailoring, after the client has heard every area and option: \"Now that you have heard everything I would like to look at for you, what would you feel comfortable spending each month to cover these areas?\" Then: \"Which of the areas of cover would you say are the absolute priority?\"" },
-      { type: "fields", rows: [must(pounds("budget", "Budget", "month"))] },
+      { type: "fields", rows: [must(pounds("budget", "Budget", "month")), must(text("budget_how", "How the budget was set", "What you asked and what they said"))] },
       { type: "grid", key: "need", title: "Needs, in the call 1 recap order. Every line is one of: identified / already covered with evidence / considered and discounted with the reason. Nothing is left as \"no need\" without a reason.",
         rows: NEEDS, mustLabel: "identified, already covered, or the reason it was discounted",
         must: (d, row) => d[`need.${row}.identified`] !== "Yes" && blank(d[`need.${row}.covered`]) && blank(d[`need.${row}.reason`]),
