@@ -7,14 +7,14 @@
  * instead of suggesting a choice.
  */
 import {
-  HUB_DROPDOWNS, HUB_NEEDS, HUB_NEED_LABEL, HUB_NOTES, HUB_NOTE_LABEL, PROVIDER_REASON_LABEL, REPLACE_LOSS_LABEL, REPLACE_REASON_LABEL,
-  addressedBy, deferredFor, hubClients, unmet, type HubDropdown, type HubPage,
+  HUB_NEEDS, HUB_NEED_LABEL, HUB_NOTES, HUB_NOTE_LABEL, PROVIDER_REASON_LABEL, REPLACE_LOSS_LABEL, REPLACE_REASON_LABEL,
+  addressedBy, deferredFor, hubClients, notAddressed, type HubPage,
 } from "@/lib/advice/concert-hub";
 
 type Copy = (key: string, text: string) => void;
 
-function Missing() {
-  return <span className="whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">Not on your sheet</span>;
+function Missing({ text = "Not on your sheet" }: { text?: string }) {
+  return <span className="whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">{text}</span>;
 }
 
 function Screen({ tab, where, children }: { tab: string; where?: string; children: React.ReactNode }) {
@@ -37,18 +37,21 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-/** A drop-down: the option to pick, or the reason to match while we don't have its list. */
-function Pick({ d, pick, why }: { d: HubDropdown; pick: string; why: string }) {
-  if (!why.trim() && !pick) return <Missing />;
-  if (pick) return <><span className="font-semibold">{pick}</span>{why && <div className="text-xs text-slate-600">{why}</div>}</>;
-  return <><span className="text-slate-500">{HUB_DROPDOWNS[d].complete ? "No option matches: " : "Pick the closest to: "}</span>{why}</>;
+/** A drop-down: the option to pick and the reason behind it. */
+function Pick({ pick, why, unmatched }: { pick: string; why: string; unmatched?: string }) {
+  return (
+    <>
+      {pick ? <span className="font-semibold">{pick}</span> : <Missing text={why ? unmatched : undefined} />}
+      {why && <div className="text-xs text-slate-600">{why}</div>}
+    </>
+  );
 }
 
 const YN = { YES: "Yes", NO: "No" } as const;
 
 export function ConcertHubPage({ hub, copied, copy }: { hub: HubPage; copied: string | null; copy: Copy }) {
   const clients = hubClients(hub);
-  const left = unmet(hub);
+  const left = notAddressed(hub);
   const CopyButton = ({ k, text }: { k: string; text: string }) => (
     <button type="button" onClick={() => copy(k, text)} className="no-print text-xs text-teal-800 underline">{copied === k ? "Copied" : "Copy"}</button>
   );
@@ -72,9 +75,9 @@ export function ConcertHubPage({ hub, copied, copy }: { hub: HubPage; copied: st
                         {!n || n.outcome === "NOT_ON_SHEET" ? <Missing /> : (
                           <>
                             <span className="font-semibold">
-                              {n.outcome === "COVERED" ? "Already covered" : n.outcome === "NOT_IDENTIFIED" ? "Not identified" : "Identified"}
+                              {n.outcome === "NOT_IDENTIFIED" ? "Not identified" : "Identified"}
                             </span>
-                            {n.outcome !== "NOT_MET" && n.why && <div className="text-xs text-slate-600">{n.why}</div>}
+                            {(n.outcome === "MET" || n.outcome === "NOT_IDENTIFIED") && n.why && <div className="text-xs text-slate-600">{n.why}</div>}
                           </>
                         )}
                       </td>
@@ -85,7 +88,6 @@ export function ConcertHubPage({ hub, copied, copy }: { hub: HubPage; copied: st
             </tbody>
           </table>
         </div>
-        {hub.needs.some((n) => n.outcome === "COVERED") && <p className="mt-1 text-xs text-slate-600">Already covered: Concert Hub asks for the evidence.</p>}
         {hub.deferred.map((d) => (
           <Row key={d.client} label={`Deferred Period, ${d.client}`}>
             {d.period.trim() ? <span className="font-semibold">{d.period}</span>
@@ -104,8 +106,8 @@ export function ConcertHubPage({ hub, copied, copy }: { hub: HubPage; copied: st
             <Row label="Needs Addressed By Benefit">
               {needs.length ? <ul className="font-semibold">{needs.map((n, j) => <li key={j}>{clients.length > 1 ? `${n.client}: ` : ""}{HUB_NEED_LABEL[n.need]}</li>)}</ul> : <Missing />}
             </Row>
-            <Row label="Reasons Why: Benefit Amount"><Pick d="benefit_amount" pick={p.amount_pick} why={p.amount_why} /></Row>
-            <Row label="Reasons Why: Product Term"><Pick d="product_term" pick={p.term_pick} why={p.term_why} /></Row>
+            <Row label="Reasons Why: Benefit Amount"><Pick pick={p.amount_pick} why={p.amount_why} unmatched="Say on your sheet how much they need" /></Row>
+            <Row label="Reasons Why: Product Term"><Pick pick={p.term_pick} why={p.term_why} unmatched="Say on your sheet when the need ends" /></Row>
           </Screen>
         );
       })}
@@ -139,9 +141,10 @@ export function ConcertHubPage({ hub, copied, copy }: { hub: HubPage; copied: st
       ))}
 
       <Screen tab="Needs Validation" where="Reason Not Addressed">
-        {left.length === 0 ? <p>Every need you identified is met.</p> : left.map((n, i) => (
-          <Row key={i} label={`${clients.length > 1 ? `${n.client}: ` : ""}${HUB_NEED_LABEL[n.need]}`}><Pick d="reason_not_addressed" pick={n.pick} why={n.why} /></Row>
+        {left.length === 0 ? <p>Nothing to choose: every need you identified is met.</p> : left.map((n, i) => (
+          <Row key={i} label={`${clients.length > 1 ? `${n.client}: ` : ""}${HUB_NEED_LABEL[n.need]}`}><Pick pick={n.pick} why={n.why} unmatched="No option fits: ask Guy" /></Row>
         ))}
+        {left.some((n) => n.outcome === "COVERED") && <p className="mt-1 text-xs text-slate-600">Where a need is already covered, Concert Hub asks for the evidence.</p>}
       </Screen>
 
       {HUB_NOTES.some((k) => hub.notes[k]) && (

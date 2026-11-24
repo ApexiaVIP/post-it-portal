@@ -37,7 +37,6 @@ function policyMissing(d: Data, p: Policy, i: number): string[] {
     need(t.terms.sum, `sum assured${who}`);
     need(t.terms.premium, `premium${who}`);
     if (!t.joint) need(t.terms.trust, `trust${who}`);
-    if (t.terms.type?.includes("IP")) need(t.terms.deferred, `deferred period${who}`);
   }
   need(p.why_need, "why the need");
   need(p.why_sum, "why this sum assured");
@@ -115,7 +114,7 @@ export function blockLines(b: Block, d: Data, forCheck = false): { label: string
           value: [
             `Type: ${t.terms.type?.length ? t.terms.type.join(" with ") : "(blank)"}`, `Basis: ${v(t.terms.basis)}`,
             `Term: ${blank(t.terms.term) ? "(blank)" : `${v(t.terms.term)} years`}`, `Sum assured: ${m(t.terms.sum)}`, `Premium: ${m(t.terms.premium)}${blank(t.terms.premium) ? "" : " a month"}`,
-            `Extras: ${v(t.terms.extras)}`, ...(t.terms.type?.includes("IP") ? [`Deferred period: ${v(t.terms.deferred)}`] : []), t.joint ? "Joint life" : `Single life, in trust: ${v(t.terms.trust)}`,
+            `Extras: ${v(t.terms.extras)}`, t.joint ? "Joint life" : `Single life, in trust: ${v(t.terms.trust)}`,
           ].join("; "),
         })),
         { label: `Policy ${i + 1}, why the need and evidence of dependency`, value: v(p.why_need) },

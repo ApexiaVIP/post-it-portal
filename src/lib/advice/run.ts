@@ -33,19 +33,13 @@ import {
 const keyList = <K extends string>(keys: readonly K[], label: Record<K, string>) =>
   keys.map((k) => `- ${k}: ${label[k]}`).join("\n");
 
-function dropdownRules(): string {
-  return (Object.keys(HUB_DROPDOWNS) as HubDropdown[]).map((k) => {
-    const d = HUB_DROPDOWNS[k];
-    const list = d.options.map((o) => `"${o}"`).join(", ");
-    return `${d.label}: ${d.complete ? `the options are ${list}. Give the one the sheet backs, word for word` : list ? `the options known so far are ${list}. Give one of these only if the sheet backs it, word for word, and otherwise leave it empty` : "the options aren't known yet, so give no option, only the reason or figure from the sheet"}.`;
-  }).join(" ");
-}
+const options = (d: HubDropdown) => HUB_DROPDOWNS[d].options.map((o) => `"${o}"`).join(", ");
 
 const PORTAL_NOTE = `HOW THIS RUNS IN TOPQUOTE'S PORTAL
 The instructions above were written for a chat. In TopQuote's portal the adviser fills in a form and gets the whole result at once, so:
 - Everything is given up front: the case details, whether the recommendation has been presented, the completed data capture sheet, completed on the portal's online form, read from the photos or scans they uploaded, or typed by them, and anything the adviser typed in the recommendation and reasons field, which may be empty. You cannot ask the adviser anything back.
 - The adviser's recommendation and reasons are on the sheet's policy pages: Policy 1, Policy 2 and Policy 3 (pages 7 to 9 of the 20th November 2026 sheet), each with a column for Life 1 and a column for Life 2, then the reasons for the need, the sum assured, the term and any additional benefits. Several policies can be recommended for several people, so list every one in recommendation, one line for each policy and life, with the figures exactly as written, and judge fit on all of them together. A policy or a life's column left blank is not a recommendation, and neither is an existing policy on page 6. The needs, priorities and terms on page 6 are what the client said, not the recommendation.
-- The paper sheet has no box on the policy pages for trust, for joint or single life, for the provider and why, for a deferred period, or for a fourth policy. The online form has them all, and a section for after the advice call, so use those. On paper, take them from the recommendation and reasons field or anything written beside the policy, and never assume them: if neither says, say it isn't given.
+- The paper sheet has no box on the policy pages for trust, for joint or single life, for the provider and why, or for a fourth policy, and none anywhere for the deferred period. The online form has them all, and a section for after the advice call, so use those. On paper, take them from the recommendation and reasons field or anything written beside the policy, and never assume them: if neither says, say it isn't given.
 - If the recommendation and reasons field and the policy pages disagree on any figure, product, life or term, don't choose between them: say so in fit, with CANNOT_TELL.
 - If neither the policy pages nor the recommendation and reasons field gives a recommendation, return recommendation empty, fit CANNOT_TELL saying so, and justification, statements and every list in hub empty whatever else is asked. Still do the gap check on the rest of the sheet. A sum assured or term missing only because there is no recommendation is for the adviser to fill in, not a question for the client.
 - Anything on the policy pages about the client is on the sheet. Anything in the recommendation and reasons field that is a fact about the client and is not on the sheet goes in not_on_sheet, with a note asking the adviser to confirm it was said on the recorded call, add it to the sheet and run the check again. Leave it out of Parts 2, 3 and 4. This takes the place of asking them to confirm it. The recommendation itself (product, cover, sum assured, term, premium, trust) is the adviser's own and is not a fact about the client.
@@ -69,8 +63,17 @@ ${keyList(JUSTIFICATION_KEYS, JUSTIFICATION_HEADING)}
 - hub.needs: all seven need areas for each client. The sheet's needs are recorded once for the household, so a need marked identified is identified for each client it could apply to, unless the sheet shows whose it is. "Mortgage on critical illness" on the sheet is mortgage_illness; "Lump sum for dependants" is dependants_death; "Accident and sickness" is accident; a lump sum on serious illness for anything but the mortgage, including one in the critical illness capture, is amount_illness. A lifetime need has no box in Concert Hub, so it goes in the Recommendation note only. The keys and Concert Hub's wording:
 ${keyList(HUB_NEEDS, HUB_NEED_LABEL)}
 - A need is NOT_MET for a client the recommended policies don't cover for it, even where they cover the other client. Its why is that client's own reason for leaving it out, as the sheet records it. One client's health or income never explains a need left uncovered for the other. If the sheet gives no reason, leave why and pick empty and don't raise it in red_lines or questions: the portal does.
-- Concert Hub's drop-downs. ${dropdownRules()}
-- Insufficient Income is backed only where the sheet shows the money ran out for that need: the client's budget, or what they said about the cost. Where the client gave a different reason for leaving that need out, theirs is the reason, whatever it would have cost: leave pick empty and put their reason in why. Adverse Health is backed only where the sheet shows that client's own health is why the cover wasn't recommended or couldn't be had, not merely that they have a condition.
+- Concert Hub's drop-downs. Give an option word for word, and only where the sheet backs it. They have no Other, so the instruction to pick Other doesn't apply to them: where none fits, leave it empty and put the reason in why.
+- Benefit Amount and Product Term: ${options("benefit_amount")}. Matches Need only where the sheet gives how much, or until when, the need is and the policy equals it (a decreasing sum that follows a repayment mortgage matches it). Less Than Need where it is a step towards the need or was cut back to fit the budget. Exceeds Need where it is more. If the sheet doesn't give the size or the end of the need, leave it empty.
+- Deferred period: ${options("deferred_period")}. 4 weeks is 1 Month, 8 weeks 2 Months, 13 weeks 3 Months, 26 weeks 6 Months and 52 weeks 12 Months. Only one the sheet records as the deferred period, never worked out from sick pay.
+- Reason Not Addressed, for a need that is NOT_MET: ${options("reason_not_addressed")}. The client's own reason decides it, whatever else is true:
+  Insufficient Income: the money ran out for that need, by the client's budget or what they said about the cost.
+  Adverse Health: that client's own health is why the cover wasn't recommended or couldn't be had, not merely that they have a condition.
+  Existing Arrangements to Meet the Need: what they already have (cover, work benefits, sick pay, savings or other income) is why they left it.
+  Rejected Recommendation: the adviser recommended cover for that need, the client said no, and their reason is none of the others.
+  Not Eligible: the sheet shows they couldn't have the cover, for a reason other than health.
+  Not Interested in Discussing: the sheet shows they didn't want to talk about that need. Never for one that was discussed or quoted.
+  Topping Up Existing Provision, In Progress and Recommendation on Another Engagement: only where the sheet says so.
 - hub.policies: the same policies and lives as recommendation. amount_why and term_why come from the reasons on the policy page. The provider reasons and Concert Hub's wording (paper sheets have no box for them, so they are often empty):
 ${keyList(PROVIDER_REASONS, PROVIDER_REASON_LABEL)}
 - hub.replacements, only for existing policies being replaced. Reasons to replace:

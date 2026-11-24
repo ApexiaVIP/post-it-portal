@@ -68,7 +68,7 @@ The Fact Find can be completed online (/advice-check/form, 24 Nov 2026), so noth
 
 After the advice call the seller gets the Concert Hub page (24 Nov 2026, from Guy's screenshots): the needs, the reasons for amount, term and provider, replacements, the reason for each need not covered, and three notes (Needs, Outgoings, Recommendation), in the order of Concert Hub's screens. It takes the place of the seven headings in Part 3 of Guy's instructions. Concert Hub writes the suitability report from those choices, so nothing is suggested that the sheet doesn't back: it shows "Not on your sheet" instead, and a need left uncovered with no reason is a red line. The full justification and the statements are folded away under "For the file".
 
-**Concert Hub's drop-down lists** (asked of Guy 24 Nov 2026): fill in `options` and set `complete` in `HUB_DROPDOWNS`, `src/lib/advice/concert-hub.ts`. The check then picks from the list. Until then it gives the reason in words and the seller picks the closest. The screenshots themselves show a real client: keep them out of the repo and the portal.
+**Concert Hub's drop-down lists** are in `HUB_DROPDOWNS`, `src/lib/advice/concert-hub.ts`, as its screens showed them on 24 Nov 2026 (James Evans). If Openwork changes them, change them there. A need already covered goes down as identified with "Existing Arrangements to Meet the Need". The screenshots show a real case: keep them out of the repo and the portal.
 
 On a Call QA case, Poz links the seller's check to the sale. Then its statements are tested against the calls (Gate 4), and the ones the call doesn't back up join the callback list. The draft suitability report is written from the calls and the sheet together.
 

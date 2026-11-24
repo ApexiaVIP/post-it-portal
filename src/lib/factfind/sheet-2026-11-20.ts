@@ -6,9 +6,10 @@
  * they are being kept; and the policy pages take any number of policies and
  * have trust and joint or single life. "How the budget was set" and "After the
  * advice call" are added, because the advice check asks for both and the paper
- * has no box for them.
+ * has no box for them, and so are the boxes Concert Hub needs.
  */
 import type { Block, Data, Field, Policy, Row, Sheet } from "./types";
+import { HUB_DROPDOWNS } from "@/lib/advice/concert-hub";
 import { blank, hasDependants, hasLife2, money, rowsOf, sumRows } from "./values";
 
 const text = (key: string, label: string, hint?: string): Field => ({ key, label, input: { kind: "text", hint } });
@@ -255,7 +256,11 @@ const sections: Sheet["sections"] = [
         must: (d, row) => d[`need.${row}.identified`] !== "Yes" && blank(d[`need.${row}.covered`]) && blank(d[`need.${row}.reason`]),
         columns: [yn("identified", "Identified"), text("covered", "Already covered (policy / evidence)"), text("reason", "Considered and discounted: reason"), text("words", "Client's own words")] },
       { type: "rows", key: "priority", title: "Priorities, most important first", add: "Add a priority", columns: [one("life", "Whose", ...LIFE), text("type", "Type"), text("term", "Term")] },
-      { type: "lives", rows: [words("matters", "Client's own words on what matters most", eachLife)] },
+      { type: "lives", rows: [
+        words("matters", "Client's own words on what matters most", eachLife),
+        // Not on the paper sheet: Concert Hub asks for it whenever income protection is identified.
+        must(one("deferred", "Deferred period needed for income protection", ...HUB_DROPDOWNS.deferred_period.options), (d, life) => eachLife(d, life) && d["need.ip.identified"] === "Yes"),
+      ] },
       { type: "heading", text: "Tailoring, asked and answered (never added to a plan without asking)" },
       { type: "fields", rows: [
         one("t_premiums", "Guaranteed / reviewable", "Guaranteed", "Reviewable"), yn("t_wop", "Waiver of premium"), yn("t_ccic", "Children's CIC"), yn("t_tpd", "TPD"),

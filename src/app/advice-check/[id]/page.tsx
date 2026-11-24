@@ -201,7 +201,7 @@ export default function AdviceCheckPage() {
                 : sum.readiness === "no_recommendation" ? "No recommendation was found. Fill in the policy pages (7 to 9) or type it, then run the check again."
                 : sum.readiness === "unclear" ? "The check couldn't tell whether your recommendation fits. Put right what it says above, then run it again."
                 : sum.readiness === "red_lines" ? "Put these right, then run it again. Don't work around them with wording."
-                : sum.readiness === "missing" ? (before ? "No red lines. Pick up the smaller gaps on the advice call if you can." : `No red lines, but close the smaller gaps before you submit${sum.onPage > 0 ? `, including what's marked "Not on your sheet" below` : ""}.`)
+                : sum.readiness === "missing" ? (before ? "No red lines. Pick up the smaller gaps on the advice call if you can." : `No red lines, but close the smaller gaps before you submit${sum.onPage > 0 ? `, including what's marked in amber below` : ""}.`)
                 : sum.readiness === "confirm" ? "You gave the check something that isn't on your sheet. Confirm it below, then run it again."
                 : before ? "No red lines. Go ahead with the advice call."
                 : "Nothing is missing. Complete Concert Hub from the page below, and enter every figure you gathered, mandatory or not."}
@@ -243,7 +243,7 @@ export default function AdviceCheckPage() {
           <Changes previous={data.previous} r={r} />
 
           {hubFilled(r.hub) && (
-            <Section title="Concert Hub" note={`Work down this with Concert Hub open: it's in the order of the screens. Check every choice and note against what was said on the call. Where it says "Not on your sheet", don't choose one: put it on the sheet and run the check again.`}>
+            <Section title="Concert Hub" note={`Work down this with Concert Hub open: it's in the order of the screens. Check every choice and note against what was said on the call. Where something is marked in amber, don't choose for yourself: put it right and run the check again.`}>
               <ConcertHubPage hub={r.hub} copied={copied} copy={copy} />
             </Section>
           )}

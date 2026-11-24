@@ -115,9 +115,6 @@ function Terms({ t, label, joint, flag, onChange }: { t: PolicyTerms; label: str
         <div className={cell}><p className="text-xs text-slate-600">Sum assured (or monthly benefit)</p><Control id="sum" field={f("Sum assured", { kind: "money" })} value={t.sum} due={due(t.sum)} onChange={put} /></div>
         <div className={cell}><p className="text-xs text-slate-600">Premium</p><Control id="premium" field={f("Premium", { kind: "money", per: "month" })} value={t.premium} due={due(t.premium)} onChange={put} /></div>
         <div className={cell}><p className="text-xs text-slate-600">Extras?</p><Control id="extras" field={f("Extras", { kind: "text", hint: "None, or which" })} value={t.extras} due={false} onChange={put} /></div>
-        {t.type?.includes("IP") && (
-          <div className={cell}><p className="text-xs text-slate-600">Deferred period</p><Control id="deferred" field={f("Deferred period", { kind: "text", hint: "e.g. 13 weeks" })} value={t.deferred} due={due(t.deferred)} onChange={put} /></div>
-        )}
         {!joint && (
           <div className={cell}><p className="text-xs text-slate-600">In trust? (single life plans)</p><Control id="trust" field={f("In trust", { kind: "one", options: ["Yes", "No, client declined", "To be covered on the advice call", "Doesn't apply"] })} value={t.trust} due={due(t.trust)} onChange={put} /></div>
         )}

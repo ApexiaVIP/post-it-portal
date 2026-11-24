@@ -63,17 +63,25 @@ export const REPLACE_LOSS_LABEL: Record<ReplaceLoss, string> = {
   other: "Other",
 };
 
-/**
- * Concert Hub's drop-downs. The screenshots didn't show them open, so the
- * lists are what has been seen so far (Guy asked for the rest, 24 Nov 2026).
- * Fill in options and set complete: the check then picks from the list.
- */
+/** Concert Hub's drop-downs, as its screens list them (James Evans, 24 Nov 2026). None has an Other. */
+const AGAINST_NEED = ["Less Than Need", "Matches Need", "Exceeds Need"];
 export const HUB_DROPDOWNS = {
-  deferred_period: { label: "Deferred Period Required for any Income Protection", options: [] as string[], complete: false },
-  benefit_amount: { label: "Benefit Amount", options: [] as string[], complete: false },
-  product_term: { label: "Product Term", options: [] as string[], complete: false },
-  reason_not_addressed: { label: "Reason Not Addressed", options: ["Insufficient Income", "Adverse Health"], complete: false },
-} as const;
+  deferred_period: {
+    label: "Deferred Period Required for any Income Protection",
+    options: ["0 Weeks", "1 Week", "2 Weeks", "1 Month", "2 Months", "3 Months", "6 Months", "12 Months", "24 Months"],
+  },
+  benefit_amount: { label: "Benefit Amount", options: AGAINST_NEED },
+  product_term: { label: "Product Term", options: AGAINST_NEED },
+  reason_not_addressed: {
+    label: "Reason Not Addressed",
+    options: [
+      "Recommendation on Another Engagement", "In Progress", "Rejected Recommendation", "Existing Arrangements to Meet the Need",
+      "Adverse Health", "Not Eligible", "Insufficient Income", "Not Interested in Discussing", "Topping Up Existing Provision",
+    ],
+  },
+};
+/** What a need already covered goes down as: identified, and met by what they have. */
+export const ALREADY_COVERED = "Existing Arrangements to Meet the Need";
 export type HubDropdown = keyof typeof HUB_DROPDOWNS;
 
 /** A drop-down option as Concert Hub words it, or "" if it isn't one we know of. */
@@ -116,6 +124,8 @@ export function hubFilled(h: HubPage | null | undefined): h is HubPage {
 }
 export const hubClients = (h: HubPage): string[] => Array.from(new Set(h.needs.map((n) => n.client)));
 export const unmet = (h: HubPage) => h.needs.filter((n) => n.outcome === "NOT_MET");
+/** Identified, with no recommendation for it: Concert Hub's Needs Validation screen. */
+export const notAddressed = (h: HubPage) => h.needs.filter((n) => n.outcome === "NOT_MET" || n.outcome === "COVERED");
 /** The needs a recommended policy meets, for its Need Areas Addressed. */
 export function addressedBy(h: HubPage, p: HubPage["policies"][number]): { client: string; need: HubNeed }[] {
   return h.needs.filter((n) => n.outcome === "MET"
@@ -135,7 +145,8 @@ export function settleHub(h: HubPage): HubPage {
   if (!hubFilled(h)) return EMPTY_HUB;
   const needs = h.needs.map((n) => {
     const why = said(n.why);
-    return { ...n, why, met_by: n.outcome === "MET" ? n.met_by : "", pick: n.outcome === "NOT_MET" && why ? hubOption("reason_not_addressed", n.pick) : "" };
+    const pick = !why ? "" : n.outcome === "COVERED" ? ALREADY_COVERED : n.outcome === "NOT_MET" ? hubOption("reason_not_addressed", n.pick) : "";
+    return { ...n, why, met_by: n.outcome === "MET" ? n.met_by : "", pick };
   });
   for (const client of hubClients(h)) {
     for (const need of HUB_NEEDS) {
@@ -148,7 +159,7 @@ export function settleHub(h: HubPage): HubPage {
     needs: needs.sort((a, b) => HUB_NEEDS.indexOf(a.need) - HUB_NEEDS.indexOf(b.need)),
     deferred: wantsPeriod.map((client) => {
       const d = h.deferred.find((x) => x.client === client);
-      return { client, period: said(d?.period), why: said(d?.why) };
+      return { client, period: hubOption("deferred_period", said(d?.period)), why: said(d?.why) };
     }),
     policies: h.policies.map((p) => {
       const amount_why = said(p.amount_why);
@@ -198,9 +209,9 @@ export function deferredFor(h: HubPage, client: string): "sheet" | "sick_pay" {
 /** Everything else on the page the sheet doesn't back up yet. */
 export function hubGaps(h: HubPage | null | undefined): number {
   if (!hubFilled(h)) return 0;
-  return h.needs.filter((n) => n.outcome === "NOT_ON_SHEET").length
+  return h.needs.filter((n) => n.outcome === "NOT_ON_SHEET" || (n.outcome === "COVERED" && !n.why) || (n.outcome === "NOT_MET" && n.why && !n.pick)).length
     + h.deferred.filter((d) => !d.period.trim() && (deferredFor(h, d.client) === "sheet" || !d.why.trim())).length
-    + h.policies.reduce((n, p) => n + [p.amount_why, p.term_why, p.trust, p.extras, p.provider_reasons.length ? "x" : ""].filter((v) => !v.trim()).length, 0)
+    + h.policies.reduce((n, p) => n + [p.amount_pick, p.term_pick, p.trust, p.extras, p.provider_reasons.length ? "x" : ""].filter((v) => !v.trim()).length, 0)
     + h.replacements.reduce((n, r) => n + (r.still_suitable === "NOT_ON_SHEET" ? 1 : 0) + (r.facilitate === "NOT_ON_SHEET" ? 1 : 0)
         + (r.losses.length ? 0 : 1) + (r.outweigh.trim() ? 0 : 1) + (r.still_suitable === "NO" && !r.reasons.length ? 1 : 0), 0);
 }
@@ -215,7 +226,7 @@ export function hubText(h: HubPage | null | undefined): string {
   out.push("PROTECTION", ...h.needs.map((n) => {
     const what = n.outcome === "MET" ? `Identified, met by ${n.met_by || "the recommendation"}`
       : n.outcome === "NOT_MET" ? `Identified, not met. Reason: ${[n.pick, n.why].filter(Boolean).join(". ") || NOT_ON_SHEET}`
-      : n.outcome === "COVERED" ? "Already covered" : n.outcome === "NOT_IDENTIFIED" ? "Not identified" : NOT_ON_SHEET;
+      : n.outcome === "COVERED" ? `Identified, already covered (${ALREADY_COVERED})` : n.outcome === "NOT_IDENTIFIED" ? "Not identified" : NOT_ON_SHEET;
     return `${n.client}, ${HUB_NEED_LABEL[n.need]}: ${what}${n.outcome !== "NOT_MET" && n.why ? `. ${n.why}` : ""}`;
   }), ...h.deferred.map((d) => `${d.client}, deferred period: ${d.period || NOT_ON_SHEET}${d.why ? `. ${d.why}` : ""}`));
   for (const p of h.policies) {

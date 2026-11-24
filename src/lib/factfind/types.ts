@@ -61,8 +61,6 @@ export interface PolicyTerms {
   premium?: string;
   extras?: string;
   trust?: string;
-  /** Income protection only. */
-  deferred?: string;
 }
 export interface Policy {
   who?: Who;
