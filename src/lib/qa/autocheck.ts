@@ -9,7 +9,7 @@ import { getCalls } from "./db";
 import { runGate1 } from "./analyse";
 import { ukStatus, ukModel } from "./uk";
 import { sendQaReportReady } from "@/lib/reci/email";
-import { ACCOUNT_BLOCKED, SERVICE_BUSY, plainReason } from "./shared";
+import { ACCOUNT_BLOCKED, DAILY_LIMIT, SERVICE_BUSY, plainReason } from "./shared";
 import { triage } from "./triage";
 import type { Gate1Result } from "./schemas";
 
@@ -26,7 +26,7 @@ async function retriesSoFar(caseId: number): Promise<number> {
   const r = await sql<{ n: number }>`
     SELECT COUNT(*)::int AS n FROM qa_runs t
      WHERE t.case_id = ${caseId} AND t.gate = 1
-       AND (t.error ILIKE 'Timed out%' OR t.error ~* '429|throttl|too many')
+       AND (t.error ILIKE 'Timed out%' OR (t.error ~* '429|throttl|too many' AND t.error !~* 'tokens per day'))
        AND t.started_at > (SELECT MAX(updated_at) FROM qa_calls WHERE case_id = ${caseId} AND deleted_at IS NULL)`;
   return r.rows[0]?.n ?? 0;
 }
@@ -34,8 +34,9 @@ async function retriesSoFar(caseId: number): Promise<number> {
 /**
  * Sale cases whose calls are all transcribed and haven't been checked
  * since. A check that failed only because AWS hasn't switched the AI on
- * for the account (whether it ran automatically or someone pressed Run)
- * is retried quietly every hour, so waiting sales run as soon as it is.
+ * for the account, or its daily allowance is used up (whether it ran
+ * automatically or someone pressed Run), is retried quietly every hour, so
+ * waiting sales run as soon as they can.
  * Timed-out and busy checks are retried after 10 minutes (exported for tests).
  */
 export async function casesReadyForAutoCheck(limit: number) {
@@ -55,13 +56,13 @@ export async function casesReadyForAutoCheck(limit: number) {
        AND l.pending = 0 AND l.ready > 0
        AND (lr.case_id IS NULL
          OR (lr.started_at < l.at AND NOT (lr.status = 'running' AND lr.started_at > now() - interval '15 minutes'))
-         OR (lr.status = 'failed' AND lr.error ~* 'not available for this account'
+         OR (lr.status = 'failed' AND lr.error ~* 'not available for this account|tokens per day'
              AND lr.started_at < now() - interval '1 hour')
-         OR (lr.status = 'failed' AND (lr.error ILIKE 'Timed out%' OR lr.error ~* '429|throttl|too many')
+         OR (lr.status = 'failed' AND (lr.error ILIKE 'Timed out%' OR (lr.error ~* '429|throttl|too many' AND lr.error !~* 'tokens per day'))
              AND lr.started_at < now() - interval '10 minutes'
              AND (SELECT COUNT(*) FROM qa_runs t
                    WHERE t.case_id = c.id AND t.gate = 1
-                     AND (t.error ILIKE 'Timed out%' OR t.error ~* '429|throttl|too many')
+                     AND (t.error ILIKE 'Timed out%' OR (t.error ~* '429|throttl|too many' AND t.error !~* 'tokens per day'))
                      AND t.started_at > l.at) < ${MAX_RETRIES}))
      ORDER BY l.at
      LIMIT ${limit}`;
@@ -107,9 +108,10 @@ export async function autoCheckNext(): Promise<{ caseId: number; status: string 
   const pf = res.consistency?.priorities_followthrough;
   const checks = res.observation?.checks ?? [];
   const disclosures = res.disclosures?.disclosures ?? [];
-  // While AWS has the AI switched off for the account, every sale would
-  // fail the same way: retry quietly instead of emailing each time.
-  if (done.status !== "done" && ACCOUNT_BLOCKED.test(done.error ?? "")) {
+  // While AWS has the AI switched off for the account, or the day's allowance
+  // is used up, every sale would fail the same way: retry quietly instead of
+  // emailing each time.
+  if (done.status !== "done" && (ACCOUNT_BLOCKED.test(done.error ?? "") || DAILY_LIMIT.test(done.error ?? ""))) {
     return { caseId: next.id, status: "waiting for AWS" };
   }
   if (done.status !== "done" && SERVICE_BUSY.test(done.error ?? "") && (await retriesSoFar(next.id)) < MAX_RETRIES) {

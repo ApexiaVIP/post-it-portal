@@ -97,10 +97,14 @@ export const ACCOUNT_BLOCKED = /not available for this account/i;
 /** AWS turning a request away because the account's per-minute limit was reached. */
 export const SERVICE_BUSY = /\b429\b|throttl|too many/i;
 
+/** AWS turning everything away until the account's daily allowance resets (24 Nov 2026). */
+export const DAILY_LIMIT = /tokens per day/i;
+
 /** One plain sentence for an AI check failure, instead of four copies of the raw error. */
 export function plainReason(error: string | null): string {
   if (!error) return "Unknown.";
   if (ACCOUNT_BLOCKED.test(error)) return "The AI service isn't switched on for TopQuote's AWS account yet.";
+  if (DAILY_LIMIT.test(error)) return "TopQuote's daily allowance on the AI service has been used up. Please try again later today or tomorrow.";
   if (SERVICE_BUSY.test(error)) return "The AI service was busy. Please run it again in a few minutes.";
   const parts = Array.from(new Set(error.split(" | ").map((x) => x.replace(/^[a-z]+: /, "").trim())));
   return parts[0].slice(0, 300);
