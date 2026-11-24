@@ -27,7 +27,7 @@ import {
 } from "./shared";
 import {
   EMPTY_HUB, HUB_DROPDOWNS, HUB_NEEDS, HUB_NEED_LABEL, HUB_NOTES, HUB_NOTE_LABEL, HUB_NOTE_HOLDS, PROVIDER_REASONS, PROVIDER_REASON_LABEL,
-  REPLACE_LOSSES, REPLACE_LOSS_LABEL, REPLACE_REASONS, REPLACE_REASON_LABEL, settleHub, underBudget, unmetWithoutReason, type HubDropdown,
+  REPLACE_LOSSES, REPLACE_LOSS_LABEL, REPLACE_REASONS, REPLACE_REASON_LABEL, settleHub, uncoveredRedLine, type HubDropdown,
 } from "./concert-hub";
 
 const keyList = <K extends string>(keys: readonly K[], label: Record<K, string>) =>
@@ -53,7 +53,7 @@ The instructions above were written for a chat. In TopQuote's portal the adviser
 - Part 0 comes first. If the recommendation does not fit the framework, the licence or the scenario sheet, say so plainly in fit, and return justification, statements and every list in hub empty: never write notes that make it look sound.
 - There are two stages, given with the case. BEFORE THE ADVICE CALL (a two call case not yet presented): produce Parts 0 and 1 only, and return justification, statements and every list in hub empty whatever else is asked, because it is too early for them. Use ON_ADVICE_CALL, never MISSING, for anything that can only happen on the advice call, such as the client's decision, the trust outcome, cheaper options shown, or telling the client about needs not met. What should already be on the sheet from the fact find, and the reasons for the sum assured and term, are MISSING if they aren't there. AFTER THE ADVICE CALL (a one call case, or a recommendation already presented): produce every part, and don't use ON_ADVICE_CALL.
 - After the advice call, if any gap check item is MISSING, the case is not ready to submit. Unless the adviser has asked for the notes on the parts that are complete, return justification, statements and every list in hub empty and stop there. If they have asked, write those parts with "[to complete after speaking to the client]" wherever a missing item is needed.
-- Triage. The adviser acts on red_lines, so they hold only the absolute priorities: what decides whether this case gets through Openwork's compliance check. Work them out yourself from the documents and this case. They are about whether the advice is within the licence and fits, the need (what the money is for, who relies on it and until when, in the client's words), the options and whether the client understood and accepted them, the reasons for the sum assured and term, whether it is affordable, the disclosures under CALL CHECKS, and what the client had to be told. Anything missing that Openwork's November 2026 expectations ask for in this case (for example the survivor's position, or savings left blank) is one too. Nobody expects a perfect sheet from an hour's conversation: a point that is adequately recorded but could be fuller, or wording that isn't exact, is never a red line. Before the advice call, nothing that can only happen on that call is a red line. The before call 2 and before submission checklist is never a red line or a gap. A need is dealt with if it is identified, already covered, or discounted with a reason: any one is enough. Normally there are three to five, most serious first, and none is a good answer. Each line is one thing to do, in plain words the adviser can act on, with no section numbers and no more than 25 words; the gap check carries the detail. Put points that one question or one entry on the sheet would settle into a single line. Use ASK_CLIENT for what only the client can answer, FIX_SHEET for what the adviser only has to write down or fill in, SPEAK_TO_GUY for what goes to Guy. These items are always red lines when MISSING: ${ALWAYS_RED.join(", ")}. Anything else missing that isn't an absolute priority is a smaller gap: it stays in the gap check and, if the client has to be asked, goes in questions.
+- Triage. The adviser acts on red_lines, so they hold only the absolute priorities: what decides whether this case gets through Openwork's compliance check. Work them out yourself from the documents and this case. They are about whether the advice is within the licence and fits, the need (what the money is for, who relies on it and until when, in the client's words), the options and whether the client understood and accepted them, the reasons for the sum assured and term, whether it is affordable, the disclosures under CALL CHECKS, and what the client had to be told. Anything missing that Openwork's November 2026 expectations ask for in this case (for example the survivor's position, or savings left blank) is one too. Nobody expects a perfect sheet from an hour's conversation: a point that is adequately recorded but could be fuller, or wording that isn't exact, is never a red line. Before the advice call, nothing that can only happen on that call is a red line. The before call 2 and before submission checklist is never a red line or a gap. A need is dealt with if it is identified, already covered, or discounted with a reason: any one is enough. Normally there are three to five, most serious first, and none is a good answer. Each line is one thing to do, in plain words the adviser can act on, with no section numbers and no more than 25 words; the gap check carries the detail. Before the advice call, premiums recommended that come to less than the budget while an identified need is left uncovered, with no reason on the sheet, are a red line with items empty (TopQuote's guide: under budget with a need left uncovered is a fail). Put points that one question or one entry on the sheet would settle into a single line. Use ASK_CLIENT for what only the client can answer, FIX_SHEET for what the adviser only has to write down or fill in, SPEAK_TO_GUY for what goes to Guy. These items are always red lines when MISSING: ${ALWAYS_RED.join(", ")}. Anything else missing that isn't an absolute priority is a smaller gap: it stays in the gap check and, if the client has to be asked, goes in questions.
 - Only an answer on the sheet, or in the recommendation and reasons field, shows that something happened. What the guides, the scripts or the printed wording of a question say should happen, or any figure printed in a question, is never evidence that it did. Don't write it as said or done: for example, don't say how the budget was set, or name the Statutory Sick Pay figure, unless the adviser recorded it. Where the adviser recorded that they told or explained something without saying what they said, write it no fuller than they did ("I told them what that means after 4 weeks off sick") and never fill in what it would have been. Say a thing was offered, shown or could have fitted the budget only where the adviser says so.
 - Parts 2 and 3 have to show why the advice was given, policy by policy: the client's own reason (for example to clear the mortgage, or to replace the pension income the survivor would lose), who relies on it and until when, how the sum assured and term follow from that reason, what else was considered and why it wasn't recommended, and that the client understood and agreed. Show that it matches the documents, with the section in Part 2 only. Only what the sheet or the recommendation and reasons field shows: never supply a reason the client didn't give.
 - Keep it short throughout. No explanation the adviser doesn't need in order to act, no repeating a point in two places.
@@ -77,9 +77,9 @@ ${keyList(REPLACE_REASONS, REPLACE_REASON_LABEL)}
   Consequences of replacing:
 ${keyList(REPLACE_LOSSES, REPLACE_LOSS_LABEL)}
 - hub.budget: TopQuote's guide says under budget with a need left uncovered is a fail unless the reason is recorded. Fill it in and don't raise it in red_lines: the portal does.
-- hub.notes: three short notes, one for each Note Type in Concert Hub, that give the reasons. Between them they cover what the instructions' Part 3 headings ask for, in the same style. The adviser enters every figure in Concert Hub's own fields, so leave out sick pay, pensions, property, liabilities, existing policies and policy details unless they are the reason for something. At most 90 words for Needs, 70 for Outgoings and 180 for Recommendation, with up to 40 more in Recommendation for each policy after the second. Don't say the same thing in two notes.
+- hub.notes: three short notes, one for each Note Type in Concert Hub, that give the reasons. Between them they cover what the instructions' Part 3 headings ask for, in the same style. The adviser enters every figure in Concert Hub's own fields, so leave out sick pay, pensions, property, liabilities, existing policies and policy details unless they are the reason for something. At most 90 words for Needs, 70 for Outgoings and 200 for Recommendation, with up to 40 more in Recommendation for each policy after the second. Whole words, no abbreviations (critical illness, family income benefit, income protection). Don't say the same thing in two notes, and leave the replacement to hub.replacements.
 - A note goes straight into Concert Hub, so it holds only what happened: no comments, gaps, reminders or instructions to the adviser. Where something missing is needed, write only "[to complete after speaking to the client]".
-- Name the client who said or decided something only where the sheet says which of them it was. Otherwise write "they".
+- Where there are two clients, name the one who said or decided something only where the answer itself names them, or is under their own name or column. The captures and the after the advice call section are recorded once for both, so write "they said" for those, never a name.
 ${HUB_NOTES.map((k) => `- ${k} (${HUB_NOTE_LABEL[k]}): ${HUB_NOTE_HOLDS[k]}`).join("\n")}
 - Number the Part 4 statements from 1. In where, say where on the sheet each comes from (section and field, for example "Policy 1, why this term"), or "recommendation field" for something only in that field, with from_adviser true.
 - The portal adds the closing line, so leave it out.
@@ -186,21 +186,23 @@ THE RECOMMENDATION AND REASONS FIELD, AS THE ADVISER TYPED IT
 ${c.recommendation.trim() || "Left empty: the recommendation is on the policy pages."}
 </recommendation>
 
-${stageOf(c) === "before_advice" ? "Work through Parts 0 and 1 as the instructions set out. Parts 2 to 4 come after the advice call." : "Work through Parts 0 to 4 as the instructions set out."}`;
+${stageOf(c) === "before_advice" ? "Work through Parts 0 and 1 as the instructions set out. Parts 2 to 4 come after the advice call." : "Work through Parts 0 to 4 as the instructions set out."}
+Don't draft any part in text: everything goes in record_advice_check. Before you call it, write no more than 200 words of working, only on what needs judgement (the licence, the fit, what is missing, whose reason is whose).`;
 }
 
 /** Holds the result to the stage, and makes sure no red line was left off the list. */
 function settle(c: CheckRow, raw: AdviceCheckResult): AdviceCheckResult {
   const r = plain(raw);
   const stage = stageOf(c);
-  // A red line about gap check items that turn out to be recorded isn't one.
+  const hub = stage === "before_advice" ? EMPTY_HUB : settleHub(r.hub);
+  const uncovered = uncoveredRedLine(hub);
+  // A red line about gap check items that turn out to be recorded isn't one, nor is the
+  // health section (it's checked on the application), nor a second go at the uncovered needs.
   const gap = new Map(r.gaps.map((g) => [g.item, g.status]));
-  const lines = r.red_lines.filter((x) => x.kind === "SPEAK_TO_GUY" || x.items.length === 0 || x.items.some((i) => gap.get(i) === "MISSING"));
+  const lines = r.red_lines.filter((x) => x.kind === "SPEAK_TO_GUY" || x.items.length === 0
+    || (x.items.some((i) => gap.get(i) === "MISSING" && i !== "health") && !(uncovered && x.items.every((i) => i === "needs_priorities"))));
   const covered = new Set(lines.flatMap((x) => x.items));
   const left = r.gaps.filter((g) => g.status === "MISSING" && ALWAYS_RED.includes(g.item) && !covered.has(g.item));
-  const hub = stage === "before_advice" ? EMPTY_HUB : settleHub(r.hub);
-  // A need left uncovered with no reason (Concert Hub puts the reason in the suitability report), or with budget to spare.
-  const unexplained = [unmetWithoutReason(hub), underBudget(hub)].filter((x): x is string => !!x);
   return {
     ...r,
     stage,
@@ -208,7 +210,7 @@ function settle(c: CheckRow, raw: AdviceCheckResult): AdviceCheckResult {
     red_lines: [
       ...lines,
       ...left.map((g) => ({ action: g.detail, kind: "ASK_CLIENT" as const, items: [g.item] })),
-      ...unexplained.map((action) => ({ action, kind: "FIX_SHEET" as const, items: [] })),
+      ...(uncovered ? [{ action: uncovered, kind: "FIX_SHEET" as const, items: gap.get("needs_priorities") === "MISSING" ? ["needs_priorities" as const] : [] }] : []),
     ],
     ...(stage === "before_advice" ? { justification: [], statements: [] } : {}),
   };

@@ -146,17 +146,10 @@ export function settleHub(h: HubPage): HubPage {
       amount_pick: p.amount_why.trim() ? hubOption("benefit_amount", p.amount_pick) : "",
       term_pick: p.term_why.trim() ? hubOption("product_term", p.term_pick) : "",
     })),
-    notes: [...h.notes].sort((a, b) => HUB_NOTES.indexOf(a.key) - HUB_NOTES.indexOf(b.key)),
+    // Nothing in a note but what happened: it's pasted as it stands.
+    notes: h.notes.map((n) => ({ ...n, text: n.text.replace(/\[to complete after speaking to the client[^\]]*\]/gi, "[to complete after speaking to the client]") }))
+      .sort((a, b) => HUB_NOTES.indexOf(a.key) - HUB_NOTES.indexOf(b.key)),
   };
-}
-
-/** The red line for needs left uncovered with no reason on the sheet: the reason goes into the suitability report. */
-export function unmetWithoutReason(h: HubPage): string | null {
-  const list = unmet(h).filter((n) => !n.why);
-  if (list.length === 0) return null;
-  const which = HUB_NEEDS.filter((need) => list.some((n) => n.need === need))
-    .map((need) => `${HUB_NEED_LABEL[need]} (${list.filter((n) => n.need === need).map((n) => n.client).join(", ")})`).join("; ");
-  return `Put on the sheet why ${list.length === 1 ? "this need isn't" : "these needs aren't"} covered, in the client's words: ${which}. If you don't know, ask them.`;
 }
 
 /** "£70 a month" as 70. */
@@ -165,12 +158,22 @@ function figure(s: string | undefined): number | null {
   return m ? Number(m[0]) : null;
 }
 
-/** TopQuote's guide: under budget with a need left uncovered is a fail, unless the reason is recorded. */
-export function underBudget(h: HubPage): string | null {
+/**
+ * The red line for needs left uncovered. The reason goes into the suitability
+ * report, so it has to be on the sheet, and TopQuote's guide makes under
+ * budget with a need left uncovered a fail unless the reason is recorded.
+ */
+export function uncoveredRedLine(h: HubPage): string | null {
+  const left = unmet(h);
+  const list = left.filter((n) => !n.why);
   const agreed = figure(h.budget?.agreed);
   const total = figure(h.budget?.premiums);
-  if (agreed === null || total === null || total >= agreed || h.budget.unused_why.trim() || unmet(h).length === 0) return null;
-  return `The premiums come to £${total.toFixed(2)}, under the £${agreed.toFixed(2)} budget, with needs left uncovered. Use the rest, or put on the sheet why not.`;
+  const spare = agreed !== null && total !== null && left.length > 0 && !h.budget.unused_why.trim() ? agreed - total : 0;
+  const unused = spare > 0 ? `The premiums are £${spare.toFixed(2)} under the £${agreed!.toFixed(2)} budget` : "";
+  if (list.length === 0) return unused ? `${unused}, with needs left uncovered. Use the rest, or put on the sheet why not.` : null;
+  const which = HUB_NEEDS.filter((need) => list.some((n) => n.need === need))
+    .map((need) => `${HUB_NEED_LABEL[need]} (${list.filter((n) => n.need === need).map((n) => n.client).join(", ")})`).join("; ");
+  return `Put on the sheet why ${list.length === 1 ? "this need isn't" : "these needs aren't"} covered, in the client's words: ${which}. If you don't know, ask them.${unused ? ` ${unused}, so use the rest or say why not.` : ""}`;
 }
 
 /** The deferred period is on the sheet only where income protection is recommended. Otherwise it follows their sick pay. */

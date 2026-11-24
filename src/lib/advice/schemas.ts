@@ -45,7 +45,7 @@ export const AdviceCheckOutput = z.object({
   red_lines: z.array(z.object({
     action: z.string().describe("The one thing to do, plain and specific to this client. 25 words at most, no section numbers"),
     kind: z.enum(RED_LINE_KINDS),
-    items: z.array(z.enum(GAP_ITEMS)).describe("The gap check items it settles. Empty for a licence or fit problem, or a disclosure under CALL CHECKS"),
+    items: z.array(z.enum(GAP_ITEMS)).describe("The gap check items it settles. Empty for a licence or fit problem, a disclosure under CALL CHECKS, or unused budget"),
   })).describe("Only the absolute red lines, most serious first, normally five or fewer. Empty if there are none"),
   questions: z.array(z.string()).describe("Other questions worth asking on the same call that are not red lines, one short line each, most useful first. Empty if none."),
   not_on_sheet: z.array(z.object({
