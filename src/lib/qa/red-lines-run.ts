@@ -26,6 +26,7 @@ How to choose:
 - Wording that was said but not exactly, partly said without changing what the client understood, or said in a different order is not a red line. Neither is anything already covered well elsewhere on the calls.
 - Put points that one conversation with the client would settle into one red line, and give the numbers of every point it settles in covers. Normally there are three to six red lines in all, most serious first.
 - Say what to do, not what went wrong: the adviser reads each action out of context and should know exactly what to cover with the client.
+- Never say yourself what a disclosure, rule, product or policy term means or contains, even in passing. Name it and say to give it in the script's words (for example "Give the complaints and FSCS disclosure in the script's words").
 - A point only a person can decide, such as vulnerability, is listed with its number in covers and an action saying what has to be decided.
 - If nothing decides the outcome, return no items and say so in summary.
 - Use only what the points say. Don't repeat health details beyond what the action needs. No client surnames.

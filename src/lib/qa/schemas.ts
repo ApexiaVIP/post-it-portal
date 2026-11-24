@@ -222,7 +222,7 @@ export const RedLinesOutput = z.object({
     action: z.string().describe("The one thing the adviser covers with the client to put it right, plain and specific to this sale, 25 words at most, no form references"),
     why: z.string().describe("Why it matters on this call, 20 words at most"),
     area: z.enum(RED_AREAS),
-    points: z.array(z.string()).describe("Up to three short specifics the adviser must cover (which disclosure, which need). Empty if the action says it all"),
+    points: z.array(z.string()).describe("Up to three short specifics to cover that the action doesn't already say. Usually empty"),
     covers: z.array(z.string()).describe("The numbers of the points this settles, e.g. P3"),
   })).describe("Only the absolute red lines, most serious first, normally three to six. Empty if there are none"),
   coaching: z.array(z.string()).describe("The three things at most that would most improve this adviser's next call, one short line each"),
