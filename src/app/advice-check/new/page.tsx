@@ -73,7 +73,9 @@ function NewCheckForm() {
 
   function addFiles(list: FileList | null) {
     if (!list) return;
-    setFiles((f) => [...f, ...Array.from(list)].slice(0, 20));
+    // Copied now: the list empties as soon as the file box is cleared for the next pick.
+    const picked = Array.from(list);
+    setFiles((f) => [...f, ...picked].slice(0, 20));
   }
 
   async function submit(e: React.FormEvent) {
@@ -168,7 +170,7 @@ function NewCheckForm() {
             <span className="font-semibold">Your recommendation and reasons are read from pages 7, 8 and 9</span> (Policy 1, 2 and 3, for each person),
             so fill those in first. Pages 7 and 8 are the front and back of one page.
           </p>
-          <input type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf,image/*"
+          <input type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf"
             onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
             className="mt-2 block w-full text-sm file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm" />
           {files.length > 0 && (
