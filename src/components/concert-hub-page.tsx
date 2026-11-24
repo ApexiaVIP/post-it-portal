@@ -7,7 +7,7 @@
  * instead of suggesting a choice.
  */
 import {
-  HUB_DROPDOWNS, HUB_NEEDS, HUB_NEED_LABEL, HUB_NOTE_LABEL, PROVIDER_REASON_LABEL, REPLACE_LOSS_LABEL, REPLACE_REASON_LABEL,
+  HUB_DROPDOWNS, HUB_NEEDS, HUB_NEED_LABEL, HUB_NOTES, HUB_NOTE_LABEL, PROVIDER_REASON_LABEL, REPLACE_LOSS_LABEL, REPLACE_REASON_LABEL,
   addressedBy, deferredFor, hubClients, unmet, type HubDropdown, type HubPage,
 } from "@/lib/advice/concert-hub";
 
@@ -144,12 +144,12 @@ export function ConcertHubPage({ hub, copied, copy }: { hub: HubPage; copied: st
         ))}
       </Screen>
 
-      {hub.notes.length > 0 && (
+      {HUB_NOTES.some((k) => hub.notes[k]) && (
         <Screen tab="Notes" where="one for each Note Type">
-          {hub.notes.map((n) => (
-            <div key={n.key} className="border-t border-slate-100 py-1.5 first:border-0">
-              <p className="flex items-baseline justify-between gap-2"><span className="font-bold">{HUB_NOTE_LABEL[n.key]}</span><CopyButton k={`n-${n.key}`} text={n.text.trim()} /></p>
-              <p className="mt-1 whitespace-pre-line">{n.text.trim()}</p>
+          {HUB_NOTES.filter((k) => hub.notes[k]).map((k) => (
+            <div key={k} className="border-t border-slate-100 py-1.5 first:border-0">
+              <p className="flex items-baseline justify-between gap-2"><span className="font-bold">{HUB_NOTE_LABEL[k]}</span><CopyButton k={`n-${k}`} text={hub.notes[k]} /></p>
+              <p className="mt-1 whitespace-pre-line">{hub.notes[k]}</p>
             </div>
           ))}
         </Screen>

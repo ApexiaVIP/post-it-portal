@@ -26,7 +26,7 @@ import {
   type AdviceCheckResult,
 } from "./shared";
 import {
-  EMPTY_HUB, HUB_DROPDOWNS, HUB_NEEDS, HUB_NEED_LABEL, HUB_NOTES, HUB_NOTE_LABEL, HUB_NOTE_HOLDS, PROVIDER_REASONS, PROVIDER_REASON_LABEL,
+  EMPTY_HUB, hubFilled, HUB_DROPDOWNS, HUB_NEEDS, HUB_NEED_LABEL, PROVIDER_REASONS, PROVIDER_REASON_LABEL,
   REPLACE_LOSSES, REPLACE_LOSS_LABEL, REPLACE_REASONS, REPLACE_REASON_LABEL, settleHub, uncoveredRedLine, type HubDropdown,
 } from "./concert-hub";
 
@@ -56,6 +56,7 @@ The instructions above were written for a chat. In TopQuote's portal the adviser
 - Triage. The adviser acts on red_lines, so they hold only the absolute priorities: what decides whether this case gets through Openwork's compliance check. Work them out yourself from the documents and this case. They are about whether the advice is within the licence and fits, the need (what the money is for, who relies on it and until when, in the client's words), the options and whether the client understood and accepted them, the reasons for the sum assured and term, whether it is affordable, the disclosures under CALL CHECKS, and what the client had to be told. Anything missing that Openwork's November 2026 expectations ask for in this case (for example the survivor's position, or savings left blank) is one too. Nobody expects a perfect sheet from an hour's conversation: a point that is adequately recorded but could be fuller, or wording that isn't exact, is never a red line. Before the advice call, nothing that can only happen on that call is a red line. The before call 2 and before submission checklist is never a red line or a gap. A need is dealt with if it is identified, already covered, or discounted with a reason: any one is enough. Normally there are three to five, most serious first, and none is a good answer. Each line is one thing to do, in plain words the adviser can act on, with no section numbers and no more than 25 words; the gap check carries the detail. Before the advice call, premiums recommended that come to less than the budget while an identified need is left uncovered, with no reason on the sheet, are a red line with items empty (TopQuote's guide: under budget with a need left uncovered is a fail). Put points that one question or one entry on the sheet would settle into a single line. Use ASK_CLIENT for what only the client can answer, FIX_SHEET for what the adviser only has to write down or fill in, SPEAK_TO_GUY for what goes to Guy. These items are always red lines when MISSING: ${ALWAYS_RED.join(", ")}. Anything else missing that isn't an absolute priority is a smaller gap: it stays in the gap check and, if the client has to be asked, goes in questions.
 - Only an answer on the sheet, or in the recommendation and reasons field, shows that something happened. What the guides, the scripts or the printed wording of a question say should happen, or any figure printed in a question, is never evidence that it did. Don't write it as said or done: for example, don't say how the budget was set, or name the Statutory Sick Pay figure, unless the adviser recorded it. Where the adviser recorded that they told or explained something without saying what they said, write it no fuller than they did ("I told them what that means after 4 weeks off sick") and never fill in what it would have been. Say a thing was offered, shown or could have fitted the budget only where the adviser says so.
 - Parts 2 and 3 have to show why the advice was given, policy by policy: the client's own reason (for example to clear the mortgage, or to replace the pension income the survivor would lose), who relies on it and until when, how the sum assured and term follow from that reason, what else was considered and why it wasn't recommended, and that the client understood and agreed. Show that it matches the documents, with the section in Part 2 only. Only what the sheet or the recommendation and reasons field shows: never supply a reason the client didn't give.
+- On the online form, "Partner's details given by Life 1 on their behalf: No" with Life 2 filled in means the partner gave their own details, so the joint fact find is RECORDED and the lines about missing details don't apply.
 - Keep it short throughout. No explanation the adviser doesn't need in order to act, no repeating a point in two places.
 - The sheet as given has had surnames, full dates of birth, addresses, contact details, policy numbers and bank details left out on purpose. Their absence is never a gap.
 - Cover every gap check item exactly once, in this order, using these keys. Use NOT_APPLICABLE only where an item genuinely doesn't apply to this case (for example trust where every plan is joint life, or replacement where nothing is replaced) and say why in detail.
@@ -69,7 +70,7 @@ ${keyList(JUSTIFICATION_KEYS, JUSTIFICATION_HEADING)}
 ${keyList(HUB_NEEDS, HUB_NEED_LABEL)}
 - A need is NOT_MET for a client the recommended policies don't cover for it, even where they cover the other client. Its why is that client's own reason for leaving it out, as the sheet records it. One client's health or income never explains a need left uncovered for the other. If the sheet gives no reason, leave why and pick empty and don't raise it in red_lines or questions: the portal does.
 - Concert Hub's drop-downs. ${dropdownRules()}
-- Insufficient Income is backed only where the sheet shows the money ran out for that need: the client's budget, or what they said about the cost. Adverse Health is backed only where the sheet shows that client's own health is why the cover wasn't recommended or couldn't be had, not merely that they have a condition.
+- Insufficient Income is backed only where the sheet shows the money ran out for that need: the client's budget, or what they said about the cost. Where the client gave a different reason for leaving that need out, theirs is the reason, whatever it would have cost: leave pick empty and put their reason in why. Adverse Health is backed only where the sheet shows that client's own health is why the cover wasn't recommended or couldn't be had, not merely that they have a condition.
 - hub.policies: the same policies and lives as recommendation. amount_why and term_why come from the reasons on the policy page. The provider reasons and Concert Hub's wording (paper sheets have no box for them, so they are often empty):
 ${keyList(PROVIDER_REASONS, PROVIDER_REASON_LABEL)}
 - hub.replacements, only for existing policies being replaced. Reasons to replace:
@@ -77,10 +78,9 @@ ${keyList(REPLACE_REASONS, REPLACE_REASON_LABEL)}
   Consequences of replacing:
 ${keyList(REPLACE_LOSSES, REPLACE_LOSS_LABEL)}
 - hub.budget: TopQuote's guide says under budget with a need left uncovered is a fail unless the reason is recorded. Fill it in and don't raise it in red_lines: the portal does.
-- hub.notes: three short notes, one for each Note Type in Concert Hub, that give the reasons. Between them they cover what the instructions' Part 3 headings ask for, in the same style. The adviser enters every figure in Concert Hub's own fields, so leave out sick pay, pensions, property, liabilities, existing policies and policy details unless they are the reason for something. At most 90 words for Needs, 70 for Outgoings and 200 for Recommendation, with up to 40 more in Recommendation for each policy after the second. Whole words, no abbreviations (critical illness, family income benefit, income protection). Don't say the same thing in two notes, and leave the replacement to hub.replacements.
+- hub.notes: three short notes, one for each Note Type in Concert Hub, that give the reasons. Between them they cover what the instructions' Part 3 headings ask for, in the same style. The adviser enters every figure in Concert Hub's own fields, so leave out sick pay, pensions, property, liabilities, existing policies and policy details unless they are the reason for something. Keep to the word limits by leaving out what matters least. Whole words, no abbreviations (critical illness, family income benefit, income protection). Don't say the same thing in two notes, and leave the replacement to hub.replacements.
 - A note goes straight into Concert Hub, so it holds only what happened: no comments, gaps, reminders or instructions to the adviser. Where something missing is needed, write only "[to complete after speaking to the client]".
-- Where there are two clients, name the one who said or decided something only where the answer itself names them, or is under their own name or column. The captures and the after the advice call section are recorded once for both, so write "they said" for those, never a name.
-${HUB_NOTES.map((k) => `- ${k} (${HUB_NOTE_LABEL[k]}): ${HUB_NOTE_HOLDS[k]}`).join("\n")}
+- Where there are two clients, name the one who said or decided something only where the answer itself names them, or is under their own name or column. Where it says "they said", write "they said".
 - Number the Part 4 statements from 1. In where, say where on the sheet each comes from (section and field, for example "Policy 1, why this term"), or "recommendation field" for something only in that field, with from_adviser true.
 - The portal adds the closing line, so leave it out.
 - Write in plain British English. Never use dashes as punctuation.
@@ -197,10 +197,10 @@ function settle(c: CheckRow, raw: AdviceCheckResult): AdviceCheckResult {
   const hub = stage === "before_advice" ? EMPTY_HUB : settleHub(r.hub);
   const uncovered = uncoveredRedLine(hub);
   // A red line about gap check items that turn out to be recorded isn't one, nor is the
-  // health section (it's checked on the application), nor a second go at the uncovered needs.
+  // health section (it's checked on the application). Uncovered needs are the page's own red line.
   const gap = new Map(r.gaps.map((g) => [g.item, g.status]));
-  const lines = r.red_lines.filter((x) => x.kind === "SPEAK_TO_GUY" || x.items.length === 0
-    || (x.items.some((i) => gap.get(i) === "MISSING" && i !== "health") && !(uncovered && x.items.every((i) => i === "needs_priorities"))));
+  const lines = r.red_lines.filter((x) => !(x.uncovered && hubFilled(hub))
+    && (x.kind === "SPEAK_TO_GUY" || x.items.length === 0 || x.items.some((i) => gap.get(i) === "MISSING" && i !== "health")));
   const covered = new Set(lines.flatMap((x) => x.items));
   const left = r.gaps.filter((g) => g.status === "MISSING" && ALWAYS_RED.includes(g.item) && !covered.has(g.item));
   return {

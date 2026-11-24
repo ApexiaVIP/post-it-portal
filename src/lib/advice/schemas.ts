@@ -7,7 +7,7 @@ import { z } from "zod";
 import {
   SCENARIO_ROWS, VERDICTS, FITS, GAP_ITEMS, GAP_STATUS, RED_LINE_KINDS, JUSTIFICATION_KEYS,
 } from "./shared";
-import { HUB_NEEDS, HUB_NOTES, NEED_OUTCOMES, PROVIDER_REASONS, REPLACE_LOSSES, REPLACE_REASONS } from "./concert-hub";
+import { HUB_NEEDS, HUB_NOTE_HOLDS, NEED_OUTCOMES, PROVIDER_REASONS, REPLACE_LOSSES, REPLACE_REASONS } from "./concert-hub";
 
 /** Step 1: the uploaded pages of the Fact Find sheet, written out. */
 export const SheetOutput = z.object({
@@ -46,6 +46,7 @@ export const AdviceCheckOutput = z.object({
     action: z.string().describe("The one thing to do, plain and specific to this client. 25 words at most, no section numbers"),
     kind: z.enum(RED_LINE_KINDS),
     items: z.array(z.enum(GAP_ITEMS)).describe("The gap check items it settles. Empty for a licence or fit problem, a disclosure under CALL CHECKS, or unused budget"),
+    uncovered: z.boolean().describe("True if it is about an identified need the recommendation leaves uncovered, or unused budget"),
   })).describe("Only the absolute red lines, most serious first, normally five or fewer. Empty if there are none"),
   questions: z.array(z.string()).describe("Other questions worth asking on the same call that are not red lines, one short line each, most useful first. Empty if none."),
   not_on_sheet: z.array(z.object({
@@ -94,10 +95,11 @@ export const AdviceCheckOutput = z.object({
       losses: z.array(z.enum(REPLACE_LOSSES)).describe("Consequences of replacing it. none only where the sheet says nothing is lost. Empty if the sheet doesn't say"),
       outweigh: z.string().describe("Why the benefits outweigh the disadvantages, first person, two sentences at most, ready to paste. Empty if the sheet doesn't show it"),
     })).describe("One line for each existing policy being replaced. Empty if none"),
-    notes: z.array(z.object({
-      key: z.enum(HUB_NOTES),
-      text: z.string().describe("The note, first person, short plain factual sentences"),
-    })).describe("One note for each key, in order"),
+    notes: z.object({
+      needs: z.string().describe(`80 words at most, so leave things out. ${HUB_NOTE_HOLDS.needs}`),
+      outgoings: z.string().describe(`60 words at most, so leave things out. ${HUB_NOTE_HOLDS.outgoings}`),
+      recommendation: z.string().describe(`180 words at most, plus 40 for each policy after the second, so leave things out. ${HUB_NOTE_HOLDS.recommendation}`),
+    }).describe("The three notes, first person, short plain factual sentences, ready to paste"),
     budget: z.object({
       agreed: z.string().describe("The monthly budget the client gave, with the £ sign. Empty if the sheet doesn't say"),
       premiums: z.string().describe("The monthly premiums recommended, added up, with the £ sign"),

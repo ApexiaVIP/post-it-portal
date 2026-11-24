@@ -129,7 +129,7 @@ export interface AdviceCheckResult {
     fit: { result: Fit; explanation: string };
   };
   gaps: { item: GapItem; status: GapStatus; detail: string; source: string }[];
-  red_lines: { action: string; kind: RedLineKind; items: GapItem[] }[];
+  red_lines: { action: string; kind: RedLineKind; items: GapItem[]; uncovered?: boolean }[];
   questions: string[];
   not_on_sheet: { statement: string; note: string }[];
   documents_differ: string[];

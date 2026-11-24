@@ -76,9 +76,14 @@ export function missing(sheet: Sheet, d: Data): Missing[] {
   return out;
 }
 
-/** One block as label and answer lines. Life 2's column is left out where there is no Life 2. */
-export function blockLines(b: Block, d: Data): { label: string; value: string }[] {
+/**
+ * One block as label and answer lines. Life 2's column is left out where there
+ * is no Life 2. For the check, words recorded once for a couple say so, so
+ * they aren't put down to one of them.
+ */
+export function blockLines(b: Block, d: Data, forCheck = false): { label: string; value: string }[] {
   const two = hasLife2(d);
+  const theySaid = (v: string, quoted: boolean) => (forCheck && two && quoted && v ? `they said ${v.startsWith('"') ? v : `"${v}"`}` : v);
   switch (b.type) {
     case "checks": return b.items.map((c) => ({ label: c.label, value: d[c.key] ? "ticked" : "not ticked" }));
     case "lives": return b.rows.flatMap((f) => {
@@ -86,7 +91,7 @@ export function blockLines(b: Block, d: Data): { label: string; value: string }[
       const other = answer(f, d[`${f.key}.2`]) || "(blank)";
       return [{ label: f.label, value: two ? `${lifeName(d, 1)}: ${one} | ${lifeName(d, 2)}: ${other}` : one }];
     });
-    case "fields": return b.rows.map((f) => ({ label: f.label, value: answer(f, d[f.key]) || "(blank)" }));
+    case "fields": return b.rows.map((f) => ({ label: f.label, value: theySaid(answer(f, d[f.key]), f.input.kind === "long" && !!f.input.quote) || "(blank)" }));
     case "rows": {
       const rows = rowsOf(d, b.key);
       if (rows.length === 0) return [{ label: b.title, value: "(none entered)" }];
@@ -97,7 +102,7 @@ export function blockLines(b: Block, d: Data): { label: string; value: string }[
     }
     case "grid": return b.rows.map((r) => ({
       label: r.label,
-      value: b.columns.map((c) => `${c.label}: ${answer(c, d[`${b.key}.${r.key}.${c.key}`]) || "(blank)"}`).join("; "),
+      value: b.columns.map((c) => `${c.label}: ${theySaid(answer(c, d[`${b.key}.${r.key}.${c.key}`]), c.key === "words") || "(blank)"}`).join("; "),
     }));
     case "total": { const n = b.of(d); return [{ label: `${b.label} (worked out)`, value: n === null ? "(blank)" : pounds(n) }]; }
     case "policies": return policiesOf(d).flatMap((p, i) => {
@@ -134,7 +139,7 @@ export function sheetText(sheet: Sheet, d: Data): string {
     const lines: string[] = [];
     for (const b of s.blocks) {
       if (b.type === "heading") lines.push(`[${b.text}]`);
-      for (const l of blockLines(b, d)) lines.push(`${l.label}: ${l.value}`);
+      for (const l of blockLines(b, d, true)) lines.push(`${l.label}: ${l.value}`);
     }
     if (s.key === "family" && !hasLife2(d)) lines.unshift("Life 2: not completed");
     if (s.key === "policies" && policiesOf(d).length === 0) lines.push("(no policies entered)");

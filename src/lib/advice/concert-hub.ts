@@ -105,14 +105,14 @@ export interface HubPage {
     policy: string; still_suitable: "YES" | "NO" | "NOT_ON_SHEET"; reasons: ReplaceReason[];
     facilitate: "YES" | "NO" | "NOT_ON_SHEET"; losses: ReplaceLoss[]; outweigh: string;
   }[];
-  notes: { key: HubNote; text: string }[];
+  notes: Record<HubNote, string>;
   /** Not a Concert Hub field: for the under budget red line. */
   budget: { agreed: string; premiums: string; unused_why: string };
 }
-export const EMPTY_HUB: HubPage = { needs: [], deferred: [], policies: [], replacements: [], notes: [], budget: { agreed: "", premiums: "", unused_why: "" } };
+export const EMPTY_HUB: HubPage = { needs: [], deferred: [], policies: [], replacements: [], notes: { needs: "", outgoings: "", recommendation: "" }, budget: { agreed: "", premiums: "", unused_why: "" } };
 
 export function hubFilled(h: HubPage | null | undefined): h is HubPage {
-  return !!h && (h.needs?.length > 0 || h.policies?.length > 0 || h.notes?.length > 0);
+  return !!h && (h.needs?.length > 0 || h.policies?.length > 0);
 }
 export const hubClients = (h: HubPage): string[] => Array.from(new Set(h.needs.map((n) => n.client)));
 export const unmet = (h: HubPage) => h.needs.filter((n) => n.outcome === "NOT_MET");
@@ -123,6 +123,10 @@ export function addressedBy(h: HubPage, p: HubPage["policies"][number]): { clien
     && p.client.toLowerCase().split(/,|\band\b|&/).some((c) => c.trim() === n.client.trim().toLowerCase()));
 }
 
+/** "[to complete after speaking to the client: ...]" is never an answer. */
+const PLACEHOLDER = /\[to complete[^\]]*\]/gi;
+const said = (s: string | undefined) => (s ?? "").replace(PLACEHOLDER, "").trim();
+
 /**
  * Holds the page to the sheet: a drop-down choice is one Concert Hub has and
  * comes with the reason that backs it, and every need is there for each client.
@@ -130,7 +134,7 @@ export function addressedBy(h: HubPage, p: HubPage["policies"][number]): { clien
 export function settleHub(h: HubPage): HubPage {
   if (!hubFilled(h)) return EMPTY_HUB;
   const needs = h.needs.map((n) => {
-    const why = n.why.trim();
+    const why = said(n.why);
     return { ...n, why, met_by: n.outcome === "MET" ? n.met_by : "", pick: n.outcome === "NOT_MET" && why ? hubOption("reason_not_addressed", n.pick) : "" };
   });
   for (const client of hubClients(h)) {
@@ -138,17 +142,27 @@ export function settleHub(h: HubPage): HubPage {
       if (!needs.some((n) => n.client === client && n.need === need)) needs.push({ client, need, outcome: "NOT_ON_SHEET", met_by: "", pick: "", why: "" });
     }
   }
+  const wantsPeriod = hubClients(h).filter((c) => needs.some((n) => n.client === c && n.need === "income_sickness" && (n.outcome === "MET" || n.outcome === "NOT_MET")));
   return {
     ...h,
     needs: needs.sort((a, b) => HUB_NEEDS.indexOf(a.need) - HUB_NEEDS.indexOf(b.need)),
-    policies: h.policies.map((p) => ({
-      ...p,
-      amount_pick: p.amount_why.trim() ? hubOption("benefit_amount", p.amount_pick) : "",
-      term_pick: p.term_why.trim() ? hubOption("product_term", p.term_pick) : "",
-    })),
+    deferred: wantsPeriod.map((client) => {
+      const d = h.deferred.find((x) => x.client === client);
+      return { client, period: said(d?.period), why: said(d?.why) };
+    }),
+    policies: h.policies.map((p) => {
+      const amount_why = said(p.amount_why);
+      const term_why = said(p.term_why);
+      return {
+        ...p, amount_why, term_why, trust: said(p.trust), extras: said(p.extras), provider_why: said(p.provider_why),
+        amount_pick: amount_why ? hubOption("benefit_amount", p.amount_pick) : "",
+        term_pick: term_why ? hubOption("product_term", p.term_pick) : "",
+      };
+    }),
+    replacements: h.replacements.map((r) => ({ ...r, outweigh: said(r.outweigh) })),
+    budget: { ...h.budget, unused_why: said(h.budget?.unused_why) },
     // Nothing in a note but what happened: it's pasted as it stands.
-    notes: h.notes.map((n) => ({ ...n, text: n.text.replace(/\[to complete after speaking to the client[^\]]*\]/gi, "[to complete after speaking to the client]") }))
-      .sort((a, b) => HUB_NOTES.indexOf(a.key) - HUB_NOTES.indexOf(b.key)),
+    notes: Object.fromEntries(HUB_NOTES.map((k) => [k, (h.notes?.[k] ?? "").replace(PLACEHOLDER, "[to complete after speaking to the client]").trim()])) as HubPage["notes"],
   };
 }
 
@@ -218,6 +232,6 @@ export function hubText(h: HubPage | null | undefined): string {
       `Features that can be used instead: ${yn(r.facilitate)}`, `Consequences: ${r.losses.map((x) => REPLACE_LOSS_LABEL[x]).join(", ") || NOT_ON_SHEET}`,
       `Why the benefits outweigh the disadvantages: ${r.outweigh || NOT_ON_SHEET}`);
   }
-  for (const n of h.notes) out.push("", `NOTE: ${HUB_NOTE_LABEL[n.key].toUpperCase()}`, n.text.trim());
+  for (const k of HUB_NOTES) if (h.notes[k]) out.push("", `NOTE: ${HUB_NOTE_LABEL[k].toUpperCase()}`, h.notes[k]);
   return out.join("\n");
 }
