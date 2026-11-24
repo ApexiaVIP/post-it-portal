@@ -9,7 +9,8 @@ import { sql } from "@vercel/postgres";
 import { getCase, getCalls } from "./db";
 import { runStatements } from "./analyse";
 import { ukModel } from "./uk";
-import { notesText, type AdviceCheckResult, justificationText } from "@/lib/advice/shared";
+import { type AdviceCheckResult, justificationText } from "@/lib/advice/shared";
+import { hubText } from "@/lib/advice/concert-hub";
 
 export interface LinkedCheck {
   id: number;
@@ -33,8 +34,8 @@ function statementsMaterial(k: LinkedCheck): string {
     "THE STATEMENTS",
     lines.join("\n"),
     "",
-    "THE CONCERT HUB NOTES THE CHECK DRAFTED",
-    notesText(k.result) || "None.",
+    "THE CONCERT HUB CHOICES AND NOTES THE CHECK DRAFTED",
+    hubText(k.result.hub) || "None.",
     "",
     "THE FACT FIND SHEET AS RECORDED",
     "<sheet>",

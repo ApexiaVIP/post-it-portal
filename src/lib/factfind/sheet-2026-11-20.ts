@@ -30,6 +30,7 @@ const mortgaged = (d: Data, life?: 1 | 2) => {
 };
 const anyMortgage = (d: Data) => mortgaged(d, 1) || mortgaged(d, 2);
 const LIFE = ["Life 1", "Life 2", "Joint"];
+const replacing = (d: Data) => d.replaced6 === "Yes" || rowsOf(d, "existing").some((r) => r.keep === "Not Keeping");
 const lifetime = (d: Data) => d["need.lifetime.identified"] === "Yes";
 
 const NEEDS = [
@@ -40,6 +41,8 @@ const NEEDS = [
   { key: "lifetime", label: "Lifetime need (client wants cover paid out whenever they die: whole of life costed against term)" },
   { key: "funeral", label: "Funeral expenses (over 50: WOL up to £15,000, in trust, whether or not the client has savings)" },
   { key: "accident", label: "Accident and sickness (MetLife Multi-Protect)" },
+  // Not on the paper sheet: Concert Hub asks for it separately from the mortgage.
+  { key: "ci_lump", label: "Lump sum on serious illness, apart from the mortgage (critical illness capture)" },
 ];
 
 const outgoings = (d: Data): number | null => {
@@ -235,7 +238,9 @@ const sections: Sheet["sections"] = [
         long("existing_detail", "What each pays out for, additional benefits, and whether it is linked to a liability (which). Include workplace cover: death in service, group income protection."),
         must(yn("replaced6", "Any policy replaced, reduced or cancelled in the last 6 months? (if yes, treat as a replacement)")),
         must({ ...long("replace_why", "If anything is being replaced: the need today, the comparison (what the old plan gave, what the new one gives) and the cost difference", 3) },
-          (d) => d.replaced6 === "Yes" || rowsOf(d, "existing").some((r) => r.keep === "Not Keeping")),
+          replacing),
+        // Not on the paper sheet: Concert Hub's consequences of replacing.
+        must(long("replace_lose", "If anything is being replaced: what they lose by it (guaranteed rate, renewable or convertible option, TPD, trust), or that nothing is lost"), replacing),
         long("lg_review", "L&G policy reviewed on the service call: original reason for taking it out; client's understanding of what it does; what it does well; any gap (balance, term or type no longer matching the mortgage)", 3),
       ] },
     ],
@@ -286,7 +291,7 @@ const sections: Sheet["sections"] = [
   {
     key: "after", title: "After the advice call",
     blocks: [
-      { type: "note", text: "Not on the paper sheet. Fill this in once you have presented the recommendation: the justification and Concert Hub notes need it." },
+      { type: "note", text: "Not on the paper sheet. Fill this in once you have presented the recommendation: the Concert Hub page needs it." },
       { type: "fields", rows: [
         words("a_decision", "What the client decided on each policy, and why, in their words"),
         long("a_understood", "How you know they understood their options and what they were agreeing to"),

@@ -206,12 +206,12 @@ function NewCheckForm() {
           {caseType === "two_call" && !presented ? (
             <p className="text-xs text-slate-600">
               This checks the case before your advice call: whether we can advise, and any red lines. After the advice call, run it again with
-              the box above ticked and it drafts the justification and Concert Hub notes.
+              the box above ticked and it fills in your Concert Hub page.
             </p>
           ) : (
             <label className="flex items-start gap-2">
               <input type="checkbox" className="mt-1" checked={notesAnyway} onChange={(e) => setNotesAnyway(e.target.checked)} />
-              If something is missing, still draft the justification and notes for the parts that are complete
+              If something is missing, still fill in the Concert Hub page for the parts that are complete
             </label>
           )}
         </div>

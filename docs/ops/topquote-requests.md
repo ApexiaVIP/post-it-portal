@@ -58,13 +58,17 @@ Only the scripts and the sheet are checked. The 6 Oct call guides are retired fr
 
 Guy's pre-advice check (22 Nov 2026), run by the sellers (Tan, Hayder, Ben, Gurdaht; `ADVICE_CHECK_USERNAMES`) before they present advice. They upload photos of the completed Fact Find sheet (or type it); the recommendation is read from its policy pages, 7 to 9, and can be typed as well. It reads the sheet in London (surnames, dates of birth, addresses, contact, policy and bank details left out; photos deleted once read), then runs Guy's instructions with his reference documents: can this advice be given, the gap check, the justification, the Concert Hub notes, and every statement. Sellers see their own checks; Call QA users see all.
 
-Since 24 Nov 2026 (call with Guy and Poz): a two call case is checked before the advice call for the licence and the red lines only, and run again after it, with "already presented" ticked, for the justification and notes. The check works out the red lines itself; the need, dependants, lifelong need, sum assured and term (`ALWAYS_RED` in `src/lib/advice/shared.ts`) are always red lines when missing. The full gap check is folded away.
+Since 24 Nov 2026 (call with Guy and Poz): a two call case is checked before the advice call for the licence and the red lines only, and run again after it, with "already presented" ticked, for the Concert Hub page and justification. The check works out the red lines itself; the need, dependants, lifelong need, sum assured and term (`ALWAYS_RED` in `src/lib/advice/shared.ts`) are always red lines when missing. The full gap check is folded away.
 
 The Fact Find can be completed online (/advice-check/form, 24 Nov 2026), so nothing depends on reading handwriting. Uploading or pasting a sheet stays as the fallback. First names and ages only; surnames, dates of birth, addresses and postcodes stay out. Sellers get it only once `FACT_FIND_KEEP_DAYS` is set on Vercel (Jimmy): it opens the form to them and clears answers that many days after the last change. Until then only Guy, Poz and Jimmy have it.
 
 **New Fact Find sheet from Guy (the online form)**
 1. Copy the latest `src/lib/factfind/sheet-*.ts` to a file named for the new issue date, make Guy's changes, and add it to the end of `SHEETS` in `src/lib/factfind/index.ts`. Forms already started keep their own version, so never edit an issued one.
 2. Keep the keys of questions that haven't changed.
+
+After the advice call the seller gets the Concert Hub page (24 Nov 2026, from Guy's screenshots): the needs, the reasons for amount, term and provider, replacements, the reason for each need not covered, and three notes (Needs, Outgoings, Recommendation), in the order of Concert Hub's screens. It takes the place of the seven headings in Part 3 of Guy's instructions. Concert Hub writes the suitability report from those choices, so nothing is suggested that the sheet doesn't back: it shows "Not on your sheet" instead, and a need left uncovered with no reason is a red line. The full justification and the statements are folded away under "For the file".
+
+**Concert Hub's drop-down lists** (asked of Guy 24 Nov 2026): fill in `options` and set `complete` in `HUB_DROPDOWNS`, `src/lib/advice/concert-hub.ts`. The check then picks from the list. Until then it gives the reason in words and the seller picks the closest. The screenshots themselves show a real client: keep them out of the repo and the portal.
 
 On a Call QA case, Poz links the seller's check to the sale. Then its statements are tested against the calls (Gate 4), and the ones the call doesn't back up join the callback list. The draft suitability report is written from the calls and the sheet together.
 

@@ -94,7 +94,7 @@ export default function AdviceCheckListPage() {
           <p className="mt-1 max-w-3xl text-sm text-slate-600">
             Run it on every case before you present advice. {forms?.allowed ? "Fill in the Fact Find online on the call" : "Upload or paste your completed Fact Find sheet"}, with your
             recommendation. It tells you if the case is within our licence and what the red lines are. Run it again after the advice
-            call (or straight after a one call) for the justification and your Concert Hub notes.
+            call (or straight after a one call) for your Concert Hub page: what to choose on each screen, and three short notes.
             It only uses what&apos;s on your sheet: if something is missing, ring the client back and ask.
           </p>
         </div>

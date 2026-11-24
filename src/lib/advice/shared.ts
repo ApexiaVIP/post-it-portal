@@ -4,10 +4,11 @@
  *
  * Guy's instructions produce five parts: Part 0, can this advice be given
  * (matched to his scenario sheet); Part 1, the gap check; Part 2, the
- * justification of the advice; Part 3, the Concert Hub notes; Part 4, every
- * statement in Parts 2 and 3 with where it came from, for the check against
- * the recording.
+ * justification of the advice; Part 3, the Concert Hub page
+ * (concert-hub.ts); Part 4, every statement in Parts 2 and 3 with where it
+ * came from, for the check against the recording.
  */
+import { hubGaps, type HubPage } from "./concert-hub";
 
 export const SCENARIO_ROWS = [
   "working_to_retirement", "working_past_retirement", "retired_couple", "funeral_over_50",
@@ -84,7 +85,7 @@ export const RED_LINE_KIND_LABEL: Record<RedLineKind, string> = {
 
 /**
  * A two call case is checked before the advice call (can we advise, and the
- * red lines) and again after it, when the justification and notes are drafted.
+ * red lines) and again after it, for the Concert Hub page and justification.
  * A one call case has had its advice, so it gets everything at once.
  */
 export type Stage = "before_advice" | "after_advice";
@@ -117,19 +118,6 @@ export const JUSTIFICATION_HEADING: Record<JustificationKey, string> = {
   replacement: "Replacement",
 };
 
-/** Part 3: the Concert Hub headings, in Guy's order. */
-export const NOTE_KEYS = ["circumstances", "needs", "budget", "recommendation", "options", "decision", "not_met"] as const;
-export type NoteKey = (typeof NOTE_KEYS)[number];
-export const NOTE_HEADING: Record<NoteKey, string> = {
-  circumstances: "Client circumstances",
-  needs: "Needs and priorities (client's words)",
-  budget: "Budget",
-  recommendation: "Recommendation and reasons (product, sum assured, term, trust)",
-  options: "Options considered and why not recommended (with the quoted premiums)",
-  decision: "Client's decision and reasons",
-  not_met: "Needs not met and follow up",
-};
-
 export interface AdviceCheckResult {
   stage?: Stage;
   part0: {
@@ -146,8 +134,8 @@ export interface AdviceCheckResult {
   not_on_sheet: { statement: string; note: string }[];
   documents_differ: string[];
   justification: { key: JustificationKey; text: string; cites: string }[];
-  notes: { key: NoteKey; text: string }[];
-  dropdown_tips: string[];
+  /** Part 3, after the advice call. */
+  hub: HubPage;
   statements: { n: number; text: string; where: string; from_adviser: boolean }[];
 }
 
@@ -163,6 +151,8 @@ export interface CheckSummary {
   redLines: number;
   /** Missing, but not a red line. */
   smaller: number;
+  /** On the Concert Hub page, but not backed by the sheet. */
+  onPage: number;
   missing: number;
   declined: number;
   notOnSheet: number;
@@ -178,13 +168,15 @@ export function summarise(r: AdviceCheckResult | null | undefined): CheckSummary
   const smaller = r.gaps.filter((g) => g.status === "MISSING" && !covered.has(g.item)).length;
   const declined = r.gaps.filter((g) => g.status === "CLIENT_DECLINED").length;
   const notOnSheet = (r.not_on_sheet ?? []).length;
+  const onPage = hubGaps(r.hub);
+  const gaps = smaller + onPage;
   const readiness: Readiness =
     r.part0.fit?.result === "DOES_NOT_FIT" ? "doesnt_fit"
     : r.part0.speak_to_guy || r.part0.verdict === "SPEAK_TO_GUY" || r.part0.verdict === "CANNOT_ADVISE" ? "speak_to_guy"
     : r.part0.recommendation?.length === 0 ? "no_recommendation"
     : redLines > 0 ? "red_lines"
     : r.part0.fit?.result === "CANNOT_TELL" ? "unclear"
-    : missing > 0 ? "missing"
+    : missing > 0 || onPage > 0 ? "missing"
     : notOnSheet > 0 ? "confirm"
     : "ready";
   const label =
@@ -193,10 +185,10 @@ export function summarise(r: AdviceCheckResult | null | undefined): CheckSummary
     : readiness === "no_recommendation" ? "No recommendation on the sheet"
     : readiness === "unclear" ? "Recommendation not clear"
     : readiness === "red_lines" ? `${redLines} red line${redLines === 1 ? "" : "s"}`
-    : readiness === "missing" ? `No red lines, ${smaller} smaller gap${smaller === 1 ? "" : "s"}`
+    : readiness === "missing" ? `No red lines, ${gaps} smaller gap${gaps === 1 ? "" : "s"}`
     : readiness === "confirm" ? `Confirm ${notOnSheet} point${notOnSheet === 1 ? "" : "s"}`
     : r.stage === "before_advice" ? "Ready for the advice call" : "Ready";
-  return { readiness, redLines, smaller, missing, declined, notOnSheet, label };
+  return { readiness, redLines, smaller, onPage, missing, declined, notOnSheet, label };
 }
 
 export const READINESS_STYLE: Record<Readiness, string> = {
@@ -223,13 +215,5 @@ export function justificationText(r: AdviceCheckResult): string {
   return [...r.justification]
     .sort((a, b) => JUSTIFICATION_KEYS.indexOf(a.key) - JUSTIFICATION_KEYS.indexOf(b.key))
     .map((j) => `${JUSTIFICATION_HEADING[j.key].toUpperCase()}\n${j.text.trim()}${j.cites ? ` (${j.cites})` : ""}`)
-    .join("\n\n");
-}
-
-/** Part 3 as plain text, for copying into Concert Hub. */
-export function notesText(r: AdviceCheckResult): string {
-  return [...r.notes]
-    .sort((a, b) => NOTE_KEYS.indexOf(a.key) - NOTE_KEYS.indexOf(b.key))
-    .map((n) => `${NOTE_HEADING[n.key].toUpperCase()}\n${n.text.trim()}`)
     .join("\n\n");
 }

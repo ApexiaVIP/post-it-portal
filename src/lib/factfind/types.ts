@@ -61,6 +61,8 @@ export interface PolicyTerms {
   premium?: string;
   extras?: string;
   trust?: string;
+  /** Income protection only. */
+  deferred?: string;
 }
 export interface Policy {
   who?: Who;
@@ -74,4 +76,8 @@ export interface Policy {
   premiums?: string;
   why_reviewable?: string;
   trust_note?: string;
+  /** Concert Hub's "Reasons Why - Provider" (24 Nov 2026). Not on the paper sheet. */
+  provider?: string;
+  why_provider?: string[];
+  why_provider_note?: string;
 }

@@ -3,18 +3,21 @@
 /**
  * Advice check: one check (Guy, 22 Nov 2026; triaged 24 Nov). Can this advice
  * be given, and the red lines, come first; the rest of the gap check is folded
- * away. After the advice call come the justification and the Concert Hub
- * notes to copy, then every statement for the check against the recording. Once the sale's calls are in Call QA, the
- * statements are tested against them and the result shows at the end.
+ * away. After the advice call comes the Concert Hub page, in the order of its
+ * screens. The full justification and every statement in it are folded away
+ * for the file. Once the sale's calls are in Call QA, the statements are
+ * tested against them and the result shows at the end.
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
-  CLOSING_LINE, GAP_ITEMS, GAP_LABEL, GAP_STATUS_LABEL, JUSTIFICATION_HEADING, JUSTIFICATION_KEYS, NOTE_HEADING, NOTE_KEYS,
-  READINESS_STYLE, RED_LINE_KIND_LABEL, SCENARIO_LABEL, VERDICT_LABEL, justificationText, notesText, summarise, unreadable,
+  CLOSING_LINE, GAP_ITEMS, GAP_LABEL, GAP_STATUS_LABEL, JUSTIFICATION_HEADING, JUSTIFICATION_KEYS,
+  READINESS_STYLE, RED_LINE_KIND_LABEL, SCENARIO_LABEL, VERDICT_LABEL, justificationText, summarise, unreadable,
   type AdviceCheckResult, type GapItem, type GapStatus,
 } from "@/lib/advice/shared";
+import { hubFilled } from "@/lib/advice/concert-hub";
+import { ConcertHubPage } from "@/components/concert-hub-page";
 import { STATEMENT_LABEL, STATEMENT_STYLE } from "@/lib/qa/notes-check";
 import { plainReason } from "@/lib/qa/shared";
 import type { StatementsRunResult } from "@/lib/qa/schemas";
@@ -80,13 +83,10 @@ function useCopy(): [string | null, (key: string, text: string) => Promise<void>
   return [copied, copy];
 }
 
-function Section({ n, title, note, children, action }: { n?: number; title: string; note?: string; children: React.ReactNode; action?: React.ReactNode }) {
+function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
     <section className="mt-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-300 pb-1">
-        <h2 className="text-lg font-bold">{n !== undefined ? `Part ${n}: ` : ""}{title}</h2>
-        {action}
-      </div>
+      <h2 className="border-b border-slate-300 pb-1 text-lg font-bold">{title}</h2>
       {note && <p className="mt-1 text-xs text-slate-600">{note}</p>}
       <div className="mt-2">{children}</div>
     </section>
@@ -201,10 +201,10 @@ export default function AdviceCheckPage() {
                 : sum.readiness === "no_recommendation" ? "No recommendation was found. Fill in the policy pages (7 to 9) or type it, then run the check again."
                 : sum.readiness === "unclear" ? "The check couldn't tell whether your recommendation fits. Put right what it says above, then run it again."
                 : sum.readiness === "red_lines" ? "Put these right, then run it again. Don't work around them with wording."
-                : sum.readiness === "missing" ? (before ? "No red lines. Pick up the smaller gaps on the advice call if you can." : "No red lines, but the smaller gaps have to be closed before you submit.")
+                : sum.readiness === "missing" ? (before ? "No red lines. Pick up the smaller gaps on the advice call if you can." : `No red lines, but close the smaller gaps before you submit${sum.onPage > 0 ? `, including what's marked "Not on your sheet" below` : ""}.`)
                 : sum.readiness === "confirm" ? "You gave the check something that isn't on your sheet. Confirm it below, then run it again."
                 : before ? "No red lines. Go ahead with the advice call."
-                : "Nothing is missing. Use Part 2 as your rationale and paste Part 3 into Concert Hub under the matching fields. Enter every figure you gathered, mandatory or not."}
+                : "Nothing is missing. Complete Concert Hub from the page below, and enter every figure you gathered, mandatory or not."}
             </p>
             {r.red_lines.length > 0 && (
               <ol className="mt-3 space-y-2">
@@ -219,7 +219,7 @@ export default function AdviceCheckPage() {
             )}
             {before && (
               <p className="no-print mt-3 text-sm">
-                After the advice call, <Link href={c.fact_find_id ? `/advice-check/form/${c.fact_find_id}#s-after` : `/advice-check/new?from=${c.id}&after=1`} className="font-semibold text-teal-800 underline">run it again for the justification and Concert Hub notes</Link>.
+                After the advice call, <Link href={c.fact_find_id ? `/advice-check/form/${c.fact_find_id}#s-after` : `/advice-check/new?from=${c.id}&after=1`} className="font-semibold text-teal-800 underline">run it again for your Concert Hub page</Link>.
               </p>
             )}
           </div>
@@ -241,6 +241,14 @@ export default function AdviceCheckPage() {
           )}
 
           <Changes previous={data.previous} r={r} />
+
+          {hubFilled(r.hub) && (
+            <Section title="Concert Hub" note={`Work down this with Concert Hub open: it's in the order of the screens. Check every choice and note against what was said on the call. Where it says "Not on your sheet", don't choose one: put it on the sheet and run the check again.`}>
+              <ConcertHubPage hub={r.hub} copied={copied} copy={copy} />
+            </Section>
+          )}
+
+          {data.against_calls && <AgainstCalls run={data.against_calls} r={r} />}
 
           <details className="mt-6 rounded border border-slate-200 bg-white px-3 py-2 text-sm">
             <summary className="cursor-pointer font-bold">
@@ -276,59 +284,42 @@ export default function AdviceCheckPage() {
             )}
           </details>
 
-          {r.justification.length > 0 && (
-            <Section n={2} title="Justification of the advice" note="The suitability rationale you can rely on, in your voice. Check every word against what was said on the call."
-              action={<button type="button" onClick={() => copy("j-all", justificationText(r))} className="no-print text-xs text-teal-800 underline">{copied === "j-all" ? "Copied" : "Copy it all"}</button>}>
-              <div className="space-y-2">
-                {[...r.justification].sort((a, b) => JUSTIFICATION_KEYS.indexOf(a.key) - JUSTIFICATION_KEYS.indexOf(b.key)).map((j) => (
-                  <div key={j.key} className="break-inside-avoid rounded border border-slate-200 bg-white px-3 py-2 text-sm">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="font-bold">{JUSTIFICATION_HEADING[j.key]}</p>
-                      <button type="button" onClick={() => copy(`j-${j.key}`, j.text.trim())} className="no-print text-xs text-teal-800 underline">{copied === `j-${j.key}` ? "Copied" : "Copy"}</button>
+          {(r.justification.length > 0 || r.statements.length > 0) && (
+            <details className="mt-3 rounded border border-slate-200 bg-white px-3 py-2 text-sm">
+              <summary className="cursor-pointer font-bold">
+                For the file <span className="font-normal text-slate-500">(the full justification, and every statement with where it came from)</span>
+              </summary>
+              {r.justification.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-right"><button type="button" onClick={() => copy("j-all", justificationText(r))} className="no-print text-xs text-teal-800 underline">{copied === "j-all" ? "Copied" : "Copy the justification"}</button></p>
+                  {[...r.justification].sort((a, b) => JUSTIFICATION_KEYS.indexOf(a.key) - JUSTIFICATION_KEYS.indexOf(b.key)).map((j) => (
+                    <div key={j.key} className="break-inside-avoid rounded border border-slate-200 bg-white px-3 py-2 text-sm">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="font-bold">{JUSTIFICATION_HEADING[j.key]}</p>
+                        <button type="button" onClick={() => copy(`j-${j.key}`, j.text.trim())} className="no-print text-xs text-teal-800 underline">{copied === `j-${j.key}` ? "Copied" : "Copy"}</button>
+                      </div>
+                      <p className="mt-1 whitespace-pre-line">{j.text.trim()}</p>
+                      {j.cites && <p className="mt-1 text-xs text-slate-500">({j.cites})</p>}
                     </div>
-                    <p className="mt-1 whitespace-pre-line">{j.text.trim()}</p>
-                    {j.cites && <p className="mt-1 text-xs text-slate-500">({j.cites})</p>}
-                  </div>
-                ))}
-              </div>
-            </Section>
-          )}
-
-          {r.notes.length > 0 && (
-            <Section n={3} title="Concert Hub notes" note="Paste each under the matching field. Enter every figure you gathered whether the field is mandatory or not."
-              action={<button type="button" onClick={() => copy("n-all", notesText(r))} className="no-print text-xs text-teal-800 underline">{copied === "n-all" ? "Copied" : "Copy it all"}</button>}>
-              <div className="space-y-2">
-                {[...r.notes].sort((a, b) => NOTE_KEYS.indexOf(a.key) - NOTE_KEYS.indexOf(b.key)).map((n) => (
-                  <div key={n.key} className="break-inside-avoid rounded border border-slate-200 bg-white px-3 py-2 text-sm">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="font-bold">{NOTE_HEADING[n.key]}</p>
-                      <button type="button" onClick={() => copy(`n-${n.key}`, n.text.trim())} className="no-print text-xs text-teal-800 underline">{copied === `n-${n.key}` ? "Copied" : "Copy"}</button>
-                    </div>
-                    <p className="mt-1 whitespace-pre-line">{n.text.trim()}</p>
-                  </div>
-                ))}
-              </div>
-              {r.dropdown_tips.length > 0 && (
-                <ul className="mt-2 list-disc space-y-0.5 pl-6 text-xs text-slate-700">{r.dropdown_tips.map((t, i) => <li key={i}>{t}</li>)}</ul>
+                  ))}
+                </div>
               )}
-            </Section>
+              {r.statements.length > 0 && (
+                <div className="mt-3">
+                  <p className="mb-1 text-xs text-slate-600">Once the sale&apos;s calls are in, each of these is tested against the recording. If you&apos;re not sure it was said on the call, take it out.</p>
+                  <ol className="space-y-1 text-sm">
+                    {r.statements.map((s) => (
+                      <li key={s.n} className="break-inside-avoid">
+                        <span className="mr-1 font-bold">{s.n}.</span>{s.text}{" "}
+                        <span className="text-xs text-slate-500">({s.where})</span>
+                        {s.from_adviser && <span className="ml-1 rounded bg-amber-100 px-1 text-[11px] font-semibold text-amber-900">from you, not the sheet</span>}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </details>
           )}
-
-          {r.statements.length > 0 && (
-            <Section n={4} title="Statements for the post-sale check" note="Every factual statement in Parts 2 and 3, and where it came from. Once the sale's calls are in, each one is tested against the recording. If you're not sure it was said on the call, take it out.">
-              <ol className="space-y-1 text-sm">
-                {r.statements.map((s) => (
-                  <li key={s.n} className="break-inside-avoid">
-                    <span className="mr-1 font-bold">{s.n}.</span>{s.text}{" "}
-                    <span className="text-xs text-slate-500">({s.where})</span>
-                    {s.from_adviser && <span className="ml-1 rounded bg-amber-100 px-1 text-[11px] font-semibold text-amber-900">from you, not the sheet</span>}
-                  </li>
-                ))}
-              </ol>
-            </Section>
-          )}
-
-          {data.against_calls && <AgainstCalls run={data.against_calls} r={r} />}
 
           <p className="mt-8 border-t border-slate-200 pt-3 text-xs italic text-slate-600">{CLOSING_LINE}</p>
         </>
@@ -365,7 +356,7 @@ function Verdict({ r }: { r: AdviceCheckResult }) {
   const p = r.part0;
   const bad = p.fit.result === "DOES_NOT_FIT" || p.speak_to_guy || p.verdict === "SPEAK_TO_GUY" || p.verdict === "CANNOT_ADVISE";
   return (
-    <Section n={0} title="Can this advice be given?">
+    <Section title="Can this advice be given?">
       <div className={`rounded border-l-4 bg-white p-3 text-sm ${bad ? "border-red-600" : p.verdict === "CAN_ADVISE_IF" ? "border-amber-500" : "border-emerald-600"}`}>
         <p className="font-bold">{VERDICT_LABEL[p.verdict]}</p>
         {p.rows.length > 0 && <p className="text-xs text-slate-600">Scenario sheet: {p.rows.map((x) => SCENARIO_LABEL[x] ?? x).join("; ")}</p>}

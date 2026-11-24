@@ -5,8 +5,9 @@
  */
 import { z } from "zod";
 import {
-  SCENARIO_ROWS, VERDICTS, FITS, GAP_ITEMS, GAP_STATUS, RED_LINE_KINDS, JUSTIFICATION_KEYS, NOTE_KEYS,
+  SCENARIO_ROWS, VERDICTS, FITS, GAP_ITEMS, GAP_STATUS, RED_LINE_KINDS, JUSTIFICATION_KEYS,
 } from "./shared";
+import { HUB_NEEDS, HUB_NOTES, NEED_OUTCOMES, PROVIDER_REASONS, REPLACE_LOSSES, REPLACE_REASONS } from "./concert-hub";
 
 /** Step 1: the uploaded pages of the Fact Find sheet, written out. */
 export const SheetOutput = z.object({
@@ -57,11 +58,47 @@ export const AdviceCheckOutput = z.object({
     text: z.string().describe("One short paragraph in the first person, as the adviser"),
     cites: z.string().describe("The framework section or Openwork expectation the paragraph answers"),
   })).describe("Part 2. Empty before the advice call, when the case isn't ready and the adviser hasn't asked for the complete parts, or the recommendation doesn't fit."),
-  notes: z.array(z.object({
-    key: z.enum(NOTE_KEYS),
-    text: z.string().describe("The note for this Concert Hub heading, first person, short plain factual sentences"),
-  })).describe("Part 3, under the Concert Hub headings. Empty in the same cases as Part 2."),
-  dropdown_tips: z.array(z.string()).describe("Where a Concert Hub drop-down doesn't fit, which one, telling the adviser to pick Other and rely on the note. Empty if none."),
+  hub: z.object({
+    needs: z.array(z.object({
+      client: z.string().describe("First name"),
+      need: z.enum(HUB_NEEDS),
+      outcome: z.enum(NEED_OUTCOMES).describe("MET: identified, and a recommended policy covers this client for it. NOT_MET: identified, and nothing recommended does. COVERED: existing cover or benefits already meet it. NOT_IDENTIFIED: considered and discounted. NOT_ON_SHEET: the sheet doesn't say."),
+      met_by: z.string().describe("MET: the policy or policies, as named in policies, e.g. Policy 1. Otherwise empty"),
+      pick: z.string().describe("NOT_MET: the Reason Not Addressed option the sheet backs. Empty if none is backed, or for any other outcome"),
+      why: z.string().describe("What the sheet says, 20 words at most. NOT_MET: the reason this client's need isn't covered. COVERED: what covers it. NOT_IDENTIFIED: the reason. MET: empty, unless only part of the need is met, then what is left. Empty if the sheet doesn't say"),
+    })).describe("All seven need areas for each client on the fact find"),
+    deferred: z.array(z.object({
+      client: z.string().describe("First name"),
+      period: z.string().describe("The deferred period as the sheet gives it. Empty if it doesn't"),
+      why: z.string().describe("What the sheet shows about sick pay, 15 words at most. Empty if nothing"),
+    })).describe("One line for each client whose income_sickness need is MET or NOT_MET. Empty if none"),
+    policies: z.array(z.object({
+      policy: z.string().describe("Policy 1, Policy 2 and so on, as on the sheet"),
+      client: z.string().describe("First name of the life covered. Both first names joined with and for a joint life plan"),
+      product: z.string().describe("e.g. Life cover, level"),
+      amount_pick: z.string().describe("The Benefit Amount option the sheet backs, if the options are known. Otherwise empty"),
+      amount_why: z.string().describe("Why this sum assured, as the sheet gives it, 25 words at most. Empty if it doesn't"),
+      term_pick: z.string().describe("The Product Term option the sheet backs, if the options are known. Otherwise empty"),
+      term_why: z.string().describe("Why this term, as the sheet gives it, 25 words at most. Empty if it doesn't"),
+      trust: z.string().describe("Yes, or No with the reason, as the sheet gives it. 'No, joint life' for a joint life plan. Empty if the sheet doesn't say"),
+      extras: z.string().describe("Additional benefits agreed with the client. None where the sheet says there are none. Empty if it doesn't say"),
+      provider: z.string().describe("The provider, if the sheet names it. Otherwise empty"),
+      provider_reasons: z.array(z.enum(PROVIDER_REASONS)).describe("The provider reasons to switch to Yes. Only those the sheet gives. Empty if it gives none"),
+      provider_why: z.string().describe("Anything the sheet adds about why this provider, 20 words at most. Otherwise empty"),
+    })).describe("One line for each recommended policy and life"),
+    replacements: z.array(z.object({
+      policy: z.string().describe("The existing policy being replaced: whose, provider, type, sum assured and remaining term. No policy number"),
+      still_suitable: z.enum(["YES", "NO", "NOT_ON_SHEET"]).describe("Does the existing plan remain suitable to meet the identified need?"),
+      reasons: z.array(z.enum(REPLACE_REASONS)).describe("Why it is suitable to replace. Only those the sheet shows"),
+      facilitate: z.enum(["YES", "NO", "NOT_ON_SHEET"]).describe("Does the existing plan have any features that could be used to make the change instead?"),
+      losses: z.array(z.enum(REPLACE_LOSSES)).describe("Consequences of replacing it. none only where the sheet says nothing is lost. Empty if the sheet doesn't say"),
+      outweigh: z.string().describe("Why the benefits outweigh the disadvantages, first person, two sentences at most, ready to paste. Empty if the sheet doesn't show it"),
+    })).describe("One line for each existing policy being replaced. Empty if none"),
+    notes: z.array(z.object({
+      key: z.enum(HUB_NOTES),
+      text: z.string().describe("The note, first person, short plain factual sentences"),
+    })).describe("One note for each key, in order"),
+  }).describe("Part 3, the Concert Hub page. Every list empty in the same cases as Part 2."),
   statements: z.array(z.object({
     n: z.number().int(),
     text: z.string().describe("One factual statement from Parts 2 and 3"),

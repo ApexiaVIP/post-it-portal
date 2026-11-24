@@ -7,6 +7,7 @@
  */
 import { memo, useCallback } from "react";
 import type { Block, Data, Field, Policy, PolicyTerms, Row, Sheet, Who } from "@/lib/factfind/types";
+import { PROVIDER_REASONS, PROVIDER_REASON_LABEL } from "@/lib/advice/concert-hub";
 import { WHO_LABEL, blank, hasLife2, lifeName, policiesOf, pounds } from "@/lib/factfind/values";
 
 type Set = (key: string, value: unknown) => void;
@@ -114,6 +115,9 @@ function Terms({ t, label, joint, flag, onChange }: { t: PolicyTerms; label: str
         <div className={cell}><p className="text-xs text-slate-600">Sum assured (or monthly benefit)</p><Control id="sum" field={f("Sum assured", { kind: "money" })} value={t.sum} due={due(t.sum)} onChange={put} /></div>
         <div className={cell}><p className="text-xs text-slate-600">Premium</p><Control id="premium" field={f("Premium", { kind: "money", per: "month" })} value={t.premium} due={due(t.premium)} onChange={put} /></div>
         <div className={cell}><p className="text-xs text-slate-600">Extras?</p><Control id="extras" field={f("Extras", { kind: "text", hint: "None, or which" })} value={t.extras} due={false} onChange={put} /></div>
+        {t.type?.includes("IP") && (
+          <div className={cell}><p className="text-xs text-slate-600">Deferred period</p><Control id="deferred" field={f("Deferred period", { kind: "text", hint: "e.g. 13 weeks" })} value={t.deferred} due={due(t.deferred)} onChange={put} /></div>
+        )}
         {!joint && (
           <div className={cell}><p className="text-xs text-slate-600">In trust? (single life plans)</p><Control id="trust" field={f("In trust", { kind: "one", options: ["Yes", "No, client declined", "To be covered on the advice call", "Doesn't apply"] })} value={t.trust} due={due(t.trust)} onChange={put} /></div>
         )}
@@ -165,6 +169,20 @@ function Policies({ data, set, flag }: { data: Data; set: Set; flag: boolean }) 
               </div>
               {p.premiums === "Reviewable" && why("why_reviewable", "If reviewable, why?", false)}
               {why("trust_note", "Trust: anything to note (joint life considered, who it would go to, why declined)", false)}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-semibold text-slate-700">Provider</p>
+                  <Control id="provider" field={{ label: "Provider", input: { kind: "text" } }} value={p.provider} due={due(p.provider)} onChange={(_, v) => put(n, { ...p, provider: v as string })} />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-700">Anything to add about why (needed for Other)</p>
+                  <Control id="why_provider_note" field={{ label: "Anything to add about why this provider", input: { kind: "text" } }} value={p.why_provider_note} due={false} onChange={(_, v) => put(n, { ...p, why_provider_note: v as string })} />
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-700">Why this provider (Concert Hub&apos;s reasons, tick any that apply)</p>
+                <Control id="why_provider" field={{ label: "Why this provider", input: { kind: "many", options: PROVIDER_REASONS.map((r) => PROVIDER_REASON_LABEL[r]) } }} value={p.why_provider} due={due(p.why_provider)} onChange={(_, v) => put(n, { ...p, why_provider: v as string[] })} />
+              </div>
             </div>
           </div>
         );
