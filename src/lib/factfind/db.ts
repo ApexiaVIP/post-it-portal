@@ -1,18 +1,20 @@
 /**
  * Fact Find forms: who can use them, loading and clearing (Jimmy, 24 Nov 2026).
  *
- * The forms hold clients' health and money details, so sellers only get them
- * once Guy has set how long they are kept: FACT_FIND_KEEP_DAYS on Vercel both
- * opens the form to the sellers and starts the clear-out. Until then only the
- * Call QA users (Guy, Poz, Jimmy) have it, to try on made-up clients.
+ * The forms hold clients' health and money details, so a form's answers are
+ * cleared a set time after its last change: 365 days (Jimmy, 24 Nov 2026,
+ * until Guy says otherwise). FACT_FIND_KEEP_DAYS on Vercel overrides it, and
+ * 0 closes the form to the sellers again.
  */
 import { sql } from "@vercel/postgres";
 import type { AdviceUser } from "@/lib/advice/db";
 import type { CaseType } from "@/lib/qa/shared";
 import type { Data } from "./types";
 
+const KEEP_DAYS = 365;
+
 export function keepDays(): number | null {
-  const n = Number(process.env.FACT_FIND_KEEP_DAYS);
+  const n = Number(process.env.FACT_FIND_KEEP_DAYS ?? KEEP_DAYS);
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 export function canUseForms(u: AdviceUser): boolean {
