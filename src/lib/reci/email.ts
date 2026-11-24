@@ -1174,6 +1174,8 @@ export async function sendQaReportReady(i: {
   scriptGaps?: number;
   /** What the summary says to do (from 20 Nov 2026); leads the email when given. */
   summary?: { outcome: string; callback: number; decide: number; coach: number; script: number; met: number } | null;
+  /** The red lines in a sentence (from 24 Nov 2026): the callback count is then red lines only. */
+  redSummary?: string | null;
 }): Promise<{ sent: boolean; reason?: string }> {
   const transporter = getTransporter();
   if (!transporter) return { sent: false, reason: "no SMTP credentials" };
@@ -1190,8 +1192,9 @@ export async function sendQaReportReady(i: {
   const lines = i.ok && s ? [
     `The call check for ${who} is ready.`,
     "",
+    ...(i.redSummary ? [i.redSummary, ""] : []),
     ...(s.decide ? [`${n(s.decide, "point")} for your decision first.`] : []),
-    ...(s.callback ? [`${seller} should call the client back: ${n(s.callback, "point")} on the callback list.`]
+    ...(s.callback ? [`${seller} should call the client back: ${n(s.callback, i.redSummary ? "red line" : "point")} on the callback list.`]
       : s.decide ? [] : ["Nothing to put right with the client."]),
     ...(s.outcome === "callback_review" ? ["Some of them are about the recommendation itself, so check the advice still fits after the callback."] : []),
     `${n(s.coach, "learning point")} for next time${s.script ? `, ${n(s.script, "script gap")} for Guy` : ""}, ${s.met} met.`,

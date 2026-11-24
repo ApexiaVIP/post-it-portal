@@ -10,6 +10,7 @@ import { runLetter } from "./analyse";
 import { ukModel } from "./uk";
 import { triage } from "./triage";
 import { callbackPointsText } from "./letter";
+import { currentRedLines, withRedLines } from "./red-lines";
 import { linkedCheck, adviserRecordText } from "./notes-run";
 import type { Gate1Result, Gate2Result } from "./schemas";
 
@@ -23,7 +24,7 @@ export async function startLetter(caseId: number, startedBy: string): Promise<Le
   if (!c) return { error: "case not found", status: 404 };
   const latest = await sql<{ id: number; gate: number; status: string; result: unknown }>`
     SELECT DISTINCT ON (gate) id, gate, status, result FROM qa_runs
-     WHERE case_id = ${caseId} AND gate IN (1, 2, 3) ORDER BY gate, started_at DESC`;
+     WHERE case_id = ${caseId} AND gate IN (1, 2, 3, 5) ORDER BY gate, started_at DESC`;
   const g1 = latest.rows.find((r) => r.gate === 1);
   const g2 = latest.rows.find((r) => r.gate === 2 && r.status === "done");
   const g3 = latest.rows.find((r) => r.gate === 3);
@@ -32,7 +33,8 @@ export async function startLetter(caseId: number, startedBy: string): Promise<Le
   const calls = (await getCalls(caseId)).filter((k) => k.status === "ready");
   if (calls.length === 0) return { error: "No transcribed calls on this case.", status: 400 };
 
-  const t = triage(g1.result as Partial<Gate1Result>, (g2?.result ?? null) as Partial<Gate2Result> | null);
+  const red = currentRedLines(latest.rows.find((r) => r.gate === 5), g1.id);
+  const t = withRedLines(triage(g1.result as Partial<Gate1Result>, (g2?.result ?? null) as Partial<Gate2Result> | null), red);
   // With the seller's advice check linked (23 Nov 2026), the draft is written
   // from the calls and the seller's own record together.
   const k = await linkedCheck(caseId);
@@ -41,7 +43,7 @@ export async function startLetter(caseId: number, startedBy: string): Promise<Le
     INSERT INTO qa_runs (case_id, gate, status, model, started_by)
     VALUES (${caseId}, 3, 'running', ${ukModel()}, ${startedBy}) RETURNING id`;
   const runId = run.rows[0].id;
-  return { runId, run: () => runLetter(runId, calls, c.case_type, g1.id, callbackPointsText(t), record) };
+  return { runId, run: () => runLetter(runId, calls, c.case_type, g1.id, callbackPointsText(t), record, red?.id ?? null) };
 }
 
 /**

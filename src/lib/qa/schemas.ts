@@ -209,6 +209,25 @@ export const StatementsOutput = z.object({
   summary: z.string(),
 });
 
+/**
+ * Gate 5 (24 Nov 2026): the red lines. The call check lists every shortfall,
+ * which on an hour's call is far too much to act on, so this picks out the
+ * few that decide whether the sale gets through Openwork's compliance check.
+ * It works from the check's own results, not the calls.
+ */
+export const RED_AREAS = ["NEED", "OPTIONS", "ADVICE", "DISCLOSURES", "APPLICATION"] as const;
+export const RedLinesOutput = z.object({
+  summary: z.string().describe("One sentence of 30 words at most: what stands between this sale and a pass, or that nothing does"),
+  items: z.array(z.object({
+    action: z.string().describe("The one thing the adviser covers with the client to put it right, plain and specific to this sale, 25 words at most, no form references"),
+    why: z.string().describe("Why it matters on this call, 20 words at most"),
+    area: z.enum(RED_AREAS),
+    points: z.array(z.string()).describe("Up to three short specifics the adviser must cover (which disclosure, which need). Empty if the action says it all"),
+    covers: z.array(z.string()).describe("The numbers of the points this settles, e.g. P3"),
+  })).describe("Only the absolute red lines, most serious first, normally three to six. Empty if there are none"),
+  coaching: z.array(z.string()).describe("The three things at most that would most improve this adviser's next call, one short line each"),
+});
+
 export type ObservationResult = z.infer<typeof ObservationOutput>;
 export type DisclosureResult = z.infer<typeof DisclosureOutput>;
 export type FactsResult = z.infer<typeof FactsOutput>;
@@ -231,6 +250,8 @@ export interface LetterResult {
   letter: z.infer<typeof LetterOutput>;
   /** The Gate 1 run whose callback list the gaps are numbered against. */
   from_run: number;
+  /** The red lines run its callback points are numbered from; none on drafts before 24 Nov 2026. */
+  from_red?: number | null;
   /** The seller's advice check it was also written from, if one was linked (23 Nov 2026). */
   advice_check?: number;
 }
@@ -239,4 +260,10 @@ export type StatementsResult = z.infer<typeof StatementsOutput>;
 export interface StatementsRunResult {
   statements: StatementsResult;
   from_check: number;
+}
+export type RedLinesResult = z.infer<typeof RedLinesOutput>;
+/** A red lines run (gate 5): what it picked out, and the call check it read. */
+export interface RedLinesRunResult {
+  red: RedLinesResult;
+  from_run: number;
 }

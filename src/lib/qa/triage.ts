@@ -83,6 +83,10 @@ export interface Triage {
   routes: Record<Route, number>;
   /** The callback list, grouped by topic in the order a callback would run. */
   callback: { topic: Topic; label: string; items: CallbackItem[] }[];
+  /** Set once the red lines have been picked out (lib/qa/red-lines.ts): the callback list is then only those. */
+  red?: { summary: string; coaching: string[] };
+  /** Callback points that are not red lines, kept out of the way. */
+  smaller?: TriageLine[];
 }
 
 export interface CallbackItem {
@@ -90,6 +94,8 @@ export interface CallbackItem {
   details: string[];
   evidence: EvidenceItem[];
   adviceCheck: boolean;
+  /** Why it is a red line, on the summary only. */
+  why?: string;
 }
 
 const baseRef = (r: string) => r.replace(/\*/g, "").trim();
@@ -372,6 +378,13 @@ export function callbackListText(t: Triage): string {
       for (const d of item.details) out.push(`   - ${d}`);
     }
     out.push("");
+  }
+  if (t.red) {
+    if (t.red.coaching.length > 0) {
+      out.push("FOR NEXT TIME (no need to contact the client about these)");
+      for (const c of t.red.coaching) out.push(`- ${c}`);
+    }
+    return out.join("\n").trim();
   }
   const coach = t.lines.filter((l) => l.route === "coach");
   if (coach.length > 0) {

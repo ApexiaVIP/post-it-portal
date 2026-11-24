@@ -115,6 +115,8 @@ export async function autoCheckNext(): Promise<{ caseId: number; status: string 
   if (done.status !== "done" && SERVICE_BUSY.test(done.error ?? "") && (await retriesSoFar(next.id)) < MAX_RETRIES) {
     return { caseId: next.id, status: "busy, will retry" };
   }
+  // A finished check is emailed once its red lines are picked out (red-lines-run.ts).
+  if (done.status === "done") return { caseId: next.id, status: done.status };
   const mail = await sendQaReportReady({
     caseId: next.id, client: done.client_name, adviser: done.adviser, ok: done.status === "done",
     // Shortfalls the script caused are reported on their own, not as the seller's.

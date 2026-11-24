@@ -13,6 +13,7 @@ import { advanceTranscriptions } from "@/lib/qa/calls";
 import { autoCheckNext } from "@/lib/qa/autocheck";
 import { autoDraftNext } from "@/lib/qa/letter-run";
 import { autoStatementsNext } from "@/lib/qa/notes-run";
+import { autoRedLinesNext } from "@/lib/qa/red-lines-run";
 import { isQaBusy, markQaBusy } from "@/lib/qa/busy";
 
 export const dynamic = "force-dynamic";
@@ -34,14 +35,15 @@ export async function GET(req: Request) {
   if (!hourly && !(await isQaBusy())) return NextResponse.json({ ok: true, idle: true });
   await advanceTranscriptions();
   const checked = await autoCheckNext();
-  // The draft suitability report follows on the next run after a check, so
-  // one run never has to fit both inside the time limit.
-  const drafted = checked ? null : await autoDraftNext();
+  // The red lines, then the draft suitability report, follow on the next runs
+  // after a check, so one run never has to fit them all inside the time limit.
+  const red = checked ? null : await autoRedLinesNext();
+  const drafted = checked || red ? null : await autoDraftNext();
   // Then the seller's advice check against the calls (23 Nov 2026), if one is linked.
-  const noted = checked || drafted ? null : await autoStatementsNext();
+  const noted = checked || red || drafted ? null : await autoStatementsNext();
   const waiting = await sql`
     SELECT 1 FROM qa_calls WHERE status = 'transcribing' AND deleted_at IS NULL LIMIT 1`;
   const notedRan = !!noted?.status.startsWith("notes check");
-  if (checked || drafted || notedRan || waiting.rows.length > 0) await markQaBusy();
-  return NextResponse.json({ ok: true, checked, drafted, noted });
+  if (checked || red || drafted || notedRan || waiting.rows.length > 0) await markQaBusy();
+  return NextResponse.json({ ok: true, checked, red, drafted, noted });
 }

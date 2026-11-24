@@ -30,6 +30,16 @@ export function currentLetter(letter: LetterResult | null | undefined, gate1RunI
 }
 
 /**
+ * A draft's gaps say which callback point they belong to. If the red lines
+ * have been picked out (or picked again) since, those numbers no longer match,
+ * so every gap is listed in full instead.
+ */
+export function alignLetter(letter: LetterResult | null, redRunId: number | null): LetterResult | null {
+  if (!letter || (letter.from_red ?? null) === redRunId) return letter;
+  return { ...letter, letter: { ...letter.letter, gaps: letter.letter.gaps.map((g) => ({ ...g, callback_point: null })) } };
+}
+
+/**
  * The callback list with the points only the draft needs added at the end,
  * so the seller has one list to go through with the client.
  */

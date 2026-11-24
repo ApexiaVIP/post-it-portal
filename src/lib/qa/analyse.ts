@@ -560,7 +560,7 @@ export async function runGate2(runId: number, calls: QaCall[], reportPdf: Buffer
  */
 export async function runLetter(
   runId: number, calls: QaCall[], caseType: CaseType, fromRun: number, callbackPoints: string,
-  adviserRecord: { checkId: number; text: string } | null = null,
+  adviserRecord: { checkId: number; text: string } | null = null, redRun: number | null = null,
 ): Promise<void> {
   try {
     const uk = requireUk();
@@ -582,7 +582,7 @@ export async function runLetter(
       if (!(e instanceof APIError && e.status === 400)) throw e;
       out = await run(false);
     }
-    const result: LetterResult = { letter: out.data, from_run: fromRun, ...(adviserRecord ? { advice_check: adviserRecord.checkId } : {}) };
+    const result: LetterResult = { letter: out.data, from_run: fromRun, from_red: redRun, ...(adviserRecord ? { advice_check: adviserRecord.checkId } : {}) };
     await finishRun(runId, "done", result, { letter: out.usage }, null);
   } catch (e) {
     await finishRun(runId, "failed", null, null, describeError(e));

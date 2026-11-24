@@ -13,6 +13,8 @@ import { runGate1, runGate2 } from "@/lib/qa/analyse";
 import { ukStatus, ukModel } from "@/lib/qa/uk";
 import { startLetter } from "@/lib/qa/letter-run";
 import { startStatements } from "@/lib/qa/notes-run";
+import { startRedLines } from "@/lib/qa/red-lines-run";
+import { markQaBusy } from "@/lib/qa/busy";
 
 export const dynamic = "force-dynamic";
 export const preferredRegion = "lhr1";
@@ -29,8 +31,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const uk = ukStatus();
   if (!uk.ready) return NextResponse.json({ error: uk.reason }, { status: 503 });
-  if (body.gate === 3 || body.gate === 4) {
-    const s = body.gate === 3 ? await startLetter(caseId, auth.username) : await startStatements(caseId, auth.username);
+  if (body.gate === 3 || body.gate === 4 || body.gate === 5) {
+    const s = body.gate === 3 ? await startLetter(caseId, auth.username)
+      : body.gate === 4 ? await startStatements(caseId, auth.username) : await startRedLines(caseId, auth.username);
     if ("error" in s) return NextResponse.json({ error: s.error }, { status: s.status });
     waitUntil(s.run());
     return NextResponse.json({ ok: true, runId: s.runId }, { status: 202 });
@@ -63,7 +66,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     RETURNING id`;
   const runId = run.rows[0].id;
   waitUntil(gate === 1
-    ? runGate1(runId, calls, qaCase.case_type)
+    ? runGate1(runId, calls, qaCase.case_type).then(() => markQaBusy())
     : runGate2(runId, calls, pdf!, qaCase.case_type));
   return NextResponse.json({ ok: true, runId }, { status: 202 });
 }

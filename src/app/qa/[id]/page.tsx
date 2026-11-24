@@ -20,7 +20,8 @@ import {
 import { CONFIRM_OPTIONS, CONFIRM_LABELS, aiAsConfirmed, type ReviewSection } from "@/lib/qa/review";
 import { formatUsd } from "@/lib/qa/cost";
 import { triage } from "@/lib/qa/triage";
-import { currentLetter, withLetterGaps } from "@/lib/qa/letter";
+import { alignLetter, currentLetter, withLetterGaps } from "@/lib/qa/letter";
+import { currentRedLines, withRedLines } from "@/lib/qa/red-lines";
 import { currentStatements, withStatementGaps, type CheckStatement } from "@/lib/qa/notes-check";
 import { EvidenceLinks, Summary } from "@/components/qa-summary";
 import { AdvicePanel, type CaseAdvice } from "@/components/qa-advice-panel";
@@ -31,7 +32,7 @@ import type {
 interface Run {
   id: number;
   /** 1: the calls, 2: the suitability report, 3: the draft suitability report, 4: the seller's advice check against the calls. */
-  gate: 1 | 2 | 3 | 4;
+  gate: 1 | 2 | 3 | 4 | 5;
   status: "running" | "done" | "failed";
   model: string | null;
   result: unknown;
@@ -152,6 +153,7 @@ export default function CallQaCasePage() {
   const gate2 = data?.runs.find((r) => r.gate === 2) ?? null;
   const gate3 = data?.runs.find((r) => r.gate === 3) ?? null;
   const gate4 = data?.runs.find((r) => r.gate === 4) ?? null;
+  const gate5 = data?.runs.find((r) => r.gate === 5) ?? null;
 
   const review: ReviewApi = useMemo(() => {
     const map = new Map((data?.reviews ?? []).map((r) => [`${r.run_id}|${r.item_key}`, r]));
@@ -262,7 +264,7 @@ export default function CallQaCasePage() {
         <OutcomePanel caseId={caseId} qaCase={c} onChanged={load} />
       )}
 
-      <Report gate1={gate1} gate2={gate2} gate3={gate3} onJump={jump} review={review} qaCase={c} caseId={caseId} onChanged={load}
+      <Report gate1={gate1} gate2={gate2} gate3={gate3} gate5={gate5} onJump={jump} review={review} qaCase={c} caseId={caseId} onChanged={load}
         notes={{ run: gate4, checkId: data.advice?.tested?.id ?? null, statements: data.advice?.tested?.statements ?? [] }} />
     </main>
   );
@@ -464,8 +466,8 @@ function SectionTitle({ n, title, note }: { n: number; title: string; note?: str
   );
 }
 
-function Report({ gate1, gate2, gate3, onJump, review, qaCase, caseId, onChanged, notes }: {
-  gate1: Run | null; gate2: Run | null; gate3: Run | null; onJump: (e: EvidenceItem) => void; review: ReviewApi;
+function Report({ gate1, gate2, gate3, gate5, onJump, review, qaCase, caseId, onChanged, notes }: {
+  gate1: Run | null; gate2: Run | null; gate3: Run | null; gate5: Run | null; onJump: (e: EvidenceItem) => void; review: ReviewApi;
   qaCase: QaCase; caseId: number; onChanged: () => void;
   /** The seller's advice check against the calls, whose gaps join the callback list. */
   notes: { run: Run | null; checkId: number | null; statements: CheckStatement[] };
@@ -475,11 +477,15 @@ function Report({ gate1, gate2, gate3, onJump, review, qaCase, caseId, onChanged
   // The summary is the front page (Poz, 19 Nov 2026); the full report is one click away.
   const [view, setView] = useState<"summary" | "full">("summary");
   // The draft report only counts with the call check it was written alongside.
-  const letter = currentLetter(gate3?.status === "done" ? (gate3.result as LetterResult) : null, gate1?.status === "done" ? gate1.id : null);
+  const red = useMemo(() => currentRedLines(gate5, gate1?.status === "done" ? gate1.id : null), [gate5, gate1]);
+  const letter = useMemo(
+    () => alignLetter(currentLetter(gate3?.status === "done" ? (gate3.result as LetterResult) : null, gate1?.status === "done" ? gate1.id : null), red?.id ?? null),
+    [gate3, gate1, red],
+  );
   const notesRes = currentStatements(notes.run, notes.checkId);
   const tri = useMemo(
-    () => withLetterGaps(withStatementGaps(triage(g1, g2), notesRes, notes.statements), letter),
-    [g1, g2, letter, notesRes, notes.statements],
+    () => withLetterGaps(withStatementGaps(withRedLines(triage(g1, g2), red), notesRes, notes.statements), letter),
+    [g1, g2, red, letter, notesRes, notes.statements],
   );
   if (!g1 && !g2) {
     return <p className="mt-8 rounded border border-slate-200 bg-white p-4 text-sm text-slate-500">No report yet. Run Gate 1 once the calls are transcribed.</p>;
@@ -557,6 +563,18 @@ function Report({ gate1, gate2, gate3, onJump, review, qaCase, caseId, onChanged
           kase={{
             seller: qaCase.adviser_name, dealStatus: qaCase.deal_status ?? null, dealChecked: qaCase.deal_check_status === "checked",
             callbackSentAt: qaCase.callback_sent_at ?? null, callbackSentBy: qaCase.callback_sent_by ?? null,
+          }}
+          redLines={{
+            run: gate5, canPick: gate1?.status === "done",
+            onPick: async () => {
+              const r = await fetch(`/api/qa/cases/${caseId}/runs`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gate: 5 }),
+              });
+              const j = await r.json().catch(() => ({}));
+              if (!r.ok) return (j as { error?: string }).error || `HTTP ${r.status}`;
+              onChanged();
+              return null;
+            },
           }}
           onSend={async () => {
             const r = await fetch(`/api/qa/cases/${caseId}/callback`, { method: "POST" });

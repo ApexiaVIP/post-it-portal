@@ -44,6 +44,8 @@ Advisers (Nov 2026): Tan, Hayder, Gurdaht, Atikur, Ben (id 7, seller code 930545
 
 Flow: the seller drops the sale recording(s) on their own RECI board, with the client surname and call type. Poz listens in /reci/recordings and presses Transcribe. Amazon Transcribe (London) runs, then the checks run on Bedrock in London (model pinned in `src/lib/qa/uk.ts`; newer models are blocked on TopQuote's AWS account). A "report ready" email goes to Poz.
 
+Since 24 Nov 2026 the case page opens on the red lines: once a call check finishes, a short extra step (Gate 5, `src/lib/qa/red-lines*.ts`) reads its results (not the calls) and picks out the few points that decide whether the sale passes. The callback list and the seller's email are only those, with up to three points for next time; everything else is folded away. A failed mandatory standard is always put back if it was left off. Older cases have a "Pick out the red lines" link. The report ready email now goes after this step.
+
 **New script or Fact Find sheet from Guy**
 1. Download the attachment(s). Export them to text with `scripts/qa-docx-text.py`.
 2. Add a `VERSIONS` line in `scripts/seed-qa-rulesets.mjs`, dated with the day Guy issued it. A script applies from its issue date: the call date picks the version.

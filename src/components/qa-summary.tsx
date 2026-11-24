@@ -7,7 +7,8 @@
  * points to put right with the client before the sale is submitted) and the
  * draft suitability report written from the call, and keeps coaching points,
  * script gaps and passes out of the way. Built by triage() from the checker's
- * existing results.
+ * existing results. Since 24 Nov 2026 the callback list is only the red lines
+ * (lib/qa/red-lines.ts), with everything else folded away.
  */
 import { useState, type ReactNode } from "react";
 import type { EvidenceItem, LetterResult } from "@/lib/qa/schemas";
@@ -76,7 +77,15 @@ export interface SummaryLetter {
   onDraft: () => Promise<string | null>;
 }
 
-export function Summary({ t, onJump, onFull, kase, onSend, letter }: {
+export interface SummaryRedLines {
+  /** The latest red lines run on the case, whatever its state. */
+  run: { status: "running" | "done" | "failed"; error: string | null } | null;
+  canPick: boolean;
+  /** Starts picking them out; resolves to an error message, or null when started. */
+  onPick: () => Promise<string | null>;
+}
+
+export function Summary({ t, onJump, onFull, kase, onSend, letter, redLines }: {
   t: Triage;
   onJump: (e: EvidenceItem) => void;
   onFull: () => void;
@@ -84,9 +93,11 @@ export function Summary({ t, onJump, onFull, kase, onSend, letter }: {
   /** Sends the list and the draft; resolves to an error message, or null when sent. */
   onSend: () => Promise<string | null>;
   letter: SummaryLetter;
+  redLines: SummaryRedLines;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
   const seller = kase.seller ?? "the seller";
   const nys = kase.dealStatus === "not_yet_submitted";
   const submitted = !!kase.dealStatus && !nys;
@@ -106,13 +117,19 @@ export function Summary({ t, onJump, onFull, kase, onSend, letter }: {
     : `${seller} should call the client back${submitted ? "" : " before this is submitted"}.`;
   const sub =
     t.outcome === "callback_review" ? "Then check the advice still fits before it goes any further: some of the points are about the recommendation itself."
-    : t.outcome === "callback" ? "The points are all things the client should have heard on the call. None of them question the recommendation."
+    : t.outcome === "callback" ? (t.red ? "" : "The points are all things the client should have heard on the call. None of them question the recommendation.")
     : t.outcome === "clear" ? `${hasLetter ? `The draft suitability report below is ready for ${seller}. ` : ""}The ${coach.length} learning point${coach.length === 1 ? "" : "s"} are for ${seller}'s next calls.`
     : "";
   const timing = !kase.dealStatus ? null
     : nys ? "The sale is Not Yet Submitted, so all of this can be put right before it goes to the insurer."
     : "The sale has already been submitted, so the callback should happen within the 30-day cancellation period.";
 
+  async function pick() {
+    setPicking(true); setError(null);
+    const err = await redLines.onPick();
+    setPicking(false);
+    if (err) setError(err);
+  }
   async function send() {
     if (!confirm(`Email ${seller} ${what}, copying you${nys && items > 0 ? ", and mark the sale Checked on the RECI" : ""}?`)) return;
     setBusy(true); setError(null);
@@ -126,10 +143,11 @@ export function Summary({ t, onJump, onFull, kase, onSend, letter }: {
       <div className={`rounded-lg border-2 bg-white p-4 ${RAG_STYLE[t.verdict].banner}`}>
         <p className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
           <RagChip rag={t.verdict} />
-          <span>{items} point{items === 1 ? "" : "s"} for the callback · {coach.length} for next time{scripts.length > 0 ? ` · ${scripts.length} script gap${scripts.length === 1 ? "" : "s"}` : ""} · {met.length} met</span>
+          <span>{t.red ? `${items} red line${items === 1 ? "" : "s"}` : `${items} point${items === 1 ? "" : "s"} for the callback · ${coach.length} for next time`}{scripts.length > 0 ? ` · ${scripts.length} script gap${scripts.length === 1 ? "" : "s"}` : ""} · {met.length} met</span>
         </p>
         <h2 className="mt-2 text-xl font-bold">{headline}</h2>
-        {sub && <p className="mt-1 text-sm">{sub}</p>}
+        {t.red?.summary && <p className="mt-1 text-sm font-medium">{t.red.summary}</p>}
+        {sub && !(t.red && t.outcome === "clear") && <p className="mt-1 text-sm">{sub}</p>}
         {timing && <p className="mt-1 text-sm text-slate-600">{timing}</p>}
         {canSend && (
           <div className="no-print mt-3 flex flex-wrap items-center gap-3">
@@ -142,6 +160,19 @@ export function Summary({ t, onJump, onFull, kase, onSend, letter }: {
                 ? <>Sent {new Date(kase.callbackSentAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} by {kase.callbackSentBy}.{kase.dealChecked ? " The sale is marked Checked on the RECI." : ""}</>
                 : <>Emails {seller} {what} below with the learning points for next time, copying you and no one else{nys && items > 0 ? ". It also marks the sale Checked on the RECI so it isn't submitted until you're happy" : ""}.{letter.run?.status === "running" ? " The draft report is still being written: wait a few minutes if you want it in the same email." : ""}</>}
             </span>
+          </div>
+        )}
+        {!t.red && redLines.canPick && (
+          <div className="no-print mt-3 rounded border border-slate-200 bg-slate-50 p-2 text-sm">
+            {redLines.run?.status === "running" ? "Picking out the red lines. This takes about a minute and the page updates itself." : (
+              <>
+                <button type="button" onClick={pick} disabled={picking} className="font-semibold text-teal-800 underline disabled:opacity-40">
+                  {picking ? "Starting…" : redLines.run?.status === "failed" ? "Try picking out the red lines again" : "Pick out the red lines"}
+                </button>{" "}
+                <span className="text-slate-600">to cut this down to what decides whether the sale passes. The check isn&apos;t run again.
+                  {letter.current ? " Any point numbers in the draft report are replaced by the points in full." : ""}</span>
+              </>
+            )}
           </div>
         )}
         {error && <p className="mt-1 text-sm text-red-700">{error}</p>}
@@ -163,8 +194,8 @@ export function Summary({ t, onJump, onFull, kase, onSend, letter }: {
 
       {t.callback.length > 0 && (
         <section className="mt-6">
-          <h3 className="text-lg font-bold">The callback list</h3>
-          <p className="text-xs text-slate-600">What {seller} will be asked to cover with the client, in the order a callback would run. Click a time to hear it in the call.</p>
+          <h3 className="text-lg font-bold">{t.red ? "The red lines" : "The callback list"}</h3>
+          <p className="text-xs text-slate-600">What {seller} will be asked to cover with the client, {t.red ? "most serious first" : "in the order a callback would run"}. Click a time to hear it in the call.</p>
           <ol className="mt-2 space-y-3">
             {(() => {
               let n = 0;
@@ -181,6 +212,7 @@ export function Summary({ t, onJump, onFull, kase, onSend, letter }: {
                             {item.adviceCheck && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">check the advice after</span>}
                             <TimeLinks ev={item.evidence} onJump={onJump} />
                           </p>
+                          {item.why && <p className="text-xs text-slate-500">{item.why}</p>}
                           {item.details.length > 0 && (
                             <ul className="mt-1 list-disc space-y-0.5 pl-6 text-slate-700">
                               {item.details.map((d, j) => <li key={j}>{d}</li>)}
@@ -199,7 +231,16 @@ export function Summary({ t, onJump, onFull, kase, onSend, letter }: {
 
       <LetterPanel seller={seller} letter={letter} onJump={onJump} />
 
-      <Fold title="For next time" count={coach.length} note={`Learning points for ${seller}. No need to contact the client about these. They go with the callback list.`}>
+      {t.red && t.red.coaching.length > 0 && (
+        <section className="mt-6">
+          <h3 className="text-lg font-bold">For {seller}&apos;s next call</h3>
+          <ul className="mt-1 list-disc space-y-0.5 pl-6 text-sm">{t.red.coaching.map((c, i) => <li key={i}>{c}</li>)}</ul>
+        </section>
+      )}
+      <Fold title="Smaller points" count={t.smaller?.length ?? 0} note="Not red lines, so they don't go to the seller. Nothing here decides whether the sale passes.">
+        {(t.smaller ?? []).map((l, i) => <LineRow key={i} line={l} onJump={onJump} />)}
+      </Fold>
+      <Fold title={t.red ? "Learning points" : "For next time"} count={coach.length} note={t.red ? "Everything else noted on the call. These don't go to the seller: the three above do." : `Learning points for ${seller}. No need to contact the client about these. They go with the callback list.`}>
         {coach.map((l, i) => <LineRow key={i} line={l} onJump={onJump} />)}
       </Fold>
       <Fold title="Script gaps, for Guy" count={scripts.length} note="Points the script doesn't cover, or where its wording falls short. Not counted against the seller.">
