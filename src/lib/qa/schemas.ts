@@ -217,7 +217,7 @@ export const StatementsOutput = z.object({
  */
 export const RED_AREAS = ["NEED", "OPTIONS", "ADVICE", "DISCLOSURES", "APPLICATION"] as const;
 export const RedLinesOutput = z.object({
-  summary: z.string().describe("One sentence of 30 words at most: what stands between this sale and a pass, or that nothing does"),
+  summary: z.string().describe("One sentence of 30 words at most: what stands between this sale and a pass, or that nothing does. Don't count the points"),
   items: z.array(z.object({
     action: z.string().describe("The one thing the adviser covers with the client to put it right, plain and specific to this sale, 25 words at most, no form references"),
     why: z.string().describe("Why it matters on this call, 20 words at most"),
