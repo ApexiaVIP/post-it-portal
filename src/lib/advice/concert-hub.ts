@@ -114,10 +114,10 @@ export interface HubPage {
     facilitate: "YES" | "NO" | "NOT_ON_SHEET"; losses: ReplaceLoss[]; outweigh: string;
   }[];
   notes: Record<HubNote, string>;
-  /** Not a Concert Hub field: for the under budget red line. */
-  budget: { agreed: string; premiums: string; unused_why: string };
+  /** Not Concert Hub fields: for the under budget red line. */
+  budget: { agreed: string; premiums: string; unused_why: string; cut_why: string };
 }
-export const EMPTY_HUB: HubPage = { needs: [], deferred: [], policies: [], replacements: [], notes: { needs: "", outgoings: "", recommendation: "" }, budget: { agreed: "", premiums: "", unused_why: "" } };
+export const EMPTY_HUB: HubPage = { needs: [], deferred: [], policies: [], replacements: [], notes: { needs: "", outgoings: "", recommendation: "" }, budget: { agreed: "", premiums: "", unused_why: "", cut_why: "" } };
 
 export function hubFilled(h: HubPage | null | undefined): h is HubPage {
   return !!h && (h.needs?.length > 0 || h.policies?.length > 0);
@@ -171,7 +171,7 @@ export function settleHub(h: HubPage): HubPage {
       };
     }),
     replacements: h.replacements.map((r) => ({ ...r, outweigh: said(r.outweigh) })),
-    budget: { ...h.budget, unused_why: said(h.budget?.unused_why) },
+    budget: { ...h.budget, unused_why: said(h.budget?.unused_why), cut_why: said(h.budget?.cut_why) },
     // Nothing in a note but what happened: it's pasted as it stands.
     notes: Object.fromEntries(HUB_NOTES.map((k) => [k, (h.notes?.[k] ?? "").replace(PLACEHOLDER, "[to complete after speaking to the client]").trim()])) as HubPage["notes"],
   };
@@ -183,22 +183,37 @@ function figure(s: string | undefined): number | null {
   return m ? Number(m[0]) : null;
 }
 
+/** The policies the sheet says were cut back because of the budget. */
+const cutToFit = (h: HubPage): string[] => h.policies
+  .filter((p) => [[p.amount_pick, p.amount_why], [p.term_pick, p.term_why]]
+    .some(([pick, why]) => pick === "Less Than Need" && /budget|afford|premium|expensive|cheaper/i.test(why)))
+  .map((p) => `${p.policy} (${p.client})`);
+
 /**
- * The red line for needs left uncovered. The reason goes into the suitability
- * report, so it has to be on the sheet, and TopQuote's guide makes under
- * budget with a need left uncovered a fail unless the reason is recorded.
+ * The red line for needs left uncovered, and for cover cut back to fit a
+ * budget that wasn't all used (25 Nov 2026). The reason goes into the
+ * suitability report, so it has to be on the sheet, and TopQuote's guide makes
+ * under budget with a need left uncovered a fail unless the reason is recorded.
  */
 export function uncoveredRedLine(h: HubPage): string | null {
   const left = unmet(h);
   const list = left.filter((n) => !n.why);
   const agreed = figure(h.budget?.agreed);
   const total = figure(h.budget?.premiums);
-  const spare = agreed !== null && total !== null && left.length > 0 && !h.budget.unused_why.trim() ? agreed - total : 0;
-  const unused = spare > 0 ? `The premiums are £${spare.toFixed(2)} under the £${agreed!.toFixed(2)} budget` : "";
-  if (list.length === 0) return unused ? `${unused}, with needs left uncovered. Use the rest, or put on the sheet why not.` : null;
+  const under = agreed !== null && total !== null ? agreed - total : 0;
+  const uncovered = under > 0 && left.length > 0 && !h.budget.unused_why.trim();
+  // Under a pound left wouldn't buy more of the same cover.
+  const cut = under >= 1 && !(h.budget.cut_why ?? "").trim() ? cutToFit(h) : [];
+  const unused = uncovered || cut.length ? `The premiums are £${under.toFixed(2)} under the £${agreed!.toFixed(2)} budget` : "";
+  const cutBack = cut.length ? `${cut.join(" and ")} ${cut.length === 1 ? "was" : "were"} cut back to fit it` : "";
+  if (list.length === 0) {
+    if (!unused) return null;
+    const but = cutBack ? `, but ${cutBack}${uncovered ? " and needs are left uncovered" : ""}` : ", with needs left uncovered";
+    return `${unused}${but}. Use the rest, or put on the sheet why not.`;
+  }
   const which = HUB_NEEDS.filter((need) => list.some((n) => n.need === need))
     .map((need) => `${HUB_NEED_LABEL[need]} (${list.filter((n) => n.need === need).map((n) => n.client).join(", ")})`).join("; ");
-  return `Put on the sheet why ${list.length === 1 ? "this need isn't" : "these needs aren't"} covered, in the client's words: ${which}. If you don't know, ask them.${unused ? ` ${unused}, so use the rest or say why not.` : ""}`;
+  return `Put on the sheet why ${list.length === 1 ? "this need isn't" : "these needs aren't"} covered, in the client's words: ${which}. If you don't know, ask them.${unused ? ` ${unused}${cutBack ? `, but ${cutBack}` : ""}, so use the rest or say why not.` : ""}`;
 }
 
 /** The deferred period is on the sheet only where income protection is recommended. Otherwise it follows their sick pay. */
