@@ -452,7 +452,7 @@ export async function cancellationsAll(year: number): Promise<{
            COUNT(*)::text AS cnt, COALESCE(SUM(d.commission), 0)::text AS sum
     FROM deals d JOIN advisers a ON a.id = d.adviser_id
     WHERE d.year = ${year} AND d.status = 'cancelled'
-    GROUP BY d.adviser_id, a.name, d.cancellation_reason
+    GROUP BY d.adviser_id, a.name, a.sort_order, d.cancellation_reason
     ORDER BY a.sort_order ASC
   `;
   const advMap = new Map<number, CancellationAdviserRow>();
