@@ -137,11 +137,39 @@ export function addressedBy(h: HubPage, p: HubPage["policies"][number]): { clien
 const PLACEHOLDER = /\[to complete[^\]]*\]/gi;
 const said = (s: string | undefined) => (s ?? "").replace(PLACEHOLDER, "").trim();
 
+/** Words only, so punctuation, case and £ signs don't matter. */
+const words = (s: string) => s.toLowerCase().replace(/['\u2018\u2019]/g, "").replace(/[^a-z0-9.]+/g, " ").replace(/\.(?!\d)/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * Why the full cover wasn't taken with what was left of the budget. Only the
+ * sheet's own words count, and they have to be someone's decision or a price:
+ * that it was cut to fit the budget is what needs explaining.
+ */
+function cutReason(why: string, sheet: string): string {
+  const w = words(why);
+  const decided = /\b(said|wants?|wanted|rather|asked|chose|declined|didnt|wouldnt|prefer\w*|happy|quoted|no)\b/.test(w);
+  return w.length >= 12 && decided && words(sheet).includes(w) ? why : "";
+}
+
+/**
+ * Words the online form records once for a couple reach the check as
+ * they said "...", so they are never put down to one of them by name.
+ */
+export function theyNotOne(text: string, sheet: string): string {
+  const shared = Array.from(sheet.matchAll(/they said "([^"]+)"/g), (m) => words(m[1]));
+  if (!shared.length) return text;
+  return text.replace(/\b([A-Z][a-z]+) said(:?) (["\u201c])([^"\u201d]+)/g, (all, name: string, colon: string, open: string, quote: string, at: number) => {
+    const q = words(quote);
+    if (name === "They" || q.length < 4 || !shared.some((x) => x.includes(q)) || words(sheet).includes(`${name.toLowerCase()} said ${q}`)) return all;
+    return `${/(^|[.!?]["']?\s+)$/.test(text.slice(0, at)) ? "They" : "they"} said${colon} ${open}${quote}`;
+  });
+}
+
 /**
  * Holds the page to the sheet: a drop-down choice is one Concert Hub has and
  * comes with the reason that backs it, and every need is there for each client.
  */
-export function settleHub(h: HubPage): HubPage {
+export function settleHub(h: HubPage, sheet = ""): HubPage {
   if (!hubFilled(h)) return EMPTY_HUB;
   const needs = h.needs.map((n) => {
     const why = said(n.why);
@@ -171,9 +199,9 @@ export function settleHub(h: HubPage): HubPage {
       };
     }),
     replacements: h.replacements.map((r) => ({ ...r, outweigh: said(r.outweigh) })),
-    budget: { ...h.budget, unused_why: said(h.budget?.unused_why), cut_why: said(h.budget?.cut_why) },
+    budget: { ...h.budget, unused_why: said(h.budget?.unused_why), cut_why: cutReason(said(h.budget?.cut_why), sheet) },
     // Nothing in a note but what happened: it's pasted as it stands.
-    notes: Object.fromEntries(HUB_NOTES.map((k) => [k, (h.notes?.[k] ?? "").replace(PLACEHOLDER, "[to complete after speaking to the client]").trim()])) as HubPage["notes"],
+    notes: Object.fromEntries(HUB_NOTES.map((k) => [k, theyNotOne((h.notes?.[k] ?? "").replace(PLACEHOLDER, "[to complete after speaking to the client]").trim(), sheet)])) as HubPage["notes"],
   };
 }
 

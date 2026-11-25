@@ -27,7 +27,7 @@ import {
 } from "./shared";
 import {
   EMPTY_HUB, hubFilled, HUB_DROPDOWNS, HUB_NEEDS, HUB_NEED_LABEL, PROVIDER_REASONS, PROVIDER_REASON_LABEL,
-  REPLACE_LOSSES, REPLACE_LOSS_LABEL, REPLACE_REASONS, REPLACE_REASON_LABEL, settleHub, uncoveredRedLine, type HubDropdown,
+  REPLACE_LOSSES, REPLACE_LOSS_LABEL, REPLACE_REASONS, REPLACE_REASON_LABEL, settleHub, theyNotOne, uncoveredRedLine, type HubDropdown,
 } from "./concert-hub";
 
 const keyList = <K extends string>(keys: readonly K[], label: Record<K, string>) =>
@@ -194,10 +194,10 @@ Don't draft any part in text: everything goes in record_advice_check. Before you
 }
 
 /** Holds the result to the stage, and makes sure no red line was left off the list. */
-function settle(c: CheckRow, raw: AdviceCheckResult): AdviceCheckResult {
+function settle(c: CheckRow, raw: AdviceCheckResult, sheet: string): AdviceCheckResult {
   const r = plain(raw);
   const stage = stageOf(c);
-  const hub = stage === "before_advice" ? EMPTY_HUB : settleHub(r.hub);
+  const hub = stage === "before_advice" ? EMPTY_HUB : settleHub(r.hub, `${sheet}\n${c.recommendation}`);
   const uncovered = uncoveredRedLine(hub);
   // A red line about gap check items that turn out to be recorded isn't one, nor is the
   // health section (it's checked on the application). Uncovered needs are the page's own red line.
@@ -215,7 +215,10 @@ function settle(c: CheckRow, raw: AdviceCheckResult): AdviceCheckResult {
       ...left.map((g) => ({ action: g.detail, kind: "ASK_CLIENT" as const, items: [g.item] })),
       ...(uncovered ? [{ action: uncovered, kind: "FIX_SHEET" as const, items: gap.get("needs_priorities") === "MISSING" ? ["needs_priorities" as const] : [] }] : []),
     ],
-    ...(stage === "before_advice" ? { justification: [], statements: [] } : {}),
+    ...(stage === "before_advice" ? { justification: [], statements: [] } : {
+      justification: r.justification.map((j) => ({ ...j, text: theyNotOne(j.text, sheet) })),
+      statements: r.statements.map((x) => ({ ...x, text: theyNotOne(x.text, sheet) })),
+    }),
   };
 }
 
@@ -241,7 +244,7 @@ export async function runAdviceCheck(id: number): Promise<void> {
     });
     await addUsage(id, "check", usage);
     const done = await sql<{ qa_case_id: number | null }>`
-      UPDATE advice_checks SET status = 'done', result = ${JSON.stringify(settle(c, data))}::jsonb, error = NULL, finished_at = now()
+      UPDATE advice_checks SET status = 'done', result = ${JSON.stringify(settle(c, data, sheet))}::jsonb, error = NULL, finished_at = now()
        WHERE id = ${id} RETURNING qa_case_id`;
     // A repeat of a check already linked to a sale: the cron tests it against the calls.
     if (done.rows[0]?.qa_case_id) await markQaBusy();

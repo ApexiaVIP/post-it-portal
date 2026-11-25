@@ -104,7 +104,7 @@ export const AdviceCheckOutput = z.object({
       agreed: z.string().describe("The monthly budget the client gave, with the £ sign. Empty if the sheet doesn't say"),
       premiums: z.string().describe("The monthly premiums recommended, added up, with the £ sign"),
       unused_why: z.string().describe("If the premiums come to less than the budget: why the rest wasn't used, as the sheet shows it. It has to account for every need that is NOT_MET. Empty if the sheet doesn't say, or nothing is left"),
-      cut_why: z.string().describe("If a policy was cut back to fit the budget and the premiums still come to less than it: why the full amount or term wasn't taken with what is left, as the sheet shows it. Why other cover was left out is not a reason. Empty if the sheet doesn't say, or nothing was cut back or left"),
+      cut_why: z.string().describe("If a policy was cut back to fit the budget and the premiums still come to less than it: the words on the sheet that say why the full amount or term wasn't taken with what is left, copied exactly, with nothing added. That it was cut to fit the budget, or why other cover was left out, is not a reason. Empty if the sheet doesn't say, or nothing was cut back or left"),
     }),
   }).describe("Part 3, the Concert Hub page. Every list empty in the same cases as Part 2."),
   statements: z.array(z.object({
