@@ -54,6 +54,9 @@ const VERSIONS = [
   // the recommendation (and a partner being covered must be on the advice call), and the same for a declined
   // savings figure, which is recorded with the reason.
   { doc: "factfind_script", from: "2026-11-20", title: "TopQuote Fact Find call guide (the full call script), issued 20 Nov 2026", file: "factfind_script_2026-11-20.txt", source: "TopQuote_FactFind_Call_Guide_20.11.26.docx", sort: 2, applies: "two_call", datedBy: "fact_find" },
+  // Reissued 25 Nov 2026 (James Evans): only the wording before the client's details are reconfirmed is new. The
+  // other passages highlighted in that copy were already in the 20 Nov issue.
+  { doc: "factfind_script", from: "2026-11-25", title: "TopQuote Fact Find call guide (the full call script), issued 25 Nov 2026", file: "factfind_script_2026-11-25.txt", source: "TopQuote_FactFind_Call_Guide_25.11.26_HIGHLIGHTED.docx", sort: 2, applies: "two_call", datedBy: "fact_find" },
 
   { doc: "onecall_script", from: "2026-10-06", title: "TopQuote Fact Find and Advice call script, one call, issued 6 Oct 2026", file: "onecall_script_2026-10-06.txt", source: "TopQuote_OneCall_Script_06.10.26.docx", sort: 2, applies: "one_call", datedBy: "fact_find" },
   { doc: "onecall_script", from: "2026-10-21", title: "TopQuote Fact Find and Advice call script, one call, issued 21 Oct 2026", file: "onecall_script_2026-10-21.txt", source: "TopQuote_OneCall_Script_04.11.26_TRACKED.docx, 4 Nov changes undone", sort: 2, applies: "one_call", datedBy: "fact_find" },
@@ -65,9 +68,17 @@ const VERSIONS = [
   // "what would the money be for, and who would be relying on it?", and funeral whole of life offered to clients
   // over 50 whether or not they have savings.
   { doc: "onecall_script", from: "2026-11-20", title: "TopQuote Fact Find and Advice call script (One Call guide), issued 20 Nov 2026", file: "onecall_script_2026-11-20.txt", source: "TopQuote_OneCall_Guide_20.11.26.docx", sort: 2, applies: "one_call", datedBy: "fact_find" },
+  // Reissued 25 Nov 2026 (James Evans): the same changes as the Fact Find and Advice guides of that date. It leaves
+  // out two things the 20 Nov issue brought in ("what would the money be for", and funeral cover whether or not the
+  // client has savings): asked James whether that was meant. Loaded as issued.
+  { doc: "onecall_script", from: "2026-11-25", title: "TopQuote Fact Find and Advice call script (One Call guide), issued 25 Nov 2026", file: "onecall_script_2026-11-25.txt", source: "TopQuote_OneCall_Guide_25.11.26_HIGHLIGHTED.docx", sort: 2, applies: "one_call", datedBy: "fact_find" },
 
   { doc: "advice_script", from: "2026-10-06", title: "TopQuote Advice and Recommendation call script, issued 6 Oct 2026", file: "advice_script_2026-10-06.txt", source: "TopQuote_AdviceCall_Script_06.10.26.docx", sort: 3, applies: "two_call", datedBy: "advice" },
   { doc: "advice_script", from: "2026-11-04", title: "TopQuote Advice and Recommendation call script, issued 4 Nov 2026", file: "advice_script_2026-11-04.txt", source: "TopQuote_AdviceCall_Script_04.11.26_CLEAN.docx", sort: 3, applies: "two_call", datedBy: "advice" },
+  // Reissued 25 Nov 2026 as the "Advice Call guide" (James Evans): what term does and doesn't pay is said where there
+  // are dependants, and term in place of whole of life is the adviser's recommendation, with the reason in figures
+  // (budget, the £15,000 limit or health), not the client's choice.
+  { doc: "advice_script", from: "2026-11-25", title: "TopQuote Advice and Recommendation call script (Advice Call guide), issued 25 Nov 2026", file: "advice_script_2026-11-25.txt", source: "TopQuote_AdviceCall_Guide_25.11.26_HIGHLIGHTED.docx", sort: 3, applies: "two_call", datedBy: "advice" },
 
   { doc: "factfind_sheet", from: "2026-10-07", title: "TopQuote Fact Find sheet (completed by the adviser on the call), issued 7 Oct 2026", file: "factfind_sheet_2026-10-07.txt", source: "TopQuote_FactFind_Sheet_04.11.26_LARGE_PRINT_TRACKED.docx, 4 Nov changes undone", sort: 4, applies: "all", datedBy: "fact_find" },
   // The Word copy still says 7 October in its heading; the issued (printed) sheet says 4 November.

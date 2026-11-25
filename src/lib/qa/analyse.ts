@@ -102,7 +102,7 @@ The sections, in this order. Leave a section out only where it genuinely doesn't
 - budget: what the client said they could afford, and how the premium sits within it.
 - recommendation: each plan recommended and agreed: product, provider, who is covered, amount of cover, term, monthly premium, guaranteed or reviewable, and options such as waiver of premium or indexation.
 - reasons: why each plan meets the needs above, as the adviser explained it on the calls: why this amount, term and type of cover, and the choices the client made.
-- not_recommended: each need identified but not covered, and any cover the client declined, deferred or reduced, with the client's own reason as said on the calls. Where whole of life was costed, give the figures and the client's reason for choosing term instead.
+- not_recommended: each need identified but not covered, and any cover the client declined, deferred or reduced, with the client's own reason as said on the calls. Where whole of life was costed, give the figures and why term was recommended instead, as explained on the calls, with the client's own reason where they gave one.
 - existing_cover: existing cover being kept, reduced or replaced, and for any replacement the comparison, the reasons and the consequences as explained on the calls.
 
 Below is the callback list: the points the adviser will already be calling the client back about, numbered. When a gap is part of one of those points, give its number as callback_point. When it is something only the report needs, set callback_point to null and it will be added to the end of the list.`,
