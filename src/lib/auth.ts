@@ -122,8 +122,11 @@ const RECI_SENIOR_SELLER_USERNAMES = parseList(
 // verification gate so saves are deliberate. Jack is deliberately NOT in
 // this list -- he moved to Xstaff (Pauline, June 2026); his existing
 // cases will be re-bucketed by the Jack migration separately.
+// Ben joined in November 2026 with the same access as Gurdaht (Poz, 26 Nov).
+// He is added after the env list so the change holds even where Vercel sets
+// RECI_JUNIOR_SELLER_USERNAMES. He still needs a login slot (ADMINn_*).
 const RECI_JUNIOR_SELLER_USERNAMES = parseList(
-  process.env.RECI_JUNIOR_SELLER_USERNAMES ?? "gurdaht,atikur",
+  `${process.env.RECI_JUNIOR_SELLER_USERNAMES ?? "gurdaht,atikur"},ben`,
 );
 // Legacy env var kept as a fallback during the transition. If neither of
 // the new lists is populated and RECI_SELLER_USERNAMES is, everyone in it

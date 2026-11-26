@@ -31,6 +31,11 @@ Each EBAH row is routed to an adviser by L&G seller code (`advisers.seller_codes
 **New OW**: master codes in env `NEW_OW_MASTER_CODES` (default `5930268`, Vercel production, write-only). A new master code needs Jimmy to add it in Vercel. Tag cases with `scripts/backfill-new-ow-source.mjs` after.
 Open question (19 Nov 2026): is master `7781115` New OW? Covers Tan's case 1989 and Ben's 2004.
 
+**A new seller joins**
+1. Add them to `advisers` (name, `username`, `slug`, seller code) and to `ADVISERS` in `src/lib/schema.ts`.
+2. Give them a RECI role in `src/lib/auth.ts`: same as Gurdaht (sees every clawback case, changes only their own, own RECI board) unless Poz says otherwise.
+3. Login: Jimmy adds `ADMINn_USERNAME` and `ADMINn_PASSWORD_HASH` on Vercel (production) and redeploys. Only Jimmy sets the password and sends it.
+
 **A seller has left**
 1. `advisers.active = false`.
 2. Remove them from `ADVISERS` in `src/lib/schema.ts`.
