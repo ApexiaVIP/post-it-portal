@@ -228,6 +228,51 @@ export const RedLinesOutput = z.object({
   coaching: z.array(z.string()).describe("The three things at most that would most improve this adviser's next call, one short line each"),
 });
 
+/**
+ * Gate 6 (Guy, 26 Nov 2026): the call 1 check. On a two-call sale, call 1 is
+ * checked on its own before the advice call, against the Fact Find the
+ * adviser typed up, the SAF and the observation form, so anything missed can
+ * be put right on call 2.
+ */
+export const CALL1_ACTIONS = ["ASK_CLIENT", "TELL_CLIENT", "FIX_SHEET", "SPEAK_TO_GUY"] as const;
+export const CALL1_SHEET_RESULTS = ["NOT_ON_CALL", "CONTRADICTED", "NOT_ON_SHEET"] as const;
+export const Call1Output = z.object({
+  summary: z.string().describe("One or two plain sentences: whether call 1 leaves the case ready for the advice call, and the main thing to put right"),
+  for_call_2: z.array(z.object({
+    point: z.string().describe("One thing the adviser does on the advice call, plain and specific to this case, 25 words at most"),
+    action: z.enum(CALL1_ACTIONS),
+    why: z.string().describe("The standard it comes from, e.g. Openwork form 1.3*, SAF 4.3.4, Fact Find script: Recapping the Need"),
+    mandatory: z.boolean().describe("True when the standard is asterisked on the Openwork form"),
+    evidence: z.array(Evidence).describe("Where the call shows the gap; empty when it simply wasn't covered"),
+  })).describe("Most serious first, normally three to eight. Empty if call 1 needs nothing put right"),
+  disclosures: z.array(z.object({
+    name: z.string().describe("The opening, disclosure piece 1, 2 or 3, or the vulnerability question"),
+    result: z.enum(["DELIVERED_IN_FULL", "PARTIAL", "MISSING", "REVIEW_REQUIRED"]),
+    script_gap: ScriptGap,
+    differences: z.string().describe("What was missing or changed; empty if delivered in full"),
+    evidence: z.array(Evidence),
+  })),
+  recap: z.object({
+    result: z.enum(["DONE", "PARTIAL", "NOT_DONE", "REVIEW_REQUIRED"]),
+    finding: z.string(),
+    evidence: z.array(Evidence),
+  }).describe("Whether the adviser recapped the client's priorities and concerns at the end of the call, and the client confirmed them"),
+  sheet_vs_call: z.array(z.object({
+    item: z.string().describe("The point, e.g. Life 1 net monthly income"),
+    result: z.enum(CALL1_SHEET_RESULTS),
+    sheet_says: z.string().describe("What the online Fact Find records; empty for NOT_ON_SHEET"),
+    call_says: z.string().describe("What the call shows; empty for NOT_ON_CALL"),
+    evidence: z.array(Evidence),
+  })).describe("Only the differences between the online Fact Find and the call. Empty when they match or no Fact Find was given"),
+});
+export type Call1Result = z.infer<typeof Call1Output>;
+/** A call 1 run (gate 6): what it found, and the Fact Find it compared, if any. */
+export interface Call1RunResult {
+  call1: Call1Result;
+  /** The online Fact Find (fact_finds id) it was compared with, or null if none was linked. */
+  fact_find: number | null;
+}
+
 export type ObservationResult = z.infer<typeof ObservationOutput>;
 export type DisclosureResult = z.infer<typeof DisclosureOutput>;
 export type FactsResult = z.infer<typeof FactsOutput>;

@@ -1166,6 +1166,58 @@ export function welcomeTestRecipients(): string[] {
  * transcribed and checked. Names and counts only; the report itself stays
  * behind the portal login.
  */
+/**
+ * The call 1 check is done (Guy, 26 Nov 2026): the points to cover on the
+ * advice call, listed in full so Poz can pass them to the seller before it.
+ */
+export async function sendQaCall1Ready(i: {
+  caseId: number; client: string; adviser: string | null;
+  result: { call1: { summary: string; for_call_2: { point: string; action: string; why: string }[]; sheet_vs_call: unknown[] }; fact_find: number | null } | null;
+  error: string | null;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const transporter = getTransporter();
+  if (!transporter) return { sent: false, reason: "no SMTP credentials" };
+  const to = (process.env.QA_DIGEST_TO || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const recipients = to.length ? to : managementCc();
+  if (recipients.length === 0) return { sent: false, reason: "no recipients" };
+  const base = (process.env.PUBLIC_DASHBOARD_URL || "https://post-it-portal.vercel.app").replace(/\/$/, "");
+  const addr = process.env.SMTP_USER || process.env.GMAIL_USER || "";
+  const who = `${i.client}${i.adviser ? ` (${i.adviser})` : ""}`;
+  const r = i.result;
+  const subject = r ? `Call 1 check ready: ${who}` : `Call 1 check didn't finish: ${who}`;
+  const say: Record<string, string> = {
+    ASK_CLIENT: "Ask the client", TELL_CLIENT: "Tell the client", FIX_SHEET: "Fix the Fact Find", SPEAK_TO_GUY: "Speak to Guy",
+  };
+  const diffs = r?.call1.sheet_vs_call.length ?? 0;
+  const lines = r ? [
+    `The fact find call for ${who} is checked, ready for the advice call.`,
+    "",
+    r.call1.summary,
+    "",
+    ...(r.call1.for_call_2.length
+      ? ["Points for call 2:", ...r.call1.for_call_2.map((p, n) => `${n + 1}. ${say[p.action] ?? p.action}: ${p.point} (${p.why})`)]
+      : ["Nothing to put right on call 2."]),
+    "",
+    r.fact_find === null
+      ? "No online Fact Find is linked to this sale, so the call wasn't compared with it. Link the seller's advice check on the case and run the call 1 check again to include it."
+      : diffs ? `${diffs} difference${diffs === 1 ? "" : "s"} between the online Fact Find and the call: see the case.` : "The online Fact Find matches the call.",
+    "",
+    `Open the case: ${base}/qa/${i.caseId}`,
+  ] : [
+    `The fact find call for ${who} was transcribed but the call 1 check didn't finish.`,
+    "",
+    `Reason: ${i.error ?? "unknown"}`,
+    "",
+    `You can run it again from the case: ${base}/qa/${i.caseId}`,
+  ];
+  try {
+    await transporter.sendMail({ from: `"Top Quote Systems" <${addr}>`, to: recipients.join(", "), subject, text: lines.join("\n") });
+    return { sent: true };
+  } catch (e) {
+    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function sendQaReportReady(i: {
   caseId: number; client: string; adviser: string | null; ok: boolean;
   fails: number; reviews: number; disclosuresMissed: number; error: string | null;

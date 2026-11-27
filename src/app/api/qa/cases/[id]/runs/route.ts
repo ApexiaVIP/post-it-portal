@@ -1,8 +1,9 @@
 /**
- * POST /api/qa/cases/[id]/runs  { gate: 1 | 2 | 3 | 4 }
+ * POST /api/qa/cases/[id]/runs  { gate: 1 | 2 | 3 | 4 | 5 | 6 }
  * Starts a check (1: the calls, 2: the suitability report), the draft
- * suitability report (3) or the seller's advice check against the calls (4)
- * in the background and returns at once; the case page polls
+ * suitability report (3), the seller's advice check against the calls (4),
+ * the red lines (5) or the call 1 check before the advice call (6) in the
+ * background and returns at once; the case page polls
  * GET /api/qa/cases/[id] until the run is done.
  */
 import { NextResponse } from "next/server";
@@ -14,6 +15,7 @@ import { ukStatus, ukModel } from "@/lib/qa/uk";
 import { startLetter } from "@/lib/qa/letter-run";
 import { startStatements } from "@/lib/qa/notes-run";
 import { startRedLines } from "@/lib/qa/red-lines-run";
+import { startCall1 } from "@/lib/qa/call1-run";
 import { markQaBusy } from "@/lib/qa/busy";
 
 export const dynamic = "force-dynamic";
@@ -31,9 +33,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const uk = ukStatus();
   if (!uk.ready) return NextResponse.json({ error: uk.reason }, { status: 503 });
-  if (body.gate === 3 || body.gate === 4 || body.gate === 5) {
+  if (body.gate === 3 || body.gate === 4 || body.gate === 5 || body.gate === 6) {
     const s = body.gate === 3 ? await startLetter(caseId, auth.username)
-      : body.gate === 4 ? await startStatements(caseId, auth.username) : await startRedLines(caseId, auth.username);
+      : body.gate === 4 ? await startStatements(caseId, auth.username)
+      : body.gate === 6 ? await startCall1(caseId, auth.username) : await startRedLines(caseId, auth.username);
     if ("error" in s) return NextResponse.json({ error: s.error }, { status: s.status });
     waitUntil(s.run());
     return NextResponse.json({ ok: true, runId: s.runId }, { status: 202 });

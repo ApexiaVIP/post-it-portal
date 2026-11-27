@@ -25,14 +25,15 @@ import { currentRedLines, withRedLines } from "@/lib/qa/red-lines";
 import { currentStatements, withStatementGaps, type CheckStatement } from "@/lib/qa/notes-check";
 import { EvidenceLinks, Summary } from "@/components/qa-summary";
 import { AdvicePanel, type CaseAdvice } from "@/components/qa-advice-panel";
+import { Call1Panel } from "@/components/qa-call1-panel";
 import type {
   Gate1Result, Gate2Result, ConsistencyResult, EvidenceItem, ExceptionItem, LetterResult,
 } from "@/lib/qa/schemas";
 
 interface Run {
   id: number;
-  /** 1: the calls, 2: the suitability report, 3: the draft suitability report, 4: the seller's advice check against the calls. */
-  gate: 1 | 2 | 3 | 4 | 5;
+  /** 1: the calls, 2: the suitability report, 3: the draft suitability report, 4: the seller's advice check against the calls, 5: the red lines, 6: the call 1 check. */
+  gate: 1 | 2 | 3 | 4 | 5 | 6;
   status: "running" | "done" | "failed";
   model: string | null;
   result: unknown;
@@ -154,6 +155,7 @@ export default function CallQaCasePage() {
   const gate3 = data?.runs.find((r) => r.gate === 3) ?? null;
   const gate4 = data?.runs.find((r) => r.gate === 4) ?? null;
   const gate5 = data?.runs.find((r) => r.gate === 5) ?? null;
+  const gate6 = data?.runs.find((r) => r.gate === 6) ?? null;
 
   const review: ReviewApi = useMemo(() => {
     const map = new Map((data?.reviews ?? []).map((r) => [`${r.run_id}|${r.item_key}`, r]));
@@ -232,6 +234,11 @@ export default function CallQaCasePage() {
           <Link href="/reci/recordings" className="underline">listening pool</Link>.
         </p>
       </section>
+
+      {c.case_type === "two_call" && (
+        <Call1Panel caseId={caseId} run={gate6} onJump={jump} onStarted={load}
+          disabledReason={readyCalls.some((k) => k.call_type === "fact_find") ? null : "Transcribe the fact find call first, with its call type set to Fact Find call."} />
+      )}
 
       <section className="no-print mt-6">
         <h2 className="text-lg font-bold">Suitability report (for Gate 2)</h2>

@@ -11,6 +11,7 @@ import { sql } from "@vercel/postgres";
 import { ukStatus } from "@/lib/qa/uk";
 import { advanceTranscriptions } from "@/lib/qa/calls";
 import { autoCheckNext } from "@/lib/qa/autocheck";
+import { autoCall1Next } from "@/lib/qa/call1-run";
 import { autoDraftNext } from "@/lib/qa/letter-run";
 import { autoStatementsNext } from "@/lib/qa/notes-run";
 import { autoRedLinesNext } from "@/lib/qa/red-lines-run";
@@ -34,7 +35,9 @@ export async function GET(req: Request) {
   const hourly = new Date().getUTCMinutes() < 5;
   if (!hourly && !(await isQaBusy())) return NextResponse.json({ ok: true, idle: true });
   await advanceTranscriptions();
-  const checked = await autoCheckNext();
+  // A two-call sale with only its fact find call in gets the call 1 check
+  // instead (27 Nov 2026).
+  const checked = (await autoCheckNext()) ?? (await autoCall1Next());
   // The red lines, then the draft suitability report, follow on the next runs
   // after a check, so one run never has to fit them all inside the time limit.
   const red = checked ? null : await autoRedLinesNext();

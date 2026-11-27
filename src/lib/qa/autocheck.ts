@@ -44,7 +44,9 @@ export async function casesReadyForAutoCheck(limit: number) {
     WITH latest AS (
       SELECT case_id, MAX(updated_at) AS at,
              COUNT(*) FILTER (WHERE status = 'transcribing') AS pending,
-             COUNT(*) FILTER (WHERE status = 'ready') AS ready
+             COUNT(*) FILTER (WHERE status = 'ready') AS ready,
+             COUNT(*) FILTER (WHERE status = 'ready' AND call_type = 'fact_find') AS ff,
+             COUNT(*) FILTER (WHERE status = 'ready' AND call_type IN ('advice', 'one_call')) AS adv
         FROM qa_calls WHERE deleted_at IS NULL GROUP BY case_id
     ), last_run AS (
       SELECT DISTINCT ON (case_id) case_id, status, started_at, started_by, error
@@ -54,6 +56,9 @@ export async function casesReadyForAutoCheck(limit: number) {
       FROM qa_cases c JOIN latest l ON l.case_id = c.id LEFT JOIN last_run lr ON lr.case_id = c.id
      WHERE c.deleted_at IS NULL AND c.deal_id IS NOT NULL
        AND l.pending = 0 AND l.ready > 0
+       -- A two-call sale with only its fact find call in gets the call 1
+       -- check (call1-run.ts, 27 Nov 2026); the full check waits for call 2.
+       AND NOT (c.case_type = 'two_call' AND l.ff > 0 AND l.adv = 0)
        AND (lr.case_id IS NULL
          OR (lr.started_at < l.at AND NOT (lr.status = 'running' AND lr.started_at > now() - interval '15 minutes'))
          OR (lr.status = 'failed' AND lr.error ~* 'not available for this account|tokens per day'
