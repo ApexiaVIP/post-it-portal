@@ -62,7 +62,8 @@ export function Call1Panel({ caseId, run, disabledReason, onJump, onStarted }: {
       </div>
       <p className="mt-1 text-xs text-slate-600">
         The fact find call on its own, against the online Fact Find, the SAF and Openwork&apos;s observation form, so anything
-        missed can be put right on the advice call. It runs by itself once the fact find call is transcribed, and emails Poz the points.
+        missed can be put right on the advice call. It runs by itself once the fact find call is transcribed and the
+        seller&apos;s advice check is linked (or after an hour without one), and emails Poz the points.
       </p>
       {disabledReason && !run && <p className="mt-1 text-xs text-slate-500">{disabledReason}</p>}
       {run && (
@@ -97,7 +98,7 @@ export function Call1Panel({ caseId, run, disabledReason, onJump, onStarted }: {
           <div>
             <h3 className="font-bold">Online Fact Find against the call</h3>
             {r?.fact_find === null ? (
-              <p className="mt-1 text-slate-600">No online Fact Find was linked to this sale when it ran. Link the seller&apos;s advice check below and run it again to compare.</p>
+              <p className="mt-1 text-slate-600">No online Fact Find was linked to this sale when it ran. Link the seller&apos;s advice check below and it runs again by itself with it.</p>
             ) : c.sheet_vs_call.length === 0 ? <p className="mt-1 text-slate-600">No differences found.</p> : (
               <ul className="mt-1 space-y-2">
                 {c.sheet_vs_call.map((d, i) => (

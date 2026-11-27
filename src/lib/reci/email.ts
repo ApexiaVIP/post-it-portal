@@ -1199,7 +1199,7 @@ export async function sendQaCall1Ready(i: {
       : ["Nothing to put right on call 2."]),
     "",
     r.fact_find === null
-      ? "No online Fact Find is linked to this sale, so the call wasn't compared with it. Link the seller's advice check on the case and run the call 1 check again to include it."
+      ? "No online Fact Find is linked to this sale, so the call wasn't compared with it. Link the seller's advice check on the case and the call 1 check runs again by itself with it."
       : diffs ? `${diffs} difference${diffs === 1 ? "" : "s"} between the online Fact Find and the call: see the case.` : "The online Fact Find matches the call.",
     "",
     `Open the case: ${base}/qa/${i.caseId}`,

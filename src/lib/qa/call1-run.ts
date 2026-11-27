@@ -66,9 +66,11 @@ export async function startCall1(caseId: number, startedBy: string): Promise<Cal
 /**
  * Two-call sales on the RECI whose fact find call is transcribed, whose
  * advice call isn't in, and whose call 1 hasn't been checked since the calls
- * last changed. A check turned away by AWS (switched off, daily allowance
- * used, busy) or stopped at the time limit is retried hourly; busy and
- * time-outs at most MAX_RETRIES times (exported for tests).
+ * last changed. It waits up to an hour for the seller's advice check to be
+ * linked, and runs once more if one is linked after it ran without. A check
+ * turned away by AWS (switched off, daily allowance used, busy) or stopped
+ * at the time limit is retried hourly; busy and time-outs at most
+ * MAX_RETRIES times (exported for tests).
  */
 export async function casesReadyForCall1(limit: number) {
   const r = await sql<{ id: number }>`
@@ -79,14 +81,22 @@ export async function casesReadyForCall1(limit: number) {
              COUNT(*) FILTER (WHERE status = 'ready' AND call_type IN ('advice', 'one_call')) AS adv
         FROM qa_calls WHERE deleted_at IS NULL GROUP BY case_id
     ), last_run AS (
-      SELECT DISTINCT ON (case_id) case_id, status, started_at, error
+      SELECT DISTINCT ON (case_id) case_id, status, started_at, error, result
         FROM qa_runs WHERE gate = 6 ORDER BY case_id, started_at DESC
     )
     SELECT c.id
       FROM qa_cases c JOIN latest l ON l.case_id = c.id LEFT JOIN last_run lr ON lr.case_id = c.id
      WHERE c.deleted_at IS NULL AND c.deal_id IS NOT NULL AND c.case_type = 'two_call'
        AND l.pending = 0 AND l.ff > 0 AND l.adv = 0
+       -- Wait up to an hour for Poz to link the seller's advice check, so the
+       -- call is compared with the online Fact Find.
+       AND (EXISTS (SELECT 1 FROM advice_checks k WHERE k.qa_case_id = c.id AND k.deleted_at IS NULL)
+            OR l.at < now() - interval '1 hour')
        AND (lr.case_id IS NULL
+         -- Ran without a Fact Find, and a check has been linked since: once more with it.
+         OR (lr.status = 'done' AND jsonb_typeof(lr.result -> 'fact_find') = 'null'
+             AND EXISTS (SELECT 1 FROM advice_checks k WHERE k.qa_case_id = c.id AND k.deleted_at IS NULL
+                            AND k.linked_at > lr.started_at))
          OR (lr.started_at < l.at AND NOT (lr.status = 'running' AND lr.started_at > now() - interval '15 minutes'))
          OR (lr.status = 'failed' AND lr.error ~* 'not available for this account|tokens per day'
              AND lr.started_at < now() - interval '1 hour')
