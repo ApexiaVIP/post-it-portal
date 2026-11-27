@@ -142,7 +142,7 @@ export function ConcertHubPage({ hub, copied, copy }: { hub: HubPage; copied: st
 
       <Screen tab="Needs Validation" where="Reason Not Addressed">
         {left.length === 0 ? <p>Nothing to choose: every need you identified is met.</p> : left.map((n, i) => (
-          <Row key={i} label={`${clients.length > 1 ? `${n.client}: ` : ""}${HUB_NEED_LABEL[n.need]}`}><Pick pick={n.pick} why={n.why} unmatched="No option fits: ask Guy" /></Row>
+          <Row key={i} label={`${clients.length > 1 ? `${n.client}: ` : ""}${HUB_NEED_LABEL[n.need]}`}><Pick pick={n.pick} why={n.why} unmatched="No option fits: ask Guy, Tan or Poz" /></Row>
         ))}
         {left.some((n) => n.outcome === "COVERED") && <p className="mt-1 text-xs text-slate-600">Where a need is already covered, Concert Hub asks for the evidence.</p>}
       </Screen>
