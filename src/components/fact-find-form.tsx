@@ -75,8 +75,9 @@ function Lines({ b, data, set }: { b: Extract<Block, { type: "rows" }>; data: Da
   const change = (n: number, col: string, v: unknown) => set(b.key, rows.map((r, i) => (i === n ? { ...r, [col]: v } : r)));
   const due = !!b.must?.(data);
   return (
-    <div id={b.key} className={`scroll-mt-28 rounded border p-2 ${due ? "border-amber-500 bg-amber-50" : "border-slate-200"}`}>
+    <div id={b.fixed ? `${b.key}.fixed` : b.key} className={`scroll-mt-28 rounded border p-2 ${due ? "border-amber-500 bg-amber-50" : "border-slate-200"}`}>
       <p className="text-sm font-semibold">{b.title}</p>
+      {b.fixed && rows.length === 0 && <p className="mt-1 text-xs text-slate-500">None entered above.</p>}
       <div className="mt-2 space-y-2">
         {rows.map((r, n) => (
           <div key={n} className="rounded border border-slate-200 bg-white p-2">
@@ -88,11 +89,11 @@ function Lines({ b, data, set }: { b: Extract<Block, { type: "rows" }>; data: Da
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => set(b.key, rows.filter((_, i) => i !== n))} className="mt-1 text-xs text-red-700 underline">Remove</button>
+            {!b.fixed && <button type="button" onClick={() => set(b.key, rows.filter((_, i) => i !== n))} className="mt-1 text-xs text-red-700 underline">Remove</button>}
           </div>
         ))}
       </div>
-      <button type="button" onClick={() => set(b.key, [...rows, {}])} className="mt-2 rounded border border-teal-700 px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-50">{b.add}</button>
+      {!b.fixed && <button type="button" onClick={() => set(b.key, [...rows, {}])} className="mt-2 rounded border border-teal-700 px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-50">{b.add}</button>}
     </div>
   );
 }
@@ -100,7 +101,10 @@ function Lines({ b, data, set }: { b: Extract<Block, { type: "rows" }>; data: Da
 const TYPES = ["Life", "WOL", "CIC", "FIB", "IP", "Accident"];
 const BASIS = ["Indexed", "Decreasing", "Level"];
 
-function Terms({ t, label, joint, flag, onChange }: { t: PolicyTerms; label: string; joint: boolean; flag: boolean; onChange: (t: PolicyTerms) => void }) {
+const TRUST_OPTIONS = ["Yes", "No, client declined", "To be covered on the advice call", "Doesn't apply"];
+
+/** The paper sheet's boxes for one plan, in its order. Trust is with the boxes the paper has no room for. */
+function Terms({ t, label, flag, onChange }: { t: PolicyTerms; label: string; flag: boolean; onChange: (t: PolicyTerms) => void }) {
   const put = (k: string, v: unknown) => onChange({ ...t, [k]: v });
   const due = (v: unknown) => flag && blank(v);
   const f = (lab: string, input: Field["input"]): Pick<Field, "label" | "input"> => ({ label: lab, input });
@@ -115,9 +119,6 @@ function Terms({ t, label, joint, flag, onChange }: { t: PolicyTerms; label: str
         <div className={cell}><p className="text-xs text-slate-600">Sum assured (or monthly benefit)</p><Control id="sum" field={f("Sum assured", { kind: "money" })} value={t.sum} due={due(t.sum)} onChange={put} /></div>
         <div className={cell}><p className="text-xs text-slate-600">Premium</p><Control id="premium" field={f("Premium", { kind: "money", per: "month" })} value={t.premium} due={due(t.premium)} onChange={put} /></div>
         <div className={cell}><p className="text-xs text-slate-600">Extras?</p><Control id="extras" field={f("Extras", { kind: "text", hint: "None, or which" })} value={t.extras} due={false} onChange={put} /></div>
-        {!joint && (
-          <div className={cell}><p className="text-xs text-slate-600">In trust? (single life plans)</p><Control id="trust" field={f("In trust", { kind: "one", options: ["Yes", "No, client declined", "To be covered on the advice call", "Doesn't apply"] })} value={t.trust} due={due(t.trust)} onChange={put} /></div>
-        )}
       </div>
     </div>
   );
@@ -152,8 +153,8 @@ function Policies({ data, set, flag }: { data: Data; set: Set; flag: boolean }) 
               ))}
             </div>
             <div className={`mt-3 grid grid-cols-1 gap-3 ${p.who === "both" ? "lg:grid-cols-2" : ""}`}>
-              <Terms t={p.l1 ?? {}} label={p.who === "both" ? lifeName(data, 1) : ""} joint={p.who === "joint"} flag={flag} onChange={(t) => put(n, { ...p, l1: t })} />
-              {p.who === "both" && <Terms t={p.l2 ?? {}} label={lifeName(data, 2)} joint={false} flag={flag} onChange={(t) => put(n, { ...p, l2: t })} />}
+              <Terms t={p.l1 ?? {}} label={p.who === "both" ? lifeName(data, 1) : ""} flag={flag} onChange={(t) => put(n, { ...p, l1: t })} />
+              {p.who === "both" && <Terms t={p.l2 ?? {}} label={lifeName(data, 2)} flag={flag} onChange={(t) => put(n, { ...p, l2: t })} />}
             </div>
             <div className="mt-3 space-y-3">
               {why("why_need", "Why the need & evidence of dependency (what the money is for, who relies on it and until when; evidence: health, income etc)", true)}
@@ -165,6 +166,17 @@ function Policies({ data, set, flag }: { data: Data; set: Set; flag: boolean }) 
                 <Control id="premiums" field={{ label: "Premiums", input: { kind: "one", options: ["Guaranteed", "Reviewable"] } }} value={p.premiums} due={false} onChange={(_, v) => put(n, { ...p, premiums: v as string })} />
               </div>
               {p.premiums === "Reviewable" && why("why_reviewable", "If reviewable, why?", false)}
+              <p className="border-t border-slate-200 pt-3 text-xs font-bold uppercase tracking-wide text-slate-500">Not on the paper sheet: for Concert Hub</p>
+              {p.who !== "joint" && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {([["l1", 1], ...(p.who === "both" ? [["l2", 2]] : [])] as ["l1" | "l2", 1 | 2][]).map(([k, life]) => (
+                    <div key={k}>
+                      <p className="text-xs font-semibold text-slate-700">In trust?{p.who === "both" ? ` ${lifeName(data, life)}` : ""} (single life plans)</p>
+                      <Control id={`trust.${k}`} field={{ label: "In trust", input: { kind: "one", options: TRUST_OPTIONS } }} value={p[k]?.trust} due={due(p[k]?.trust)} onChange={(_, v) => put(n, { ...p, [k]: { ...(p[k] ?? {}), trust: v as string } })} />
+                    </div>
+                  ))}
+                </div>
+              )}
               {why("trust_note", "Trust: anything to note (joint life considered, who it would go to, why declined)", false)}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>

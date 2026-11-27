@@ -31,8 +31,11 @@ export type Block =
   /** Life 1 and Life 2 side by side. Stored as "<key>.1" and "<key>.2". */
   | { type: "lives"; rows: Field[] }
   | { type: "fields"; rows: Field[] }
-  /** A table the seller adds lines to. */
-  | { type: "rows"; key: string; title: string; columns: Field[]; add: string; must?: (d: Data) => string | null }
+  /**
+   * A table the seller adds lines to. fixed: the lines of a table entered
+   * earlier, shown again to fill in more columns, with no adding or removing.
+   */
+  | { type: "rows"; key: string; title: string; columns: Field[]; add: string; must?: (d: Data) => string | null; fixed?: boolean }
   /** A table with fixed lines. Stored as "<key>.<row>.<column>". */
   | { type: "grid"; key: string; title: string; rows: { key: string; label: string }[]; columns: Field[]; must?: (d: Data, row: string) => boolean; mustLabel?: string }
   | { type: "total"; key: string; label: string; of: (d: Data) => number | null; note?: string }
@@ -45,7 +48,7 @@ export interface Section {
 }
 
 export interface Sheet {
-  /** The sheet's issue date. */
+  /** The sheet's issue date, or the date its online layout last changed. */
   version: string;
   title: string;
   sections: Section[];
