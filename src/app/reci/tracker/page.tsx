@@ -36,6 +36,10 @@ interface BizWeekRow {
   not_yet_submitted_n: number;
   cancelled_n: number;
   total_n: number;
+  /** Sales not cancelled, by Poz's sign-off on their Call QA report (26 Nov 2026). */
+  files_checked: number;
+  files_failed: number;
+  files_unchecked: number;
 }
 interface BizAdviserRollup {
   adviser_id: number;
@@ -364,6 +368,9 @@ function PivotedView({ data, quarterFilter, weekRange }: {
     not_yet_submitted_n: a.not_yet_submitted_n + b.not_yet_submitted_n,
     cancelled_n:         a.cancelled_n + b.cancelled_n,
     total_n:             a.total_n + b.total_n,
+    files_checked:       a.files_checked + b.files_checked,
+    files_failed:        a.files_failed + b.files_failed,
+    files_unchecked:     a.files_unchecked + b.files_unchecked,
   });
 
   // Build the per-week sections. When a quarter multi-select is active
@@ -536,7 +543,8 @@ function QuarterBlock({ q, sections, advisers, sumRows }: {
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Cancelled</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
-              <th className="border-b border-slate-200 px-2 py-1 text-right">Total</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Total</th>
+              <th className="border-b border-slate-200 px-2 py-1 text-right" title="Poz's sign-off on each sale's Call QA report">Files</th>
             </tr>
           </thead>
           <tbody>
@@ -577,7 +585,8 @@ function AdviserTotalsBlock({ advisers, weeksWithData }: {
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Cancelled</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
-              <th className="border-b border-slate-200 px-2 py-1 text-right">Total</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Total</th>
+              <th className="border-b border-slate-200 px-2 py-1 text-right" title="Poz's sign-off on each sale's Call QA report">Files</th>
             </tr>
           </thead>
           <tbody>
@@ -620,7 +629,8 @@ function WeekBlock({ week, rows, weekTotal }: {
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Cancelled</th>
               <th className="border-b border-r border-slate-200 px-2 py-1 text-right">%</th>
-              <th className="border-b border-slate-200 px-2 py-1 text-right">Total</th>
+              <th className="border-b border-r border-slate-200 px-2 py-1 text-right">Total</th>
+              <th className="border-b border-slate-200 px-2 py-1 text-right" title="Poz's sign-off on each sale's Call QA report">Files</th>
             </tr>
           </thead>
           <tbody>
@@ -650,6 +660,7 @@ function ColGroup() {
       <col style={{ width: "6.5rem" }} />     {/* Cancelled £ */}
       <col style={{ width: "3rem"   }} />     {/* Cancelled % */}
       <col />                                  {/* Total £ — flex */}
+      <col style={{ width: "6.5rem" }} />     {/* Files: Call QA sign-off */}
     </colgroup>
   );
 }
@@ -658,6 +669,7 @@ function emptyRow(week: number): BizWeekRow {
   return {
     week, paid: 0, on_risk_nyp: 0, in_processing: 0, not_yet_submitted: 0, cancelled: 0, total: 0,
     paid_n: 0, on_risk_nyp_n: 0, in_processing_n: 0, not_yet_submitted_n: 0, cancelled_n: 0, total_n: 0,
+    files_checked: 0, files_failed: 0, files_unchecked: 0,
   };
 }
 
@@ -672,6 +684,7 @@ function averageOf(row: BizWeekRow, div: number): BizWeekRow {
     paid_n: row.paid_n / d, on_risk_nyp_n: row.on_risk_nyp_n / d,
     in_processing_n: row.in_processing_n / d, not_yet_submitted_n: row.not_yet_submitted_n / d,
     cancelled_n: row.cancelled_n / d, total_n: row.total_n / d,
+    files_checked: row.files_checked / d, files_failed: row.files_failed / d, files_unchecked: row.files_unchecked / d,
   };
 }
 
@@ -737,12 +750,22 @@ function Row({ row, label, kind }: {
           </td>
         </Fragment>
       ))}
-      <td className={`border-b ${cellBorder} px-2 py-1 text-right tabular-nums ${kind === "adviser" ? "font-medium" : ""}`}>
+      <td className={`border-b border-r ${cellBorder} px-2 py-1 text-right tabular-nums ${kind === "adviser" ? "font-medium" : ""}`}>
         <div>{gbp(row.total)}</div>
         {(row.total_n > 0 || isAvg) && (
           <div className={`text-[10px] leading-tight font-normal ${countClass}`}>
             {fmtCount(row.total_n, isAvg)} {Math.round(row.total_n) === 1 && !isAvg ? "deal" : "deals"}
           </div>
+        )}
+      </td>
+      {/* File checks (Guy, 26 Nov 2026): Poz's sign-off on each sale's Call QA report. */}
+      <td className={`border-b ${cellBorder} px-2 py-1 text-right text-[10px] font-normal leading-tight tabular-nums`}>
+        {!isAvg && row.files_checked + row.files_failed + row.files_unchecked > 0 && (
+          <>
+            <div className="text-emerald-600">{row.files_checked} checked</div>
+            <div className={row.files_failed > 0 ? "font-semibold text-red-500" : "text-slate-400"}>{row.files_failed} failed</div>
+            <div className="text-slate-400">{row.files_unchecked} not checked</div>
+          </>
         )}
       </td>
     </tr>

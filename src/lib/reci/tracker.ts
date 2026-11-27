@@ -327,6 +327,12 @@ export interface BizWeekRow {
   not_yet_submitted_n: number;
   cancelled_n: number;
   total_n: number;
+  // File checks (Guy, 26 Nov 2026): each sale not cancelled, by Poz's sign-off
+  // on its Call QA report. Checked = approved (with or without actions),
+  // failed = returned to the adviser, not checked = no sign-off yet.
+  files_checked: number;
+  files_failed: number;
+  files_unchecked: number;
 }
 
 export interface BizAdviserRollup {
@@ -351,7 +357,31 @@ function emptyBizRow(week: number): BizWeekRow {
     not_yet_submitted: 0, cancelled: 0, total: 0,
     paid_n: 0, on_risk_nyp_n: 0, in_processing_n: 0,
     not_yet_submitted_n: 0, cancelled_n: 0, total_n: 0,
+    files_checked: 0, files_failed: 0, files_unchecked: 0,
   };
+}
+
+export type FileCheck = "checked" | "failed";
+
+/** Each sale's file check: Poz's sign-off on its Call QA report (latest signed-off case per sale). */
+async function fetchFileChecks(): Promise<Map<number, FileCheck>> {
+  const { rows } = await sql<{ deal_id: number; outcome: string | null }>`
+    SELECT DISTINCT ON (deal_id) deal_id, outcome FROM qa_cases
+     WHERE deal_id IS NOT NULL AND deleted_at IS NULL
+     ORDER BY deal_id, (outcome IS NOT NULL) DESC, outcome_at DESC NULLS LAST, created_at DESC`;
+  const out = new Map<number, FileCheck>();
+  for (const r of rows) {
+    if (r.outcome === "approved" || r.outcome === "approved_with_actions") out.set(r.deal_id, "checked");
+    else if (r.outcome === "returned") out.set(r.deal_id, "failed");
+  }
+  return out;
+}
+
+function addFileCheck(row: BizWeekRow, status: DealStatus, check: FileCheck | undefined): void {
+  if (status === "cancelled" || status === "clawback") return;
+  if (check === "checked") row.files_checked += 1;
+  else if (check === "failed") row.files_failed += 1;
+  else row.files_unchecked += 1;
 }
 
 function addToBiz(row: BizWeekRow, status: DealStatus, c: number, n: number): void {
@@ -370,9 +400,10 @@ export async function businessTrackerByAdviser(
   scope: Scope,
   filterAdviserIds?: number[] | null,
 ): Promise<BusinessTrackerByAdviserResult> {
-  const [allDeals, advisers] = await Promise.all([
+  const [allDeals, advisers, fileChecks] = await Promise.all([
     fetchYearDeals(year),
     fetchActiveAdvisers(),
+    fetchFileChecks(),
   ]);
 
   // Map<week, void>: which weeks the scope wants.
@@ -414,6 +445,7 @@ export async function businessTrackerByAdviser(
     const c = Number(d.commission ?? 0) || 0;
     const n = Number(d.no_of_deals ?? 0) || 0;
     addToBiz(row, d.status, c, n);
+    addFileCheck(row, d.status, fileChecks.get(d.id));
   }
 
   // Build the result ordered by adviser sort_order.
@@ -443,6 +475,9 @@ export async function businessTrackerByAdviser(
         not_yet_submitted_n: acc.not_yet_submitted_n + r.not_yet_submitted_n,
         cancelled_n:         acc.cancelled_n + r.cancelled_n,
         total_n:             acc.total_n + r.total_n,
+        files_checked:       acc.files_checked + r.files_checked,
+        files_failed:        acc.files_failed + r.files_failed,
+        files_unchecked:     acc.files_unchecked + r.files_unchecked,
       }),
       emptyBizRow(0),
     );
